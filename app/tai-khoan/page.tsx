@@ -96,7 +96,7 @@ function ReferralSection() {
       ) : (
         <div className="space-y-2">
           <div className="flex gap-2">
-            <input readOnly value={referralLink} className="flex-1 px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono text-slate-600 select-all" />
+            <input readOnly value={referralLink} aria-label="Link giới thiệu" className="flex-1 px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono text-slate-600 select-all" />
             <button onClick={copyLink} className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${copied ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
               {copied ? "✓ Đã copy" : "📋 Copy"}
             </button>

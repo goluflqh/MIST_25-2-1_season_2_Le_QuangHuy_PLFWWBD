@@ -15,8 +15,20 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Minh Hồng - Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
-  description: "Trung tâm phục hồi, đóng ráp bình ắc quy Lithium cao cấp và thiết bị công cụ. Lắp đặt thi công camera an ninh uy tín.",
+  title: {
+    default: "Minh Hồng - Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
+    template: "%s | Minh Hồng",
+  },
+  description: "Trung tâm phục hồi, đóng ráp bình ắc quy Lithium cao cấp và thiết bị công cụ. Lắp đặt thi công camera an ninh uy tín tại TPHCM.",
+  keywords: ["đóng pin lithium", "lắp camera", "đèn năng lượng mặt trời", "pin lưu trữ", "Minh Hồng", "điện máy"],
+  openGraph: {
+    title: "Minh Hồng - Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
+    description: "Trung tâm phục hồi, đóng ráp bình ắc quy Lithium cao cấp. Lắp đặt camera an ninh uy tín.",
+    type: "website",
+    locale: "vi_VN",
+    siteName: "Minh Hồng",
+  },
+  robots: { index: true, follow: true },
 };
 
 import Header from "@/components/layout/Header";
