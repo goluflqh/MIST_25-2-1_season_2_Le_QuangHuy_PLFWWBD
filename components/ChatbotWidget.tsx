@@ -244,9 +244,9 @@ export default function ChatbotWidget() {
               <div className="flex justify-start">
                 <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
                   <div className="flex gap-1.5">
-                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
-                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
-                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce"></span>
+                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce animation-delay-150"></span>
+                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce animation-delay-300"></span>
                   </div>
                 </div>
               </div>
