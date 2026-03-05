@@ -1,0 +1,31 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
+export async function getSessionUser(request: NextRequest) {
+  const token = request.cookies.get("session_token")?.value;
+  if (!token) return null;
+
+  const session = await prisma.session.findUnique({
+    where: { token },
+    include: { user: true },
+  });
+
+  if (!session || session.expiresAt < new Date()) {
+    return null;
+  }
+
+  return session.user;
+}
+
+export function requireAuth(handler: (req: NextRequest, user: { id: string; name: string; role: string }) => Promise<NextResponse>) {
+  return async (request: NextRequest) => {
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "Vui lòng đăng nhập." },
+        { status: 401 }
+      );
+    }
+    return handler(request, user);
+  };
+}

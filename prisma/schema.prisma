@@ -1,0 +1,114 @@
+// Prisma Schema for Minh Hồng Fullstack
+// Run: npx prisma generate && npx prisma db push) 
+// SQLite for local dev, switch to PostgreSQL for production
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  phone         String   @unique
+  password      String
+  role          String   @default("CUSTOMER")
+  loyaltyPoints Int      @default(0)
+  referralCode  String?  @unique
+  referredBy    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions        Session[]
+  contactRequests ContactRequest[]
+  reviews         Review[]
+  coupons         Coupon[]
+  warranties      Warranty[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ContactRequest {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String
+  service   String   @default("KHAC")
+  message   String?
+  status    String   @default("PENDING")
+  notes     String?
+  userId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  rating    Int
+  comment   String
+  service   String   @default("KHAC")
+  approved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PricingItem {
+  id          String  @id @default(cuid())
+  category    String  // PIN | NLMT | LUU_TRU | CAMERA
+  name        String
+  price       String
+  unit        String  @default("VNĐ")
+  description String?
+  note        String?
+  sortOrder   Int     @default(0)
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Coupon {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  description   String
+  discount      String   // "10%" or "50000"
+  pointsCost    Int      @default(0)
+  usageLimit    Int      @default(1)
+  usedCount     Int      @default(0)
+  active        Boolean  @default(true)
+  expiresAt     DateTime?
+  userId        String?
+  createdAt     DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model Warranty {
+  id          String   @id @default(cuid())
+  serialNo    String   @unique
+  productName String
+  customerName String
+  customerPhone String
+  service     String   @default("KHAC")
+  startDate   DateTime @default(now())
+  endDate     DateTime
+  notes       String?
+  createdAt   DateTime @default(now())
+  userId      String?
+
+  user User? @relation(fields: [userId], references: [id])
+}
