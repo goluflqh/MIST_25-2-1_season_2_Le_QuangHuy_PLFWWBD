@@ -16,12 +16,25 @@ export async function POST(request: Request) {
     const validServices = ["DONG_PIN", "DEN_NLMT", "PIN_LUU_TRU", "CAMERA", "CUSTOM", "KHAC"];
     const serviceType = validServices.includes(service) ? service : "KHAC";
 
+    // Auto-link to logged-in user if available
+    let userId: string | undefined;
+    try {
+      const { cookies } = await import("next/headers");
+      const cookieStore = await cookies();
+      const token = cookieStore.get("session_token")?.value;
+      if (token) {
+        const session = await prisma.session.findUnique({ where: { token }, select: { userId: true } });
+        if (session) userId = session.userId;
+      }
+    } catch { /* ignore — guest user */ }
+
     const contactRequest = await prisma.contactRequest.create({
       data: {
         name,
         phone,
         service: serviceType,
         message: message || null,
+        userId: userId || null,
       },
     });
 

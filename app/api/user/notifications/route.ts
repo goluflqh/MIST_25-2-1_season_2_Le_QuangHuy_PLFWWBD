@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 
-// GET /api/user/notifications?lastSeen=ISO_DATE — Count of new notifications since lastSeen
+// GET /api/user/notifications?lastSeen=ISO — new notifications since lastSeen
 export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
@@ -12,32 +12,31 @@ export async function GET(request: Request) {
     const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
     if (!session) return NextResponse.json({ success: false }, { status: 401 });
 
-    const userId = session.user.id;
-    const role = session.user.role;
-
+    const user = session.user;
     const url = new URL(request.url);
     const lastSeen = url.searchParams.get("lastSeen");
-    const lastSeenDate = lastSeen ? new Date(lastSeen) : new Date(0); // epoch = show all
+    const lastSeenDate = lastSeen ? new Date(lastSeen) : new Date(0);
 
-    if (role === "ADMIN") {
-      // Admin: count pending contacts + pending reviews (created after lastSeen)
+    if (user.role === "ADMIN") {
       const [pendingContacts, pendingReviews] = await Promise.all([
         prisma.contactRequest.count({ where: { status: "PENDING", createdAt: { gt: lastSeenDate } } }),
         prisma.review.count({ where: { approved: false, createdAt: { gt: lastSeenDate } } }),
       ]);
-      return NextResponse.json({ success: true, total: pendingContacts + pendingReviews, role });
+      return NextResponse.json({ success: true, total: pendingContacts + pendingReviews, role: user.role });
     } else {
-      // User: count own requests with status changes (not PENDING = admin acted on them)
-      // Only count requests that were created before lastSeen but status changed,
-      // OR any request with non-PENDING status created after registration
+      // User: count requests where admin changed status
+      // Match by userId OR phone number (backwards compat for old records with NULL userId)
       const updatedRequests = await prisma.contactRequest.count({
         where: {
-          userId,
+          OR: [
+            { userId: user.id },
+            { phone: user.phone },
+          ],
           status: { not: "PENDING" },
-          createdAt: { gt: lastSeenDate },
+          updatedAt: { gt: lastSeenDate },
         },
       });
-      return NextResponse.json({ success: true, total: updatedRequests, role });
+      return NextResponse.json({ success: true, total: updatedRequests, role: user.role });
     }
   } catch (error) {
     console.error("User notifications error:", error);
