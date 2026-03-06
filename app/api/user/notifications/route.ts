@@ -12,29 +12,31 @@ export async function GET(request: Request) {
     const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
     if (!session) return NextResponse.json({ success: false }, { status: 401 });
 
-    const userId = session.user.id;
-    const role = session.user.role;
-
+    const user = session.user;
     const url = new URL(request.url);
     const lastSeen = url.searchParams.get("lastSeen");
     const lastSeenDate = lastSeen ? new Date(lastSeen) : new Date(0);
 
-    if (role === "ADMIN") {
+    if (user.role === "ADMIN") {
       const [pendingContacts, pendingReviews] = await Promise.all([
         prisma.contactRequest.count({ where: { status: "PENDING", createdAt: { gt: lastSeenDate } } }),
         prisma.review.count({ where: { approved: false, createdAt: { gt: lastSeenDate } } }),
       ]);
-      return NextResponse.json({ success: true, total: pendingContacts + pendingReviews, role });
+      return NextResponse.json({ success: true, total: pendingContacts + pendingReviews, role: user.role });
     } else {
-      // User: count requests where admin changed status (updatedAt > lastSeen)
+      // User: count requests where admin changed status
+      // Match by userId OR phone number (backwards compat for old records with NULL userId)
       const updatedRequests = await prisma.contactRequest.count({
         where: {
-          userId,
+          OR: [
+            { userId: user.id },
+            { phone: user.phone },
+          ],
           status: { not: "PENDING" },
           updatedAt: { gt: lastSeenDate },
         },
       });
-      return NextResponse.json({ success: true, total: updatedRequests, role });
+      return NextResponse.json({ success: true, total: updatedRequests, role: user.role });
     }
   } catch (error) {
     console.error("User notifications error:", error);
