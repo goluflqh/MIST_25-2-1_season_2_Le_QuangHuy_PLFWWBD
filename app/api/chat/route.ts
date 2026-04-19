@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import { checkRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { sanitizeText } from "@/lib/sanitize";
 
+type AIProvider = "gemini" | "openai" | "9router";
+
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const DEFAULT_9ROUTER_BASE_URL = "http://127.0.0.1:20128/v1";
+const DEFAULT_9ROUTER_MODEL = "cx/gpt-5.2";
+
 const SYSTEM_PROMPT = `Bạn là trợ lý AI tư vấn cho cửa hàng "Minh Hồng" - chuyên đóng pin và lắp đặt camera an ninh.
 
 === THÔNG TIN CỬA HÀNG ===
@@ -40,6 +47,59 @@ const SYSTEM_PROMPT = `Bạn là trợ lý AI tư vấn cho cửa hàng "Minh H�
 6. Minh Hồng CÓ làm đèn năng lượng mặt trời (đóng pin cho đèn NLMT)
 7. Hãy tự tin giới thiệu tất cả dịch vụ trên khi được hỏi`;
 
+function normalizeProvider(provider: string | undefined): AIProvider {
+  const value = provider?.trim().toLowerCase();
+  if (value === "openai") return "openai";
+  if (value === "9router") return "9router";
+  return "gemini";
+}
+
+function removeTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function getAIConfig() {
+  const provider = normalizeProvider(process.env.AI_PROVIDER);
+
+  if (provider === "9router") {
+    return {
+      provider,
+      apiKey: process.env.NINE_ROUTER_API_KEY || process.env.AI_API_KEY,
+      baseUrl: removeTrailingSlash(
+        process.env.NINE_ROUTER_BASE_URL || process.env.AI_BASE_URL || DEFAULT_9ROUTER_BASE_URL
+      ),
+      model: process.env.NINE_ROUTER_MODEL || process.env.AI_MODEL || DEFAULT_9ROUTER_MODEL,
+    };
+  }
+
+  if (provider === "openai") {
+    return {
+      provider,
+      apiKey: process.env.OPENAI_API_KEY || process.env.AI_API_KEY,
+      baseUrl: removeTrailingSlash(
+        process.env.OPENAI_BASE_URL || process.env.AI_BASE_URL || DEFAULT_OPENAI_BASE_URL
+      ),
+      model: process.env.OPENAI_MODEL || process.env.AI_MODEL || DEFAULT_OPENAI_MODEL,
+    };
+  }
+
+  return {
+    provider,
+    apiKey: process.env.GEMINI_API_KEY || process.env.AI_API_KEY,
+    baseUrl: "",
+    model: "",
+  };
+}
+
+function isMissingAIKey(apiKey: string | undefined): boolean {
+  return (
+    !apiKey ||
+    apiKey === "your-ai-api-key-here" ||
+    apiKey === "your-openai-api-key-here" ||
+    apiKey === "your-9router-api-key-here"
+  );
+}
+
 export async function POST(request: Request) {
   try {
     // Rate limit: 15 requests per minute per IP
@@ -63,11 +123,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const aiApiKey = process.env.AI_API_KEY;
-    const aiProvider = process.env.AI_PROVIDER || "gemini";
+    const aiConfig = getAIConfig();
 
     // If no API key configured, return a helpful fallback
-    if (!aiApiKey || aiApiKey === "your-ai-api-key-here") {
+    if (isMissingAIKey(aiConfig.apiKey)) {
       return NextResponse.json({
         success: true,
         reply: `Cảm ơn bạn đã quan tâm! Hiện tại hệ thống AI đang cập nhật. Để được tư vấn ngay, vui lòng gọi hotline 0987.443.258 hoặc nhắn tin qua Zalo nhé! 😊`,
@@ -76,10 +135,24 @@ export async function POST(request: Request) {
 
     let reply = "";
 
-    if (aiProvider === "gemini") {
-      reply = await callGemini(aiApiKey, message, history);
+    if (aiConfig.provider === "gemini") {
+      reply = await callGemini(aiConfig.apiKey!, message, history);
+    } else if (aiConfig.provider === "openai") {
+      reply = await callOpenAI(
+        aiConfig.apiKey!,
+        aiConfig.model,
+        aiConfig.baseUrl,
+        message,
+        history
+      );
     } else {
-      reply = await callOpenAI(aiApiKey, message, history);
+      reply = await callNineRouter(
+        aiConfig.apiKey!,
+        aiConfig.model,
+        aiConfig.baseUrl,
+        message,
+        history
+      );
     }
 
     // Cache for 5 minutes, stale-while-revalidate for 10
@@ -177,7 +250,23 @@ async function callGeminiFallback(apiKey: string, userMessage: string): Promise<
   );
 }
 
-async function callOpenAI(apiKey: string, userMessage: string, history: { role: string; content: string }[] = []): Promise<string> {
+interface ChatCompletionOptions {
+  apiKey: string;
+  baseUrl: string;
+  history?: { role: string; content: string }[];
+  label: string;
+  model: string;
+  userMessage: string;
+}
+
+async function callOpenAICompatible({
+  apiKey,
+  baseUrl,
+  history = [],
+  label,
+  model,
+  userMessage,
+}: ChatCompletionOptions): Promise<string> {
   // Build messages with history
   const messages: { role: string; content: string }[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -189,14 +278,14 @@ async function callOpenAI(apiKey: string, userMessage: string, history: { role: 
     messages.push({ role: "user", content: userMessage });
   }
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model,
       messages,
       max_tokens: 800,
       temperature: 0.7,
@@ -206,12 +295,46 @@ async function callOpenAI(apiKey: string, userMessage: string, history: { role: 
   const data = await res.json();
 
   if (!res.ok) {
-    console.error("[OpenAI] API Error:", res.status, JSON.stringify(data));
-    throw new Error(`OpenAI error: ${res.status}`);
+    console.error(`[${label}] API Error:`, res.status, JSON.stringify(data));
+    throw new Error(`${label} error: ${res.status}`);
   }
 
   return (
     data?.choices?.[0]?.message?.content ||
     "Xin lỗi, mình chưa hiểu câu hỏi. Gọi 0987.443.258 để được tư vấn trực tiếp nhé!"
   );
+}
+
+async function callOpenAI(
+  apiKey: string,
+  model: string,
+  baseUrl: string,
+  userMessage: string,
+  history: { role: string; content: string }[] = []
+): Promise<string> {
+  return callOpenAICompatible({
+    apiKey,
+    baseUrl,
+    history,
+    label: "OpenAI",
+    model,
+    userMessage,
+  });
+}
+
+async function callNineRouter(
+  apiKey: string,
+  model: string,
+  baseUrl: string,
+  userMessage: string,
+  history: { role: string; content: string }[] = []
+): Promise<string> {
+  return callOpenAICompatible({
+    apiKey,
+    baseUrl,
+    history,
+    label: "9Router",
+    model,
+    userMessage,
+  });
 }
