@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 
-export async function getSessionUser(request: NextRequest) {
-  const token = request.cookies.get("session_token")?.value;
+async function getValidSessionByToken(token: string | undefined) {
   if (!token) return null;
 
   const session = await prisma.session.findUnique({
@@ -14,6 +14,21 @@ export async function getSessionUser(request: NextRequest) {
     return null;
   }
 
+  return session;
+}
+
+export async function getSessionUser(request: NextRequest) {
+  const token = request.cookies.get("session_token")?.value;
+  const session = await getValidSessionByToken(token);
+  if (!session) return null;
+  return session.user;
+}
+
+export async function getCurrentSessionUser() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("session_token")?.value;
+  const session = await getValidSessionByToken(token);
+  if (!session) return null;
   return session.user;
 }
 
