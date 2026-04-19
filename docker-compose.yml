@@ -1,0 +1,37 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minhhong-next
+    restart: unless-stopped
+    depends_on:
+      - nine-router
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL}
+      AUTH_SECRET: ${AUTH_SECRET}
+      AI_PROVIDER: ${AI_PROVIDER:-9router}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      NINE_ROUTER_BASE_URL: ${NINE_ROUTER_BASE_URL:-http://nine-router:20128/v1}
+      NINE_ROUTER_MODEL: ${NINE_ROUTER_MODEL:-cx/gpt-5.2}
+      NINE_ROUTER_API_KEY: ${NINE_ROUTER_API_KEY}
+    ports:
+      - "3000:3000"
+
+  nine-router:
+    build:
+      context: .
+      dockerfile: docker/9router.Dockerfile
+    container_name: minhhong-9router
+    restart: unless-stopped
+    command: ["9router", "--host", "0.0.0.0", "--port", "20128", "--no-browser", "--skip-update"]
+    ports:
+      - "20128:20128"
+    volumes:
+      - nine_router_data:/root/.9router
+
+volumes:
+  nine_router_data:

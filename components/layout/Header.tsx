@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 
 interface UserInfo {
+  id: string;
   name: string;
   role: string;
 }
@@ -24,54 +25,109 @@ export default function Header() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [notifCount, setNotifCount] = useState(0);
   const hasSession = hasSessionCookie();
+  const [isAuthLoading, setIsAuthLoading] = useState(hasSession);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const isMobileMenuOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
   const isServicesOpen = servicesMenuState.pathname === pathname && servicesMenuState.open;
   const visibleUser = hasSession ? user : null;
   const visibleNotifCount = hasSession ? notifCount : 0;
 
-  // Only call auth/me when a session cookie exists to avoid noisy 401s on public pages.
   useEffect(() => {
-    if (!hasSession) return;
+    if (!hasSession) {
+      setUser(null);
+      setNotifCount(0);
+      setIsAuthLoading(false);
+      return;
+    }
 
-    let isMounted = true;
+    let isActive = true;
+    setIsAuthLoading(true);
 
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!isMounted) return;
-        if (data.success) setUser(data.user);
-        else {
+    const loadCurrentUser = async () => {
+      try {
+        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        const data = await response.json();
+
+        if (!isActive) return;
+
+        if (response.ok && data.success) {
+          setUser(data.user);
+        } else {
           setUser(null);
           setNotifCount(0);
         }
-      })
-      .catch(() => {
-        if (!isMounted) return;
+      } catch {
+        if (!isActive) return;
         setUser(null);
         setNotifCount(0);
-      });
+      } finally {
+        if (isActive) {
+          setIsAuthLoading(false);
+        }
+      }
+    };
+
+    void loadCurrentUser();
 
     return () => {
-      isMounted = false;
+      isActive = false;
     };
-  }, [hasSession, pathname]);
+  }, [hasSession]);
 
-  // Fetch notification count
   useEffect(() => {
     if (!hasSession || !user) return;
-    const fetchNotifs = () => {
-      const lastSeen = localStorage.getItem("mh_notif_seen") || "";
-      const url = lastSeen ? `/api/user/notifications?lastSeen=${encodeURIComponent(lastSeen)}` : "/api/user/notifications";
-      fetch(url)
-        .then((r) => r.json())
-        .then((d) => { if (d.success) setNotifCount(d.total || 0); })
-        .catch(() => {});
+
+    let isActive = true;
+
+    const fetchNotifs = async () => {
+      if (document.visibilityState === "hidden") return;
+
+      try {
+        const lastSeen = localStorage.getItem("mh_notif_seen") || "";
+        const url = lastSeen
+          ? `/api/user/notifications?lastSeen=${encodeURIComponent(lastSeen)}`
+          : "/api/user/notifications";
+        const response = await fetch(url, { cache: "no-store" });
+        const data = await response.json();
+
+        if (!isActive) return;
+
+        if (response.ok && data.success) {
+          setNotifCount(data.total || 0);
+        } else if (response.status === 401) {
+          setNotifCount(0);
+        }
+      } catch {
+        // Ignore background polling errors and keep the last count.
+      }
     };
-    fetchNotifs();
-    const interval = setInterval(fetchNotifs, 30000);
-    return () => clearInterval(interval);
-  }, [hasSession, user, pathname]);
+
+    const handleFocus = () => {
+      void fetchNotifs();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void fetchNotifs();
+      }
+    };
+
+    void fetchNotifs();
+    const interval = window.setInterval(() => {
+      void fetchNotifs();
+    }, 30000);
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [hasSession, user]);
 
   const dismissNotifications = () => {
     localStorage.setItem("mh_notif_seen", new Date().toISOString());
@@ -91,11 +147,21 @@ export default function Header() {
   };
 
   const handleLogout = async () => {
+    if (isLoggingOut) return;
+
     closeMenus();
-    await fetch("/api/auth/logout", { method: "POST" });
-    setUser(null);
-    setNotifCount(0);
-    router.push("/");
+    setIsLoggingOut(true);
+
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      setUser(null);
+      setNotifCount(0);
+      setIsAuthLoading(false);
+      setIsLoggingOut(false);
+      router.push("/");
+      router.refresh();
+    }
   };
 
   const serviceLinks = [
@@ -177,7 +243,12 @@ export default function Header() {
 
         {/* Desktop Auth / User */}
         <div className="hidden lg:flex items-center gap-3">
-          {visibleUser ? (
+          {hasSession && isAuthLoading ? (
+            <div className="flex items-center gap-3" aria-label="Đang tải tài khoản">
+              <div className="h-10 w-32 rounded-xl bg-slate-100 animate-pulse" />
+              <div className="h-10 w-20 rounded-xl bg-slate-100 animate-pulse" />
+            </div>
+          ) : visibleUser ? (
             <>
               <Link
                 href={visibleUser.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
@@ -199,8 +270,12 @@ export default function Header() {
                 </div>
                 <span className="font-body font-semibold text-sm text-slate-700">{visibleUser.name}</span>
               </Link>
-              <button onClick={handleLogout} className="font-body text-sm text-slate-400 hover:text-red-500 transition-colors px-2">
-                Đăng xuất
+              <button
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className="font-body text-sm text-slate-400 hover:text-red-500 disabled:text-slate-300 transition-colors px-2"
+              >
+                {isLoggingOut ? "Đang thoát..." : "Đăng xuất"}
               </button>
             </>
           ) : (
@@ -257,7 +332,12 @@ export default function Header() {
             <div className="h-px bg-slate-100 mx-4 my-2"></div>
 
             {/* Auth / User */}
-            {visibleUser ? (
+            {hasSession && isAuthLoading ? (
+              <div className="px-4 pt-2 space-y-2" aria-label="Đang tải tài khoản">
+                <div className="h-12 rounded-xl bg-slate-100 animate-pulse" />
+                <div className="h-11 rounded-xl bg-slate-100 animate-pulse" />
+              </div>
+            ) : visibleUser ? (
               <>
                 <Link
                   href={visibleUser.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
@@ -282,8 +362,12 @@ export default function Header() {
                     <p className="font-body text-xs text-slate-400">{visibleUser.role === "ADMIN" ? "Quản trị viên" : "Khách hàng"}</p>
                   </div>
                 </Link>
-                <button onClick={handleLogout} className="w-full text-left px-4 py-3 rounded-xl font-body font-semibold text-sm text-red-500 hover:bg-red-50">
-                  🚪 Đăng Xuất
+                <button
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="w-full text-left px-4 py-3 rounded-xl font-body font-semibold text-sm text-red-500 hover:bg-red-50 disabled:text-slate-300"
+                >
+                  {isLoggingOut ? "Đang đăng xuất..." : "🚪 Đăng Xuất"}
                 </button>
               </>
             ) : (
