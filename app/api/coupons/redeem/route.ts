@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
+import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
 
 // POST — User redeems coupon with loyalty points
 export async function POST(request: Request) {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get("session_token")?.value;
-    if (!token) return NextResponse.json({ success: false, message: "Vui lòng đăng nhập." }, { status: 401 });
-
-    const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-    if (!session) return NextResponse.json({ success: false }, { status: 401 });
+    const session = await getCurrentSession();
+    if (!session) return unauthorizedResponse("Vui lòng đăng nhập.");
 
     const { couponId } = await request.json();
     const coupon = await prisma.coupon.findUnique({ where: { id: couponId } });

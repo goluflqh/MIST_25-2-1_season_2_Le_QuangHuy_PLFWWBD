@@ -1,22 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
 import { hashPassword } from "@/lib/auth";
-
-async function verifyAdmin() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("session_token")?.value;
-  if (!token) return null;
-  const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-  if (!session || session.user.role !== "ADMIN") return null;
-  return session.user;
-}
+import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
 // GET /api/admin/users — List all users
 export async function GET() {
   try {
-    const admin = await verifyAdmin();
-    if (!admin) return NextResponse.json({ success: false }, { status: 403 });
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse();
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -35,8 +26,8 @@ export async function GET() {
 // DELETE /api/admin/users — Delete a user (cascade)
 export async function DELETE(request: Request) {
   try {
-    const admin = await verifyAdmin();
-    if (!admin) return NextResponse.json({ success: false }, { status: 403 });
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse();
     const { userId } = await request.json();
 
     // Prevent deleting yourself
@@ -61,8 +52,8 @@ export async function DELETE(request: Request) {
 // PATCH /api/admin/users — Reset user password
 export async function PATCH(request: Request) {
   try {
-    const admin = await verifyAdmin();
-    if (!admin) return NextResponse.json({ success: false }, { status: 403 });
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse();
     const { userId, newPassword } = await request.json();
 
     if (!userId || !newPassword) {

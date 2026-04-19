@@ -1,18 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
+import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
 // PATCH /api/contact/[id] — Admin updates contact status + notes
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get("session_token")?.value;
-    if (!token) return NextResponse.json({ success: false }, { status: 401 });
-
-    const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-    if (!session || session.user.role !== "ADMIN") {
-      return NextResponse.json({ success: false, message: "Không có quyền." }, { status: 403 });
-    }
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse("Không có quyền.");
 
     const { id } = await params;
     const body = await request.json();
@@ -43,14 +37,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 // DELETE /api/contact/[id] — Admin deletes a contact request
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get("session_token")?.value;
-    if (!token) return NextResponse.json({ success: false }, { status: 401 });
-
-    const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-    if (!session || session.user.role !== "ADMIN") {
-      return NextResponse.json({ success: false, message: "Không có quyền." }, { status: 403 });
-    }
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse("Không có quyền.");
 
     const { id } = await params;
     await prisma.contactRequest.delete({ where: { id } });

@@ -1,21 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
-
-async function verifyAdmin() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("session_token")?.value;
-  if (!token) return null;
-  const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-  if (!session || session.user.role !== "ADMIN") return null;
-  return session.user;
-}
+import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
 // GET — Admin list all warranties
 export async function GET() {
   try {
-    const admin = await verifyAdmin();
-    if (!admin) return NextResponse.json({ success: false }, { status: 403 });
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse();
     const warranties = await prisma.warranty.findMany({
       orderBy: { createdAt: "desc" },
       include: { user: { select: { name: true, phone: true } } },
@@ -30,8 +21,8 @@ export async function GET() {
 // POST — Admin creates warranty (must verify customer phone exists)
 export async function POST(request: Request) {
   try {
-    const admin = await verifyAdmin();
-    if (!admin) return NextResponse.json({ success: false }, { status: 403 });
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse();
 
     const body = await request.json();
     const { serialNo, productName, customerPhone, service, endDate, notes } = body;
@@ -68,8 +59,8 @@ export async function POST(request: Request) {
 // DELETE — Admin deletes warranty
 export async function DELETE(request: Request) {
   try {
-    const admin = await verifyAdmin();
-    if (!admin) return NextResponse.json({ success: false }, { status: 403 });
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse();
     const { id } = await request.json();
     await prisma.warranty.delete({ where: { id } });
     return NextResponse.json({ success: true });

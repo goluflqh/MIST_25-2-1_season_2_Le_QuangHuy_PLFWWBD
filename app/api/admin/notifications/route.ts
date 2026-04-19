@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
+import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
 // GET /api/admin/notifications — Counts of pending items
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get("session_token")?.value;
-    if (!token) return NextResponse.json({ success: false }, { status: 401 });
-
-    const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-    if (!session || session.user.role !== "ADMIN") return NextResponse.json({ success: false }, { status: 403 });
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse();
 
     const [pendingContacts, pendingReviews] = await Promise.all([
       prisma.contactRequest.count({ where: { status: "PENDING" } }),

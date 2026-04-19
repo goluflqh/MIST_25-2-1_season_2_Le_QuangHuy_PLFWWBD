@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { forbiddenResponse, getCurrentAdminUser, getCurrentSession } from "@/lib/session";
 
 export async function POST(request: Request) {
   try {
@@ -19,13 +20,8 @@ export async function POST(request: Request) {
     // Auto-link to logged-in user if available
     let userId: string | undefined;
     try {
-      const { cookies } = await import("next/headers");
-      const cookieStore = await cookies();
-      const token = cookieStore.get("session_token")?.value;
-      if (token) {
-        const session = await prisma.session.findUnique({ where: { token }, select: { userId: true } });
-        if (session) userId = session.userId;
-      }
+      const session = await getCurrentSession();
+      if (session) userId = session.userId;
     } catch { /* ignore — guest user */ }
 
     const contactRequest = await prisma.contactRequest.create({
@@ -57,15 +53,8 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
-    const { cookies } = await import("next/headers");
-    const cookieStore = await cookies();
-    const token = cookieStore.get("session_token")?.value;
-    if (!token) return NextResponse.json({ success: false }, { status: 401 });
-
-    const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-    if (!session || session.user.role !== "ADMIN") {
-      return NextResponse.json({ success: false }, { status: 403 });
-    }
+    const admin = await getCurrentAdminUser();
+    if (!admin) return forbiddenResponse();
 
     const contacts = await prisma.contactRequest.findMany({
       orderBy: { createdAt: "desc" },
