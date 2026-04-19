@@ -16,8 +16,9 @@ export default function Header() {
 
   const isMobileMenuOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
   const isServicesOpen = servicesMenuState.pathname === pathname && servicesMenuState.open;
-  const visibleNotifCount = user ? notifCount : 0;
-  const currentUserId = user?.id ?? null;
+  const visibleUser = user;
+  const visibleNotifCount = visibleUser ? notifCount : 0;
+  const currentUserId = visibleUser?.id ?? null;
 
   useEffect(() => {
     if (!currentUserId) {
@@ -25,34 +26,54 @@ export default function Header() {
       return;
     }
 
-    let isCancelled = false;
+    let isActive = true;
 
     const fetchNotifs = async () => {
-      const lastSeen = localStorage.getItem("mh_notif_seen") || "";
-      const url = lastSeen ? `/api/user/notifications?lastSeen=${encodeURIComponent(lastSeen)}` : "/api/user/notifications";
+      if (document.visibilityState === "hidden") return;
 
       try {
-        const response = await fetch(url);
+        const lastSeen = localStorage.getItem("mh_notif_seen") || "";
+        const url = lastSeen
+          ? `/api/user/notifications?lastSeen=${encodeURIComponent(lastSeen)}`
+          : "/api/user/notifications";
+        const response = await fetch(url, { cache: "no-store" });
         const data = await response.json();
 
-        if (!isCancelled) {
-          setNotifCount(data.success ? data.total || 0 : 0);
-        }
-      } catch {
-        if (!isCancelled) {
+        if (!isActive) return;
+
+        if (response.ok && data.success) {
+          setNotifCount(data.total || 0);
+        } else if (response.status === 401) {
           setNotifCount(0);
         }
+      } catch {
+        // Ignore background polling errors and keep the last count.
+      }
+    };
+
+    const handleFocus = () => {
+      void fetchNotifs();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void fetchNotifs();
       }
     };
 
     void fetchNotifs();
-    const interval = setInterval(() => {
+    const interval = window.setInterval(() => {
       void fetchNotifs();
     }, 30000);
 
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
-      isCancelled = true;
+      isActive = false;
       clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [currentUserId]);
 
@@ -76,9 +97,10 @@ export default function Header() {
   const handleLogout = async () => {
     if (isLoggingOut) return;
 
-    const previousUser = user;
-    setIsLoggingOut(true);
+    const previousUser = visibleUser;
+
     closeMenus();
+    setIsLoggingOut(true);
     setNotifCount(0);
     setUser(null);
 
@@ -93,6 +115,7 @@ export default function Header() {
       router.refresh();
     } catch {
       setUser(previousUser);
+    } finally {
       setIsLoggingOut(false);
     }
   };
@@ -187,7 +210,7 @@ export default function Header() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
               </svg>
             </button>
-            {isServicesOpen && (
+            {isServicesOpen ? (
               <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-xl shadow-xl border border-slate-100 py-2 animate-fade-in">
                 {serviceLinks.map((link) => (
                   <Link
@@ -199,7 +222,7 @@ export default function Header() {
                   </Link>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
 
           <Link
@@ -211,10 +234,10 @@ export default function Header() {
         </nav>
 
         <div className="hidden lg:flex items-center gap-3">
-          {user ? (
+          {visibleUser ? (
             <>
               <Link
-                href={user.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
+                href={visibleUser.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
                 onClick={() => {
                   dismissNotifications();
                   closeMenus();
@@ -223,15 +246,15 @@ export default function Header() {
               >
                 <div className="relative">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-xs font-bold">
-                    {user.name.charAt(0)}
+                    {visibleUser.name.charAt(0)}
                   </div>
-                  {visibleNotifCount > 0 && (
+                  {visibleNotifCount > 0 ? (
                     <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[9px] font-black rounded-full px-1 border-2 border-white animate-pulse">
                       {visibleNotifCount}
                     </span>
-                  )}
+                  ) : null}
                 </div>
-                <span className="font-body font-semibold text-sm text-slate-700">{user.name}</span>
+                <span className="font-body font-semibold text-sm text-slate-700">{visibleUser.name}</span>
               </Link>
               <button
                 onClick={handleLogout}
@@ -276,7 +299,7 @@ export default function Header() {
         </button>
       </div>
 
-      {isMobileMenuOpen && (
+      {isMobileMenuOpen ? (
         <div className="lg:hidden bg-white border-t border-slate-100 shadow-xl animate-fade-in">
           <nav className="px-4 py-4 space-y-1">
             <Link
@@ -311,10 +334,10 @@ export default function Header() {
 
             <div className="h-px bg-slate-100 mx-4 my-2"></div>
 
-            {user ? (
+            {visibleUser ? (
               <>
                 <Link
-                  href={user.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
+                  href={visibleUser.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
                   onClick={() => {
                     dismissNotifications();
                     closeMenus();
@@ -323,17 +346,19 @@ export default function Header() {
                 >
                   <div className="relative">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white font-bold">
-                      {user.name.charAt(0)}
+                      {visibleUser.name.charAt(0)}
                     </div>
-                    {visibleNotifCount > 0 && (
+                    {visibleNotifCount > 0 ? (
                       <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[9px] font-black rounded-full px-1 border-2 border-white animate-pulse">
                         {visibleNotifCount}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                   <div>
-                    <p className="font-body font-bold text-sm text-slate-900">{user.name}</p>
-                    <p className="font-body text-xs text-slate-400">{user.role === "ADMIN" ? "Quản trị viên" : "Khách hàng"}</p>
+                    <p className="font-body font-bold text-sm text-slate-900">{visibleUser.name}</p>
+                    <p className="font-body text-xs text-slate-400">
+                      {visibleUser.role === "ADMIN" ? "Quản trị viên" : "Khách hàng"}
+                    </p>
                   </div>
                 </Link>
                 <button
@@ -364,7 +389,7 @@ export default function Header() {
             )}
           </nav>
         </div>
-      )}
+      ) : null}
     </header>
   );
 }

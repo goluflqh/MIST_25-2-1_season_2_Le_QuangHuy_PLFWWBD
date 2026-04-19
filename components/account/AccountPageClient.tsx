@@ -31,6 +31,11 @@ interface WarrantyInfo {
   notes: string | null;
 }
 
+interface FeedbackMessage {
+  text: string;
+  type: "success" | "error";
+}
+
 const serviceLabels: Record<string, string> = {
   DONG_PIN: "🔋 Đóng Pin",
   DEN_NLMT: "☀️ Đèn NLMT",
@@ -94,18 +99,45 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
 function ReferralSection() {
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const generateCode = async () => {
-    const res = await fetch("/api/referral", { method: "POST" }).then((r) => r.json());
-    if (res.success) setReferralCode(res.code);
+    setError(null);
+    setIsGenerating(true);
+
+    try {
+      const response = await fetch("/api/referral", { method: "POST" });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setReferralCode(data.code);
+        return;
+      }
+
+      setError(data.message || "Chưa tạo được link mời lúc này.");
+    } catch {
+      setError("Kết nối bị gián đoạn khi tạo link mời.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const referralLink = referralCode ? `${window.location.origin}/dang-ky?ref=${referralCode}` : "";
+  const referralLink =
+    typeof window !== "undefined" && referralCode
+      ? `${window.location.origin}/dang-ky?ref=${referralCode}`
+      : "";
 
   const copyLink = () => {
-    navigator.clipboard.writeText(referralLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard
+      .writeText(referralLink)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        setError("Chưa sao chép được link, bạn thử lại nhé.");
+      });
   };
 
   return (
@@ -114,12 +146,18 @@ function ReferralSection() {
       <p className="font-body text-xs text-slate-400 mb-3">
         Gửi link mời cho bạn bè → bạn bè đăng ký thành công → cả 2 nhận +20 điểm thưởng!
       </p>
+      {error ? (
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-body font-semibold text-red-600">
+          {error}
+        </div>
+      ) : null}
       {!referralCode ? (
         <button
           onClick={generateCode}
-          className="px-5 py-2.5 bg-yellow-500 text-slate-900 rounded-xl font-body font-bold text-sm hover:bg-yellow-600 transition-colors"
+          disabled={isGenerating}
+          className="px-5 py-2.5 bg-yellow-500 text-slate-900 rounded-xl font-body font-bold text-sm hover:bg-yellow-600 disabled:bg-slate-200 disabled:text-slate-500 transition-colors"
         >
-          Lấy Link Mời
+          {isGenerating ? "Đang tạo link..." : "Lấy Link Mời"}
         </button>
       ) : (
         <div className="space-y-2">
@@ -148,7 +186,7 @@ function PasswordChangeSection() {
   const [isOpen, setIsOpen] = useState(false);
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
-  const [msg, setMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [msg, setMsg] = useState<FeedbackMessage | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async () => {
@@ -194,15 +232,15 @@ function PasswordChangeSection() {
         <h3 className="font-heading font-bold text-slate-900">🔐 Đổi Mật Khẩu</h3>
         <span className="text-slate-400 text-sm">{isOpen ? "▲" : "▼"}</span>
       </button>
-      {isOpen && (
+      {isOpen ? (
         <div className="mt-4 space-y-3">
-          {msg && (
+          {msg ? (
             <div
               className={`p-2 rounded-xl text-xs font-body font-bold text-center ${msg.type === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"}`}
             >
               {msg.text}
             </div>
-          )}
+          ) : null}
           <div>
             <label className="block text-xs font-body font-semibold text-slate-600 mb-1">
               Mật khẩu hiện tại
@@ -226,12 +264,14 @@ function PasswordChangeSection() {
               className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-body outline-none focus:ring-2 focus:ring-red-500"
               placeholder="Ít nhất 6 ký tự"
             />
-            {newPw.length > 0 && newPw.length < 6 && (
+            {newPw.length > 0 && newPw.length < 6 ? (
               <p className="text-[10px] text-red-500 font-body mt-1">
                 Cần thêm {6 - newPw.length} ký tự
               </p>
-            )}
-            {newPw.length >= 6 && <p className="text-[10px] text-green-600 font-body mt-1">✓ Đủ dài</p>}
+            ) : null}
+            {newPw.length >= 6 ? (
+              <p className="text-[10px] text-green-600 font-body mt-1">✓ Đủ dài</p>
+            ) : null}
           </div>
           <button
             onClick={handleSubmit}
@@ -241,7 +281,7 @@ function PasswordChangeSection() {
             {isLoading ? "Đang đổi..." : "Xác Nhận Đổi Mật Khẩu"}
           </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -264,18 +304,24 @@ export default function AccountPageClient({
   const [formData, setFormData] = useState({ service: "", message: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [requestFeedback, setRequestFeedback] = useState<FeedbackMessage | null>(null);
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [reviewData, setReviewData] = useState({ rating: 5, service: "", comment: "" });
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
   const [reviewSuccess, setReviewSuccess] = useState(false);
+  const [reviewFeedback, setReviewFeedback] = useState<FeedbackMessage | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = async () => {
+    if (isLoggingOut) return;
+
     const previousUser = user ?? {
       id: initialUser.id,
       name: initialUser.name,
       role: initialUser.role,
     };
 
+    setIsLoggingOut(true);
     setUser(null);
 
     try {
@@ -289,15 +335,21 @@ export default function AccountPageClient({
       router.refresh();
     } catch {
       setUser(previousUser);
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
   const handleSubmitRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.service) return;
+
+    setRequestFeedback(null);
+    setSubmitSuccess(false);
     setIsSubmitting(true);
+
     try {
-      const res = await fetch("/api/contact", {
+      const response = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -307,18 +359,41 @@ export default function AccountPageClient({
           message: formData.message,
         }),
       });
-      if (res.ok) {
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
         setSubmitSuccess(true);
+        setRequestFeedback({
+          text: "Yêu cầu đã được gửi và xuất hiện ngay trong lịch sử của bạn.",
+          type: "success",
+        });
+        setRequests((prev) => [
+          {
+            id: data.id || `temp-${Date.now()}`,
+            service: formData.service,
+            message: formData.message.trim() || null,
+            status: "PENDING",
+            createdAt: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
         setFormData({ service: "", message: "" });
-        const reqRes = await fetch("/api/user/requests").then((r) => r.json());
-        if (reqRes.success) setRequests(reqRes.requests);
         setTimeout(() => {
           setSubmitSuccess(false);
           setShowForm(false);
         }, 3000);
+      } else {
+        setRequestFeedback({
+          text: data.message || "Chưa gửi được yêu cầu. Bạn thử lại sau ít phút nhé.",
+          type: "error",
+        });
       }
     } catch {
-      // Ignore request submission errors in the optimistic form flow.
+      setRequestFeedback({
+        text: "Kết nối đang chập chờn. Yêu cầu của bạn chưa được gửi.",
+        type: "error",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -327,23 +402,42 @@ export default function AccountPageClient({
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reviewData.comment || !reviewData.service) return;
+
+    setReviewFeedback(null);
+    setReviewSuccess(false);
     setIsReviewSubmitting(true);
+
     try {
-      const res = await fetch("/api/reviews", {
+      const response = await fetch("/api/reviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(reviewData),
       });
-      if (res.ok) {
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
         setReviewSuccess(true);
+        setReviewFeedback({
+          text: "Đánh giá đã được ghi nhận và sẽ hiển thị sau khi duyệt.",
+          type: "success",
+        });
         setReviewData({ rating: 5, service: "", comment: "" });
         setTimeout(() => {
           setReviewSuccess(false);
           setShowReviewForm(false);
         }, 4000);
+      } else {
+        setReviewFeedback({
+          text: data.message || "Chưa gửi được đánh giá. Bạn thử lại giúp mình nhé.",
+          type: "error",
+        });
       }
     } catch {
-      // Ignore review submission errors in the lightweight UI flow.
+      setReviewFeedback({
+        text: "Kết nối bị gián đoạn nên đánh giá chưa được gửi.",
+        type: "error",
+      });
     } finally {
       setIsReviewSubmitting(false);
     }
@@ -364,19 +458,20 @@ export default function AccountPageClient({
             </p>
           </div>
           <div className="flex gap-2">
-            {initialUser.role === "ADMIN" && (
+            {initialUser.role === "ADMIN" ? (
               <Link
                 href="/dashboard"
                 className="px-4 py-2 bg-slate-900 text-white rounded-xl font-body font-bold text-sm hover:bg-slate-800 transition-colors"
               >
                 🛠 Admin
               </Link>
-            )}
+            ) : null}
             <button
               onClick={handleLogout}
+              disabled={isLoggingOut}
               className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-xl font-body font-bold text-sm hover:bg-red-100 transition-colors"
             >
-              Đăng Xuất
+              {isLoggingOut ? "Đang đăng xuất..." : "Đăng Xuất"}
             </button>
           </div>
         </div>
@@ -425,7 +520,8 @@ export default function AccountPageClient({
         </div>
         <div className="mt-3 bg-slate-50 rounded-xl p-3">
           <p className="font-body text-xs text-slate-500">
-            💡 Tích điểm khi sử dụng dịch vụ tại Minh Hồng! Đổi điểm để nhận ưu đãi giảm giá, bảo hành mở rộng và quà tặng.
+            💡 Tích điểm khi sử dụng dịch vụ tại Minh Hồng! Đổi điểm để nhận ưu đãi giảm giá, bảo
+            hành mở rộng và quà tặng.
           </p>
         </div>
       </div>
@@ -447,7 +543,7 @@ export default function AccountPageClient({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
           </svg>
         </button>
-        {showForm && (
+        {showForm ? (
           <div className="px-6 pb-6 border-t border-slate-100 pt-4">
             {submitSuccess ? (
               <div className="text-center py-6">
@@ -458,6 +554,17 @@ export default function AccountPageClient({
               </div>
             ) : (
               <form onSubmit={handleSubmitRequest} className="space-y-4">
+                {requestFeedback ? (
+                  <div
+                    className={`rounded-xl border px-3 py-2 text-sm font-body ${
+                      requestFeedback.type === "success"
+                        ? "border-green-200 bg-green-50 text-green-700"
+                        : "border-red-200 bg-red-50 text-red-600"
+                    }`}
+                  >
+                    {requestFeedback.text}
+                  </div>
+                ) : null}
                 <div>
                   <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">
                     Dịch vụ cần tư vấn
@@ -500,7 +607,7 @@ export default function AccountPageClient({
               </form>
             )}
           </div>
-        )}
+        ) : null}
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
@@ -518,7 +625,7 @@ export default function AccountPageClient({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
           </svg>
         </button>
-        {showReviewForm && (
+        {showReviewForm ? (
           <div className="px-6 pb-6 border-t border-slate-100 pt-4">
             {reviewSuccess ? (
               <div className="text-center py-6">
@@ -529,8 +636,21 @@ export default function AccountPageClient({
               </div>
             ) : (
               <form onSubmit={handleSubmitReview} className="space-y-4">
+                {reviewFeedback ? (
+                  <div
+                    className={`rounded-xl border px-3 py-2 text-sm font-body ${
+                      reviewFeedback.type === "success"
+                        ? "border-green-200 bg-green-50 text-green-700"
+                        : "border-red-200 bg-red-50 text-red-600"
+                    }`}
+                  >
+                    {reviewFeedback.text}
+                  </div>
+                ) : null}
                 <div>
-                  <label className="font-body font-semibold text-sm text-slate-700 mb-2 block">Đánh giá của bạn</label>
+                  <label className="font-body font-semibold text-sm text-slate-700 mb-2 block">
+                    Đánh giá của bạn
+                  </label>
                   <div className="flex gap-1">
                     {[1, 2, 3, 4, 5].map((star) => (
                       <button
@@ -567,7 +687,9 @@ export default function AccountPageClient({
                   </select>
                 </div>
                 <div>
-                  <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">Bình luận</label>
+                  <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">
+                    Bình luận
+                  </label>
                   <textarea
                     value={reviewData.comment}
                     onChange={(e) => setReviewData({ ...reviewData, comment: e.target.value })}
@@ -587,7 +709,7 @@ export default function AccountPageClient({
               </form>
             )}
           </div>
-        )}
+        ) : null}
       </div>
 
       <WarrantyCards warranties={initialWarranties} />
@@ -625,9 +747,9 @@ export default function AccountPageClient({
                       {statusConfig[request.status]?.label || request.status}
                     </span>
                   </div>
-                  {request.message && (
+                  {request.message ? (
                     <p className="font-body text-xs text-slate-400 mt-0.5 truncate">{request.message}</p>
-                  )}
+                  ) : null}
                   <p className="font-body text-[10px] text-slate-300 mt-1">
                     {new Date(request.createdAt).toLocaleString("vi-VN")}
                   </p>

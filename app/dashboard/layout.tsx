@@ -1,39 +1,33 @@
-import { NotifyProvider } from "@/components/NotifyProvider";
-import AdminSidebar from "@/components/AdminSidebar";
-import { cookies } from "next/headers";
-import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
+import AdminSidebar from "@/components/AdminSidebar";
+import { NotifyProvider } from "@/components/NotifyProvider";
+import { getCurrentSessionUser } from "@/lib/session";
 
 export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Server-side admin role check
-  const cookieStore = await cookies();
-  const token = cookieStore.get("session_token")?.value;
+  const admin = await getCurrentSessionUser();
 
-  if (!token) redirect("/dang-nhap");
+  if (!admin) redirect("/dang-nhap");
+  if (admin.role !== "ADMIN") redirect("/tai-khoan");
 
-  const session = await prisma.session.findUnique({
-    where: { token },
-    include: { user: true },
-  });
-
-  if (!session || session.expiresAt < new Date()) redirect("/dang-nhap");
-  if (session.user.role !== "ADMIN") redirect("/tai-khoan");
-
-  const adminName = session.user.name;
+  const [pendingContacts, pendingReviews] = await Promise.all([
+    prisma.contactRequest.count({ where: { status: "PENDING" } }),
+    prisma.review.count({ where: { approved: false } }),
+  ]);
 
   return (
     <div className="flex min-h-[calc(100vh-100px)]">
-      <AdminSidebar />
+      <AdminSidebar initialCounts={{ contacts: pendingContacts, reviews: pendingReviews }} />
 
       {/* Main Content */}
       <div className="flex-1 bg-slate-50">
         <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
           <h1 className="font-heading font-bold text-xl text-slate-900">Bảng Điều Khiển</h1>
-          <span className="text-sm text-slate-500 font-body">Admin: {adminName}</span>
+          <span className="text-sm text-slate-500 font-body">Admin: {admin.name}</span>
         </header>
         <div className="p-6">
           <NotifyProvider>{children}</NotifyProvider>
