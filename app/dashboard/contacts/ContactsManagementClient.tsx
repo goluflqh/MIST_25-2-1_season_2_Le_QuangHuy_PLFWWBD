@@ -11,6 +11,14 @@ interface ContactRequest {
   message: string | null;
   status: string;
   notes: string | null;
+  source: string | null;
+  sourcePath: string | null;
+  referrer: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmTerm: string | null;
+  utmContent: string | null;
   createdAt: string;
 }
 
@@ -34,6 +42,26 @@ const statusConfig: Record<string, { label: string; color: string }> = {
   CANCELLED: { label: "Đã huỷ", color: "bg-red-100 text-red-800 border-red-200" },
 };
 
+const sourceLabels: Record<string, string> = {
+  homepage: "Trang chủ",
+  "pricing-page": "Trang báo giá",
+  "service-dong-pin": "Trang đóng pin",
+  "service-den-nlmt": "Trang đèn NLMT",
+  "service-pin-luu-tru": "Trang pin lưu trữ",
+  "service-camera": "Trang camera",
+};
+
+function formatReferrer(referrer: string | null) {
+  if (!referrer) return null;
+
+  try {
+    const url = new URL(referrer);
+    return url.hostname;
+  } catch {
+    return referrer;
+  }
+}
+
 export default function ContactsManagementClient({
   initialContacts,
 }: {
@@ -54,9 +82,9 @@ export default function ContactsManagementClient({
 
     const previousStatus = currentContact.status;
     setPendingStatusId(id);
-    setContacts((prev) => prev.map((contact) => (
-      contact.id === id ? { ...contact, status } : contact
-    )));
+    setContacts((prev) =>
+      prev.map((contact) => (contact.id === id ? { ...contact, status } : contact))
+    );
 
     try {
       const response = await fetch(`/api/contact/${id}`, {
@@ -67,18 +95,18 @@ export default function ContactsManagementClient({
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        setContacts((prev) => prev.map((contact) => (
-          contact.id === id ? { ...contact, status: previousStatus } : contact
-        )));
+        setContacts((prev) =>
+          prev.map((contact) => (contact.id === id ? { ...contact, status: previousStatus } : contact))
+        );
         showToast(data.message || "Chưa cập nhật được trạng thái.", "error");
         return;
       }
 
       showToast("Đã cập nhật trạng thái.", "success");
     } catch {
-      setContacts((prev) => prev.map((contact) => (
-        contact.id === id ? { ...contact, status: previousStatus } : contact
-      )));
+      setContacts((prev) =>
+        prev.map((contact) => (contact.id === id ? { ...contact, status: previousStatus } : contact))
+      );
       showToast("Kết nối bị gián đoạn khi cập nhật trạng thái.", "error");
     } finally {
       setPendingStatusId(null);
@@ -101,9 +129,9 @@ export default function ContactsManagementClient({
         return;
       }
 
-      setContacts((prev) => prev.map((contact) => (
-        contact.id === id ? { ...contact, notes: notesValue } : contact
-      )));
+      setContacts((prev) =>
+        prev.map((contact) => (contact.id === id ? { ...contact, notes: notesValue } : contact))
+      );
       setEditingNotes(null);
       showToast("Đã lưu ghi chú.", "success");
     } catch {
@@ -152,7 +180,10 @@ export default function ContactsManagementClient({
               onClick={() => setFilter(item.key)}
               className={`px-3 py-1.5 rounded-lg text-xs font-body font-bold transition-colors ${filter === item.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
             >
-              {item.label} {item.key === "ALL" ? `(${contacts.length})` : `(${contacts.filter((contact) => contact.status === item.key).length})`}
+              {item.label}{" "}
+              {item.key === "ALL"
+                ? `(${contacts.length})`
+                : `(${contacts.filter((contact) => contact.status === item.key).length})`}
             </button>
           ))}
         </div>
@@ -180,9 +211,55 @@ export default function ContactsManagementClient({
                       {statusConfig[contact.status]?.label}
                     </span>
                   </div>
-                  <p className="font-body text-sm text-slate-500">📱 {contact.phone} · {serviceLabels[contact.service] || contact.service}</p>
-                  {contact.message && <p className="font-body text-xs text-slate-400 mt-1">💬 {contact.message}</p>}
-                  <p className="font-body text-[10px] text-slate-300 mt-1">{new Date(contact.createdAt).toLocaleString("vi-VN")}</p>
+                  <p className="font-body text-sm text-slate-500">
+                    📱 {contact.phone} · {serviceLabels[contact.service] || contact.service}
+                  </p>
+                  {contact.message ? (
+                    <p className="font-body text-xs text-slate-400 mt-1">💬 {contact.message}</p>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {contact.source ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-body font-bold text-slate-600">
+                        Nguồn: {sourceLabels[contact.source] || contact.source}
+                      </span>
+                    ) : null}
+                    {contact.utmSource ? (
+                      <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-body font-bold text-blue-700">
+                        utm_source: {contact.utmSource}
+                      </span>
+                    ) : null}
+                    {contact.utmCampaign ? (
+                      <span className="rounded-full bg-purple-50 px-2 py-1 text-[10px] font-body font-bold text-purple-700">
+                        campaign: {contact.utmCampaign}
+                      </span>
+                    ) : null}
+                    {contact.utmMedium ? (
+                      <span className="rounded-full bg-cyan-50 px-2 py-1 text-[10px] font-body font-bold text-cyan-700">
+                        utm_medium: {contact.utmMedium}
+                      </span>
+                    ) : null}
+                    {contact.utmTerm ? (
+                      <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-body font-bold text-amber-700">
+                        utm_term: {contact.utmTerm}
+                      </span>
+                    ) : null}
+                    {contact.utmContent ? (
+                      <span className="rounded-full bg-pink-50 px-2 py-1 text-[10px] font-body font-bold text-pink-700">
+                        utm_content: {contact.utmContent}
+                      </span>
+                    ) : null}
+                    {formatReferrer(contact.referrer) ? (
+                      <span className="rounded-full bg-green-50 px-2 py-1 text-[10px] font-body font-bold text-green-700">
+                        Referrer: {formatReferrer(contact.referrer)}
+                      </span>
+                    ) : null}
+                  </div>
+                  {contact.sourcePath ? (
+                    <p className="font-body text-[10px] text-slate-300 mt-1">Trang tạo lead: {contact.sourcePath}</p>
+                  ) : null}
+                  <p className="font-body text-[10px] text-slate-300 mt-1">
+                    {new Date(contact.createdAt).toLocaleString("vi-VN")}
+                  </p>
 
                   <div className="mt-2">
                     {editingNotes === contact.id ? (
@@ -233,10 +310,14 @@ export default function ContactsManagementClient({
                     className="text-xs font-body font-bold px-2 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 focus:ring-1 focus:ring-red-500 outline-none disabled:bg-slate-100 disabled:text-slate-400"
                   >
                     {Object.entries(statusConfig).map(([key, value]) => (
-                      <option key={key} value={key}>{value.label}</option>
+                      <option key={key} value={key}>
+                        {value.label}
+                      </option>
                     ))}
                   </select>
-                  <a href={`tel:${contact.phone}`} className="p-2 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 transition-colors" title="Gọi">📞</a>
+                  <a href={`tel:${contact.phone}`} className="p-2 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 transition-colors" title="Gọi">
+                    📞
+                  </a>
                   <button
                     onClick={() => deleteContact(contact.id)}
                     disabled={deletingId === contact.id}

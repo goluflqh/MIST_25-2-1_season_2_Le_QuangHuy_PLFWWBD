@@ -1,11 +1,52 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { checkRateLimit, formatDurationVi, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { forbiddenResponse, getCurrentAdminUser, getCurrentSession } from "@/lib/session";
+import { isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
+
+const VALID_SERVICES = ["DONG_PIN", "DEN_NLMT", "PIN_LUU_TRU", "CAMERA", "CUSTOM", "KHAC"];
+
+function optionalText(value: unknown, maxLength: number) {
+  if (typeof value !== "string") return null;
+
+  const sanitized = sanitizeText(value).slice(0, maxLength).trim();
+  return sanitized || null;
+}
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIP(request);
+    const rateLimit = checkRateLimit(`contact:${ip}`, RATE_LIMITS.contact);
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Bạn gửi hơi nhanh. Vui lòng thử lại sau ${formatDurationVi(rateLimit.retryAfterSec)}.`,
+          retryAfterSec: rateLimit.retryAfterSec,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfterSec),
+          },
+        }
+      );
+    }
+
     const body = await request.json();
-    const { name, phone, service, message } = body;
+    const name = optionalText(body?.name, 80);
+    const phone = normalizePhone(typeof body?.phone === "string" ? body.phone : "");
+    const service = optionalText(body?.service, 40);
+    const message = optionalText(body?.message, 500);
+    const source = optionalText(body?.source, 64) || "homepage";
+    const sourcePath = optionalText(body?.sourcePath, 255);
+    const referrer = optionalText(body?.referrer, 255);
+    const utmSource = optionalText(body?.utmSource, 100);
+    const utmMedium = optionalText(body?.utmMedium, 100);
+    const utmCampaign = optionalText(body?.utmCampaign, 120);
+    const utmTerm = optionalText(body?.utmTerm, 120);
+    const utmContent = optionalText(body?.utmContent, 120);
 
     if (!name || !phone || !service) {
       return NextResponse.json(
@@ -14,22 +55,44 @@ export async function POST(request: Request) {
       );
     }
 
-    const validServices = ["DONG_PIN", "DEN_NLMT", "PIN_LUU_TRU", "CAMERA", "CUSTOM", "KHAC"];
-    const serviceType = validServices.includes(service) ? service : "KHAC";
+    if (name.length < 2) {
+      return NextResponse.json(
+        { success: false, message: "Vui lòng nhập họ tên đầy đủ hơn một chút." },
+        { status: 400 }
+      );
+    }
 
-    // Auto-link to logged-in user if available
+    if (!isValidPhone(phone)) {
+      return NextResponse.json(
+        { success: false, message: "Số điện thoại không hợp lệ. Vui lòng kiểm tra lại." },
+        { status: 400 }
+      );
+    }
+
+    const serviceType = VALID_SERVICES.includes(service) ? service : "KHAC";
+
     let userId: string | undefined;
     try {
       const session = await getCurrentSession();
       if (session) userId = session.userId;
-    } catch { /* ignore — guest user */ }
+    } catch {
+      // Ignore guest session lookup failures.
+    }
 
     const contactRequest = await prisma.contactRequest.create({
       data: {
         name,
         phone,
         service: serviceType,
-        message: message || null,
+        message,
+        source,
+        sourcePath,
+        referrer,
+        utmSource,
+        utmMedium,
+        utmCampaign,
+        utmTerm,
+        utmContent,
         userId: userId || null,
       },
     });

@@ -51,7 +51,7 @@ export default function StorageBatteryPage() {
             Minh Hồng chuyên đóng ráp pin lưu trữ năng lượng, pin kích đề ô tô, pin dự phòng công suất lớn. Nhận thiết kế và đóng bình pin theo mọi yêu cầu kỹ thuật của khách hàng.
           </p>
           <Link
-            href="/bao-gia"
+            href="/?service=PIN_LUU_TRU&source=service-pin-luu-tru#quote"
             className="inline-block bg-green-600 hover:bg-green-700 text-white font-heading font-bold py-3 px-8 rounded-xl transition-colors shadow-md hover:shadow-lg"
           >
             Nhận Báo Giá Ngay
@@ -86,7 +86,7 @@ export default function StorageBatteryPage() {
           <a href="tel:0987443258" className="inline-flex items-center gap-2 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-heading font-bold py-3 px-6 rounded-xl transition-colors">
             📞 Gọi 0987.443.258
           </a>
-          <Link href="/bao-gia" className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-heading font-bold py-3 px-6 rounded-xl transition-colors">
+          <Link href="/?service=PIN_LUU_TRU&source=service-pin-luu-tru#quote" className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-heading font-bold py-3 px-6 rounded-xl transition-colors">
             📋 Gửi Yêu Cầu Báo Giá
           </Link>
         </div>

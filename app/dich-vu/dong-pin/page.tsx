@@ -40,7 +40,7 @@ export default function BatteryServicePage() {
             Minh Hồng tự hào sở hữu đội ngũ kỹ thuật lành nghề, trang thiết bị đo đạc dòng xả chuyên dụng. Chúng tôi nhận phục hồi cell pin hỏng, nâng dung lượng, đóng khối mới cho mọi thiết bị.
           </p>
           <Link
-            href="/bao-gia"
+            href="/?service=DONG_PIN&source=service-dong-pin#quote"
             className="inline-block bg-red-600 hover:bg-red-700 text-white font-heading font-bold py-3 px-8 rounded-xl transition-colors shadow-md hover:shadow-lg"
           >
             Xem Bảng Giá
@@ -76,7 +76,7 @@ export default function BatteryServicePage() {
           <a href="tel:0987443258" className="inline-flex items-center gap-2 bg-slate-900 text-white font-body font-bold py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors">
             📞 Gọi 0987.443.258
           </a>
-          <Link href="/bao-gia" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
+          <Link href="/?service=DONG_PIN&source=service-dong-pin#quote" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
             📋 Yêu Cầu Báo Giá
           </Link>
         </div>

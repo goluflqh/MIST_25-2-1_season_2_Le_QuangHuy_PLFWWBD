@@ -206,7 +206,7 @@ export default async function PricingPage() {
             📞 Gọi 0987.443.258
           </a>
           <Link
-            href="/#quote"
+            href="/?source=pricing-page#quote"
             className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-heading font-bold py-3 px-6 rounded-xl transition-colors"
           >
             📋 Gửi Yêu Cầu

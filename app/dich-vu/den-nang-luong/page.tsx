@@ -40,7 +40,7 @@ export default function SolarLightPage() {
             Minh Hồng chuyên đóng pin, thay cell và lắp đặt đèn năng lượng mặt trời cho gia đình, sân vườn, cổng ngõ, kho bãi. Sử dụng cell Lithium chính hãng, đảm bảo độ sáng và tuổi thọ vượt trội.
           </p>
           <Link
-            href="/bao-gia"
+            href="/?service=DEN_NLMT&source=service-den-nlmt#quote"
             className="inline-block bg-yellow-500 hover:bg-yellow-600 text-white font-heading font-bold py-3 px-8 rounded-xl transition-colors shadow-md hover:shadow-lg"
           >
             Nhận Báo Giá Ngay
@@ -76,7 +76,7 @@ export default function SolarLightPage() {
           <a href="tel:0987443258" className="inline-flex items-center gap-2 bg-slate-900 text-white font-body font-bold py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors">
             📞 Gọi 0987.443.258
           </a>
-          <Link href="/bao-gia" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
+          <Link href="/?service=DEN_NLMT&source=service-den-nlmt#quote" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
             📋 Yêu Cầu Báo Giá
           </Link>
         </div>

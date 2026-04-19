@@ -41,7 +41,7 @@ export default function CameraServicePage() {
             Giải pháp tối ưu cho gia đình, cửa hàng và xưởng sản xuất. Minh Hồng trực tiếp khảo sát, thiết kế sơ đồ đi dây chống nhiễu, đảm bảo thẩm mỹ và không có điểm mù.
           </p>
           <Link
-            href="/bao-gia"
+            href="/?service=CAMERA&source=service-camera#quote"
             className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-heading font-bold py-3 px-8 rounded-xl transition-colors shadow-md hover:shadow-lg"
           >
             Xem Bảng Giá Camera
@@ -77,7 +77,7 @@ export default function CameraServicePage() {
           <a href="tel:0987443258" className="inline-flex items-center gap-2 bg-slate-900 text-white font-body font-bold py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors">
             📞 Gọi 0987.443.258
           </a>
-          <Link href="/bao-gia" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
+          <Link href="/?service=CAMERA&source=service-camera#quote" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
             📋 Yêu Cầu Khảo Sát
           </Link>
         </div>
