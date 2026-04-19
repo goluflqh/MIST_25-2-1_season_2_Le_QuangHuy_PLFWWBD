@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
+
 
 const slidesData = [
   {
@@ -46,7 +48,7 @@ export default function Hero() {
 
         <h1 className="font-heading font-extrabold text-3xl sm:text-4xl md:text-5xl lg:text-6xl mb-4 md:mb-6 leading-tight tracking-tight text-textMain">
           Giải Pháp Toàn Diện{" "}
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-500">
+          <span className="text-transparent bg-clip-text bg-linear-to-r from-primary to-orange-500">
             Thiết Bị & Điện Máy
           </span>
         </h1>
@@ -58,7 +60,7 @@ export default function Hero() {
         <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
           <Link
             href="#services"
-            className="btn-hover-fx bg-gradient-to-r from-primary to-red-700 text-white font-body font-bold px-6 py-3 sm:px-8 sm:py-4 rounded-xl text-sm sm:text-base md:text-lg flex justify-center items-center gap-2 shadow-glow-primary"
+            className="btn-hover-fx bg-linear-to-r from-primary to-red-700 text-white font-body font-bold px-6 py-3 sm:px-8 sm:py-4 rounded-xl text-sm sm:text-base md:text-lg flex justify-center items-center gap-2 shadow-glow-primary"
           >
             Dịch Vụ Nổi Bật
           </Link>
@@ -73,14 +75,17 @@ export default function Hero() {
 
       {/* Image Slider */}
       <div className="lg:w-1/2 w-full relative">
-        <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden glass-panel p-1.5 sm:p-2 h-[280px] sm:h-[360px] md:h-[420px] lg:h-[480px]">
+        <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden glass-panel p-1.5 sm:p-2 h-70 sm:h-90 md:h-105 lg:h-120">
           <div className="relative w-full h-full rounded-xl sm:rounded-2xl shadow-inner overflow-hidden bg-slate-100">
             {slidesData.map((slide, index) => (
-              <img
+              <Image
                 key={index}
                 src={slide.image}
                 alt={slide.alt}
-                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out ${
+                fill
+                priority={index === 0}
+                sizes="(max-width: 1024px) 100vw, 50vw"
+                className={`object-cover transition-opacity duration-1000 ease-in-out ${
                   index === currentSlide
                     ? "opacity-100 z-10 brightness-105"
                     : "opacity-0 z-0"

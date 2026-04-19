@@ -1,11 +1,23 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword, generateSessionToken } from "@/lib/auth";
+import { checkRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import { normalizePhone, isValidPhone, sanitizeText } from "@/lib/sanitize";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIP(request);
+    const rl = checkRateLimit(`login:${ip}`, RATE_LIMITS.login);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, message: "Quá nhiều lần thử. Vui lòng đợi 15 phút." },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
-    const { phone, password } = body;
+    const phone = normalizePhone(sanitizeText(body.phone || ""));
+    const password = body.password || "";
 
     if (!phone || !password) {
       return NextResponse.json(
@@ -14,10 +26,21 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!isValidPhone(phone)) {
+      return NextResponse.json(
+        { success: false, message: "Số điện thoại không hợp lệ." },
+        { status: 400 }
+      );
+    }
+
     const user = await prisma.user.findUnique({ where: { phone } });
+
+    // Generic error message to prevent user enumeration
+    const INVALID_MSG = "Số điện thoại hoặc mật khẩu không đúng.";
+
     if (!user) {
       return NextResponse.json(
-        { success: false, message: "Tài khoản không tồn tại." },
+        { success: false, message: INVALID_MSG },
         { status: 401 }
       );
     }
@@ -25,9 +48,21 @@ export async function POST(request: Request) {
     const isValid = await verifyPassword(password, user.password);
     if (!isValid) {
       return NextResponse.json(
-        { success: false, message: "Mật khẩu không đúng." },
+        { success: false, message: INVALID_MSG },
         { status: 401 }
       );
+    }
+
+    // Clean up old sessions for this user (keep max 5)
+    const oldSessions = await prisma.session.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      skip: 4,
+    });
+    if (oldSessions.length > 0) {
+      await prisma.session.deleteMany({
+        where: { id: { in: oldSessions.map((s) => s.id) } },
+      });
     }
 
     const token = generateSessionToken();

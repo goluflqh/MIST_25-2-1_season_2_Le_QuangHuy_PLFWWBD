@@ -1,4 +1,9 @@
 @import "tailwindcss";
+@source "../app/**/*.{js,ts,jsx,tsx,mdx}";
+@source "../components/**/*.{js,ts,jsx,tsx,mdx}";
+@source "../lib/**/*.{js,ts,jsx,tsx,mdx}";
+@source not "../.agent/**/*";
+
 
 @theme inline {
   --color-primary: #dc2626;

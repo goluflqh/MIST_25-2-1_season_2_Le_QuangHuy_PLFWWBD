@@ -10,7 +10,7 @@ const spaceGrotesk = Space_Grotesk({
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
-  subsets: ["vietnamese", "latin"],
+  subsets: ["latin", "latin-ext"],
   weight: ["400", "500", "700"],
 });
 
@@ -33,7 +33,12 @@ export const metadata: Metadata = {
 
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-import ChatbotWidget from "@/components/ChatbotWidget";
+import dynamic from "next/dynamic";
+import { Suspense } from "react";
+
+const ChatbotWidget = dynamic(() => import("@/components/ChatbotWidget"), {
+  ssr: false,
+});
 
 export default function RootLayout({
   children,
@@ -57,7 +62,9 @@ export default function RootLayout({
           {children}
         </main>
         <Footer />
-        <ChatbotWidget />
+        <Suspense fallback={null}>
+          <ChatbotWidget />
+        </Suspense>
       </body>
     </html>
   );

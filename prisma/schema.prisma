@@ -1,33 +1,39 @@
 // Prisma Schema for Minh Hồng Fullstack
-// Run: npx prisma generate && npx prisma db push) 
-// SQLite for local dev, switch to PostgreSQL for production
+// Run: npx prisma generate && npx prisma db push
+// Optimized for PostgreSQL (Supabase / Neon / Vercel Postgres)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String
-  phone         String   @unique
+  phone         String    @unique
   password      String
-  role          String   @default("CUSTOMER")
-  loyaltyPoints Int      @default(0)
-  referralCode  String?  @unique
+  role          String    @default("CUSTOMER")
+  loyaltyPoints Int       @default(0)
+  referralCode  String?   @unique
   referredBy    String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   sessions        Session[]
   contactRequests ContactRequest[]
   reviews         Review[]
   coupons         Coupon[]
   warranties      Warranty[]
+  auditLogs       AuditLog[]
+
+  @@index([phone])
+  @@index([referralCode])
+  @@index([createdAt])
 }
 
 model Session {
@@ -38,77 +44,122 @@ model Session {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
 }
 
 model ContactRequest {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   name      String
   phone     String
-  service   String   @default("KHAC")
+  service   String    @default("KHAC")
   message   String?
-  status    String   @default("PENDING")
+  status    String    @default("PENDING")
   notes     String?
   userId    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   user User? @relation(fields: [userId], references: [id])
+
+  @@index([phone])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Review {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   rating    Int
   comment   String
-  service   String   @default("KHAC")
-  approved  Boolean  @default(false)
-  createdAt DateTime @default(now())
+  service   String    @default("KHAC")
+  approved  Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([approved])
+  @@index([createdAt])
 }
 
 model PricingItem {
-  id          String  @id @default(cuid())
-  category    String  // PIN | NLMT | LUU_TRU | CAMERA
+  id          String   @id @default(cuid())
+  category    String // PIN | NLMT | LUU_TRU | CAMERA
   name        String
   price       String
-  unit        String  @default("VNĐ")
+  unit        String   @default("VNĐ")
   description String?
   note        String?
-  sortOrder   Int     @default(0)
-  active      Boolean @default(true)
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([active])
 }
 
 model Coupon {
-  id            String   @id @default(cuid())
-  code          String   @unique
-  description   String
-  discount      String   // "10%" or "50000"
-  pointsCost    Int      @default(0)
-  usageLimit    Int      @default(1)
-  usedCount     Int      @default(0)
-  active        Boolean  @default(true)
-  expiresAt     DateTime?
-  userId        String?
-  createdAt     DateTime @default(now())
+  id          String    @id @default(cuid())
+  code        String    @unique
+  description String
+  discount    String // "10%" or "50000"
+  pointsCost  Int       @default(0)
+  usageLimit  Int       @default(1)
+  usedCount   Int       @default(0)
+  active      Boolean   @default(true)
+  expiresAt   DateTime?
+  userId      String?
+  createdAt   DateTime  @default(now())
 
   user User? @relation(fields: [userId], references: [id])
+
+  @@index([code])
+  @@index([userId])
+  @@index([active])
 }
 
 model Warranty {
-  id          String   @id @default(cuid())
-  serialNo    String   @unique
-  productName String
-  customerName String
+  id            String    @id @default(cuid())
+  serialNo      String    @unique
+  productName   String
+  customerName  String
   customerPhone String
-  service     String   @default("KHAC")
-  startDate   DateTime @default(now())
-  endDate     DateTime
-  notes       String?
-  createdAt   DateTime @default(now())
-  userId      String?
+  service       String    @default("KHAC")
+  startDate     DateTime  @default(now())
+  endDate       DateTime
+  notes         String?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  userId        String?
 
   user User? @relation(fields: [userId], references: [id])
+
+  @@index([serialNo])
+  @@index([customerPhone])
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  entity    String
+  entityId  String?
+  oldData   Json?
+  newData   Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }
