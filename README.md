@@ -1,76 +1,36 @@
-# Minh Hồng Next
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-Website Next.js cho Minh Hồng, gồm landing page, dashboard quản trị và chatbot tư vấn.
+## Getting Started
 
-## Chạy local
-
-1. Cài dependencies:
-
-```bash
-npm install
-```
-
-2. Tạo file `.env` từ `.env.example` và điền các biến cần thiết.
-
-3. Chạy dev server:
+First, run the development server:
 
 ```bash
 npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-Mở `http://localhost:3000`.
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-## Cấu hình 9router
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-Nếu chạy 9router trực tiếp trên máy:
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-```bash
-9router --no-browser --skip-update
-```
+## Learn More
 
-Khi đó trong `.env` dùng:
+To learn more about Next.js, take a look at the following resources:
 
-```env
-AI_PROVIDER="9router"
-NINE_ROUTER_BASE_URL="http://127.0.0.1:20128/v1"
-NINE_ROUTER_MODEL="cx/gpt-5.2"
-NINE_ROUTER_API_KEY="your-9router-api-key"
-```
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-## Chạy bằng Docker Compose
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-Repo đã có sẵn:
+## Deploy on Vercel
 
-- `Dockerfile` cho app Next.js
-- `docker/9router.Dockerfile` cho 9router
-- `docker-compose.yml` để chạy cả app và 9router
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-Chuẩn bị biến môi trường trong shell hoặc file `.env`, rồi chạy:
-
-```bash
-docker compose up --build -d
-```
-
-Khi chạy bằng Compose, app sẽ gọi 9router qua hostname nội bộ:
-
-```env
-NINE_ROUTER_BASE_URL="http://nine-router:20128/v1"
-```
-
-Sau khi container `nine-router` chạy, mở dashboard tại `http://YOUR_SERVER_IP:20128/dashboard` để đăng nhập/cấu hình provider một lần đầu.
-
-## Deploy VPS
-
-Workflow khuyến nghị:
-
-1. Code và test trên Windows bằng `npm run dev`.
-2. Build kiểm tra bằng `npm run build`.
-3. Đưa repo lên VPS.
-4. Tạo file `.env` production trên VPS.
-5. Chạy `docker compose up --build -d`.
-
-Lưu ý:
-
-- Chatbot chỉ hoạt động 24/7 khi cả app Next.js và 9router cùng chạy thường trực trên VPS.
-- Không commit file `.env` chứa key thật.
-- Với Next.js 16, repo này đã chuyển từ `middleware.ts` sang `proxy.ts` để tránh warning deprecation khi build.
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

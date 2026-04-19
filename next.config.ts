@@ -1,9 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Standalone output keeps Docker runtime smaller and simpler to deploy.
-  output: "standalone",
-
   // Image optimization for external sources
   images: {
     remotePatterns: [
