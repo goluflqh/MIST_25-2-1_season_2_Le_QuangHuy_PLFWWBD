@@ -5,8 +5,16 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 
 interface UserInfo {
+  id: string;
   name: string;
   role: string;
+}
+
+function hasSessionCookie() {
+  if (typeof document === "undefined") return false;
+  return document.cookie
+    .split(";")
+    .some((cookie) => cookie.trim().startsWith("session_token="));
 }
 
 export default function Header() {
@@ -16,35 +24,110 @@ export default function Header() {
   const [servicesMenuState, setServicesMenuState] = useState({ open: false, pathname });
   const [user, setUser] = useState<UserInfo | null>(null);
   const [notifCount, setNotifCount] = useState(0);
+  const hasSession = hasSessionCookie();
+  const [isAuthLoading, setIsAuthLoading] = useState(hasSession);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const isMobileMenuOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
   const isServicesOpen = servicesMenuState.pathname === pathname && servicesMenuState.open;
+  const visibleUser = hasSession ? user : null;
+  const visibleNotifCount = hasSession ? notifCount : 0;
 
-  // Fetch auth state
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) setUser(data.user);
-      })
-      .catch(() => {});
-  }, [pathname]);
+    if (!hasSession) {
+      setUser(null);
+      setNotifCount(0);
+      setIsAuthLoading(false);
+      return;
+    }
 
-  // Fetch notification count
-  useEffect(() => {
-    if (!user) return;
-    const fetchNotifs = () => {
-      const lastSeen = localStorage.getItem("mh_notif_seen") || "";
-      const url = lastSeen ? `/api/user/notifications?lastSeen=${encodeURIComponent(lastSeen)}` : "/api/user/notifications";
-      fetch(url)
-        .then((r) => r.json())
-        .then((d) => { if (d.success) setNotifCount(d.total || 0); })
-        .catch(() => {});
+    let isActive = true;
+    setIsAuthLoading(true);
+
+    const loadCurrentUser = async () => {
+      try {
+        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        const data = await response.json();
+
+        if (!isActive) return;
+
+        if (response.ok && data.success) {
+          setUser(data.user);
+        } else {
+          setUser(null);
+          setNotifCount(0);
+        }
+      } catch {
+        if (!isActive) return;
+        setUser(null);
+        setNotifCount(0);
+      } finally {
+        if (isActive) {
+          setIsAuthLoading(false);
+        }
+      }
     };
-    fetchNotifs();
-    const interval = setInterval(fetchNotifs, 30000);
-    return () => clearInterval(interval);
-  }, [user, pathname]);
+
+    void loadCurrentUser();
+
+    return () => {
+      isActive = false;
+    };
+  }, [hasSession]);
+
+  useEffect(() => {
+    if (!hasSession || !user) return;
+
+    let isActive = true;
+
+    const fetchNotifs = async () => {
+      if (document.visibilityState === "hidden") return;
+
+      try {
+        const lastSeen = localStorage.getItem("mh_notif_seen") || "";
+        const url = lastSeen
+          ? `/api/user/notifications?lastSeen=${encodeURIComponent(lastSeen)}`
+          : "/api/user/notifications";
+        const response = await fetch(url, { cache: "no-store" });
+        const data = await response.json();
+
+        if (!isActive) return;
+
+        if (response.ok && data.success) {
+          setNotifCount(data.total || 0);
+        } else if (response.status === 401) {
+          setNotifCount(0);
+        }
+      } catch {
+        // Ignore background polling errors and keep the last count.
+      }
+    };
+
+    const handleFocus = () => {
+      void fetchNotifs();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void fetchNotifs();
+      }
+    };
+
+    void fetchNotifs();
+    const interval = window.setInterval(() => {
+      void fetchNotifs();
+    }, 30000);
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [hasSession, user]);
 
   const dismissNotifications = () => {
     localStorage.setItem("mh_notif_seen", new Date().toISOString());
@@ -64,10 +147,21 @@ export default function Header() {
   };
 
   const handleLogout = async () => {
+    if (isLoggingOut) return;
+
     closeMenus();
-    await fetch("/api/auth/logout", { method: "POST" });
-    setUser(null);
-    router.push("/");
+    setIsLoggingOut(true);
+
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      setUser(null);
+      setNotifCount(0);
+      setIsAuthLoading(false);
+      setIsLoggingOut(false);
+      router.push("/");
+      router.refresh();
+    }
   };
 
   const serviceLinks = [
@@ -149,10 +243,15 @@ export default function Header() {
 
         {/* Desktop Auth / User */}
         <div className="hidden lg:flex items-center gap-3">
-          {user ? (
+          {hasSession && isAuthLoading ? (
+            <div className="flex items-center gap-3" aria-label="Đang tải tài khoản">
+              <div className="h-10 w-32 rounded-xl bg-slate-100 animate-pulse" />
+              <div className="h-10 w-20 rounded-xl bg-slate-100 animate-pulse" />
+            </div>
+          ) : visibleUser ? (
             <>
               <Link
-                href={user.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
+                href={visibleUser.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
                 onClick={() => {
                   dismissNotifications();
                   closeMenus();
@@ -161,18 +260,22 @@ export default function Header() {
               >
                 <div className="relative">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-xs font-bold">
-                    {user.name.charAt(0)}
+                    {visibleUser.name.charAt(0)}
                   </div>
-                  {notifCount > 0 && (
+                  {visibleNotifCount > 0 && (
                     <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[9px] font-black rounded-full px-1 border-2 border-white animate-pulse">
-                      {notifCount}
+                      {visibleNotifCount}
                     </span>
                   )}
                 </div>
-                <span className="font-body font-semibold text-sm text-slate-700">{user.name}</span>
+                <span className="font-body font-semibold text-sm text-slate-700">{visibleUser.name}</span>
               </Link>
-              <button onClick={handleLogout} className="font-body text-sm text-slate-400 hover:text-red-500 transition-colors px-2">
-                Đăng xuất
+              <button
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className="font-body text-sm text-slate-400 hover:text-red-500 disabled:text-slate-300 transition-colors px-2"
+              >
+                {isLoggingOut ? "Đang thoát..." : "Đăng xuất"}
               </button>
             </>
           ) : (
@@ -229,10 +332,15 @@ export default function Header() {
             <div className="h-px bg-slate-100 mx-4 my-2"></div>
 
             {/* Auth / User */}
-            {user ? (
+            {hasSession && isAuthLoading ? (
+              <div className="px-4 pt-2 space-y-2" aria-label="Đang tải tài khoản">
+                <div className="h-12 rounded-xl bg-slate-100 animate-pulse" />
+                <div className="h-11 rounded-xl bg-slate-100 animate-pulse" />
+              </div>
+            ) : visibleUser ? (
               <>
                 <Link
-                  href={user.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
+                  href={visibleUser.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
                   onClick={() => {
                     dismissNotifications();
                     closeMenus();
@@ -241,21 +349,25 @@ export default function Header() {
                 >
                   <div className="relative">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white font-bold">
-                      {user.name.charAt(0)}
+                      {visibleUser.name.charAt(0)}
                     </div>
-                    {notifCount > 0 && (
+                    {visibleNotifCount > 0 && (
                       <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[9px] font-black rounded-full px-1 border-2 border-white animate-pulse">
-                        {notifCount}
+                        {visibleNotifCount}
                       </span>
                     )}
                   </div>
                   <div>
-                    <p className="font-body font-bold text-sm text-slate-900">{user.name}</p>
-                    <p className="font-body text-xs text-slate-400">{user.role === "ADMIN" ? "Quản trị viên" : "Khách hàng"}</p>
+                    <p className="font-body font-bold text-sm text-slate-900">{visibleUser.name}</p>
+                    <p className="font-body text-xs text-slate-400">{visibleUser.role === "ADMIN" ? "Quản trị viên" : "Khách hàng"}</p>
                   </div>
                 </Link>
-                <button onClick={handleLogout} className="w-full text-left px-4 py-3 rounded-xl font-body font-semibold text-sm text-red-500 hover:bg-red-50">
-                  🚪 Đăng Xuất
+                <button
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="w-full text-left px-4 py-3 rounded-xl font-body font-semibold text-sm text-red-500 hover:bg-red-50 disabled:text-slate-300"
+                >
+                  {isLoggingOut ? "Đang đăng xuất..." : "🚪 Đăng Xuất"}
                 </button>
               </>
             ) : (

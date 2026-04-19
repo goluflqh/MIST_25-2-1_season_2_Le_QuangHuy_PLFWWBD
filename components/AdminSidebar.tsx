@@ -54,22 +54,52 @@ function SidebarNav({ pathname, counts }: { pathname: string; counts: NavCounts 
   );
 }
 
-export default function AdminSidebar() {
+export default function AdminSidebar({ initialCounts }: { initialCounts: NavCounts }) {
   const pathname = usePathname();
-  const [counts, setCounts] = useState<NavCounts>({ contacts: 0, reviews: 0 });
+  const [counts, setCounts] = useState<NavCounts>(initialCounts);
   const [mobileMenuState, setMobileMenuState] = useState({ open: false, pathname });
   const mobileOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
 
   useEffect(() => {
-    const fetchCounts = () => {
-      fetch("/api/admin/notifications")
-        .then((r) => r.json())
-        .then((d) => { if (d.success) setCounts(d.counts); })
-        .catch(() => {});
+    let isActive = true;
+
+    const fetchCounts = async () => {
+      if (document.visibilityState === "hidden") return;
+
+      try {
+        const response = await fetch("/api/admin/notifications", { cache: "no-store" });
+        const data = await response.json();
+        if (isActive && data.success) {
+          setCounts(data.counts);
+        }
+      } catch {
+        // Ignore background polling errors and keep the last known counts.
+      }
     };
-    fetchCounts();
-    const interval = setInterval(fetchCounts, 30000);
-    return () => clearInterval(interval);
+
+    const handleFocus = () => {
+      void fetchCounts();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void fetchCounts();
+      }
+    };
+
+    const interval = window.setInterval(() => {
+      void fetchCounts();
+    }, 30000);
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   const toggleMobileMenu = () => {

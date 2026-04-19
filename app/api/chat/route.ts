@@ -2,49 +2,203 @@ import { NextResponse } from "next/server";
 import { checkRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { sanitizeText } from "@/lib/sanitize";
 
-const SYSTEM_PROMPT = `Bạn là trợ lý AI tư vấn cho cửa hàng "Minh Hồng" - chuyên đóng pin và lắp đặt camera an ninh.
+type AIProvider = "gemini" | "openai" | "9router";
 
-=== THÔNG TIN CỬA HÀNG ===
-- Tên: Minh Hồng (chủ cửa hàng tên Hồng)
-- Địa chỉ: Xã Đồng Dương, TP. Đà Nẵng
-- Hotline: 0987.443.258
-- Giờ mở cửa: 6h - 21h hàng ngày
-- Nhận ship toàn quốc
+interface ChatMessage {
+  role: string;
+  content: string;
+}
 
-=== DỊCH VỤ ĐÓNG PIN (chuyên môn chính) ===
-1. Pin xe điện (xe đạp điện, xe máy điện)
-2. Pin máy công cụ (máy khoan, máy cắt, máy mài, máy bắn vít...)
-3. Pin loa kéo
-4. Pin lưu trữ năng lượng
-5. Pin kích đề ô tô
-6. Pin đèn năng lượng mặt trời (ĐÈN NLMT)
-7. Pin dự phòng dung lượng lớn
-8. Nhận đóng bình pin theo yêu cầu riêng (custom)
-- Dùng cell Lithium chính hãng (Samsung, LG, EVE...)
-- Bảo hành 6-12 tháng tuỳ loại
-- Bảo dưỡng cân bằng cell miễn phí trọn đời
+interface ChatCompletionOptions {
+  apiKey: string;
+  baseUrl: string;
+  history?: ChatMessage[];
+  label: string;
+  model: string;
+  userMessage: string;
+}
 
-=== DỊCH VỤ CAMERA AN NINH ===
-- Lắp đặt camera giám sát cho nhà ở, cửa hàng, xưởng sản xuất, kho bãi
-- Khảo sát miễn phí tận nơi
-- Thi công nhanh trong ngày
-- Bảo hành 24 tháng phần cứng
-- Hỗ trợ xem camera qua điện thoại
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const DEFAULT_9ROUTER_BASE_URL = "http://127.0.0.1:20128/v1";
+const DEFAULT_9ROUTER_MODEL = "cx/gpt-5.2";
+const REQUEST_TIMEOUT_MS = 12000;
+const MAX_HISTORY_MESSAGES = 6;
+const DEFAULT_FALLBACK_REPLY =
+  "Xin lỗi, hệ thống đang bận. Bạn vui lòng gọi 0987.443.258 để được hỗ trợ nhanh nhất ạ!";
 
-=== CÁCH TRẢ LỜI ===
-1. Trả lời ngắn gọn, thân thiện, bằng tiếng Việt
-2. Luôn gợi ý khách liên hệ hotline 0987.443.258 để được báo giá chính xác
-3. Khi khách hỏi về sản phẩm Minh Hồng có bán/làm, hãy xác nhận "Có" và tư vấn thêm
-4. Không bịa đặt giá cụ thể nếu không chắc chắn
-5. Nếu câu hỏi hoàn toàn không liên quan (ví dụ: nấu ăn, thời tiết...), lịch sự từ chối
-6. Minh Hồng CÓ làm đèn năng lượng mặt trời (đóng pin cho đèn NLMT)
-7. Hãy tự tin giới thiệu tất cả dịch vụ trên khi được hỏi`;
+const SYSTEM_PROMPT = `Bạn là trợ lý tư vấn của Minh Hồng tại Xã Đồng Dương, TP. Đà Nẵng.
+Minh Hồng chuyên đóng pin xe điện, pin máy khoan, pin loa kéo, pin đèn năng lượng mặt trời và lắp camera an ninh.
+Trả lời bằng tiếng Việt tự nhiên, đi thẳng vào ý chính, chỉ 2 đến 4 câu ngắn.
+Không dùng markdown, không dùng ký hiệu như **, __, # hoặc danh sách dài.
+Nếu cần báo giá hoặc kiểm tra tình trạng pin thì mời khách gọi 0987.443.258.
+Không bịa giá cụ thể nếu chưa đủ thông tin. Nếu câu hỏi không liên quan đến dịch vụ của Minh Hồng thì từ chối ngắn gọn.`;
+
+function normalizeProvider(provider: string | undefined): AIProvider {
+  const value = provider?.trim().toLowerCase();
+  if (value === "openai") return "openai";
+  if (value === "9router") return "9router";
+  return "gemini";
+}
+
+function removeTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function normalizeLookupText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeAssistantReply(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function includesAny(text: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function getAIConfig() {
+  const provider = normalizeProvider(process.env.AI_PROVIDER);
+
+  if (provider === "9router") {
+    return {
+      provider,
+      apiKey: process.env.NINE_ROUTER_API_KEY || process.env.AI_API_KEY,
+      baseUrl: removeTrailingSlash(
+        process.env.NINE_ROUTER_BASE_URL || process.env.AI_BASE_URL || DEFAULT_9ROUTER_BASE_URL
+      ),
+      model: process.env.NINE_ROUTER_MODEL || process.env.AI_MODEL || DEFAULT_9ROUTER_MODEL,
+    };
+  }
+
+  if (provider === "openai") {
+    return {
+      provider,
+      apiKey: process.env.OPENAI_API_KEY || process.env.AI_API_KEY,
+      baseUrl: removeTrailingSlash(
+        process.env.OPENAI_BASE_URL || process.env.AI_BASE_URL || DEFAULT_OPENAI_BASE_URL
+      ),
+      model: process.env.OPENAI_MODEL || process.env.AI_MODEL || DEFAULT_OPENAI_MODEL,
+    };
+  }
+
+  return {
+    provider,
+    apiKey: process.env.GEMINI_API_KEY || process.env.AI_API_KEY,
+    baseUrl: "",
+    model: "",
+  };
+}
+
+function isMissingAIKey(apiKey: string | undefined): boolean {
+  return (
+    !apiKey ||
+    apiKey === "your-ai-api-key-here" ||
+    apiKey === "your-openai-api-key-here" ||
+    apiKey === "your-9router-api-key-here"
+  );
+}
+
+function sanitizeHistory(history: unknown): ChatMessage[] {
+  if (!Array.isArray(history)) return [];
+
+  return history
+    .filter(
+      (item): item is ChatMessage =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof item.role === "string" &&
+        typeof item.content === "string"
+    )
+    .map((item) => ({
+      role: item.role === "assistant" ? "assistant" : "user",
+      content: sanitizeText(item.content).slice(0, 800),
+    }))
+    .filter((item) => item.content.length > 0)
+    .slice(-MAX_HISTORY_MESSAGES);
+}
+
+function getQuickReply(message: string): string | null {
+  const lookup = normalizeLookupText(message);
+
+  if (!lookup) return null;
+
+  if (
+    includesAny(lookup, [
+      "dia chi",
+      "o dau",
+      "lien he",
+      "so dien thoai",
+      "hotline",
+      "may gio",
+      "mo cua",
+      "gio mo cua",
+    ])
+  ) {
+    return "Minh Hồng ở Xã Đồng Dương, TP. Đà Nẵng và mở cửa từ 6h đến 21h mỗi ngày. Anh/chị cần tư vấn hoặc báo giá nhanh thì gọi 0987.443.258 nhé.";
+  }
+
+  if (
+    includesAny(lookup, ["gia", "bao nhieu", "chi phi"]) &&
+    includesAny(lookup, ["pin", "dong pin", "binh", "cell", "xe dien", "loa", "may khoan"])
+  ) {
+    return "Giá còn tùy loại pin, số cell, dung lượng và thiết bị nên bên em cần xem đúng mẫu mới báo chuẩn. Anh/chị gửi model hoặc gọi 0987.443.258 để Minh Hồng báo nhanh cho mình nhé.";
+  }
+
+  if (
+    includesAny(lookup, ["sac nhanh day", "nhanh het", "pin yeu", "tu hao", "bao ao"]) &&
+    includesAny(lookup, ["pin", "binh", "cell", "sac", "dien"])
+  ) {
+    return "Dấu hiệu này thường do cell pin chai, lệch cell hoặc mạch pin lỗi. Minh Hồng kiểm tra miễn phí rồi mới báo nên sửa hay đóng lại pin, anh/chị có thể gửi model hoặc gọi 0987.443.258 để được hướng dẫn nhanh.";
+  }
+
+  if (includesAny(lookup, ["phong pin", "pin phong", "khong nhan sac", "sut ap", "chai pin"])) {
+    return "Pin có dấu hiệu phồng hoặc sụt áp thì nên ngưng dùng sớm để tránh hư thêm và mất an toàn. Minh Hồng có thể kiểm tra tình trạng pin và tư vấn phương án phù hợp, anh/chị gọi 0987.443.258 nhé.";
+  }
+
+  if (includesAny(lookup, ["camera"]) && includesAny(lookup, ["lap", "gan", "thi cong", "an ninh"])) {
+    return "Có, Minh Hồng nhận lắp camera cho nhà ở, cửa hàng và xưởng, có khảo sát miễn phí và hỗ trợ cài xem trên điện thoại. Anh/chị gọi 0987.443.258 để bên em tư vấn cấu hình phù hợp.";
+  }
+
+  return null;
+}
+
+async function fetchWithTimeout(
+  input: string | URL,
+  init: RequestInit = {},
+  timeoutMs = REQUEST_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 export async function POST(request: Request) {
   try {
-    // Rate limit: 15 requests per minute per IP
     const ip = getClientIP(request);
     const rl = checkRateLimit(`chat:${ip}`, RATE_LIMITS.chat);
+
     if (!rl.allowed) {
       return NextResponse.json(
         { success: false, reply: "Bạn gửi quá nhanh. Vui lòng đợi một chút nhé!" },
@@ -54,7 +208,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const message = sanitizeText(body?.message || "");
-    const history: { role: string; content: string }[] = body?.history || [];
+    const history = sanitizeHistory(body?.history);
 
     if (!message) {
       return NextResponse.json(
@@ -63,103 +217,107 @@ export async function POST(request: Request) {
       );
     }
 
-    const aiApiKey = process.env.AI_API_KEY;
-    const aiProvider = process.env.AI_PROVIDER || "gemini";
+    const quickReply = getQuickReply(message);
+    if (quickReply) {
+      return NextResponse.json({ success: true, reply: normalizeAssistantReply(quickReply) });
+    }
 
-    // If no API key configured, return a helpful fallback
-    if (!aiApiKey || aiApiKey === "your-ai-api-key-here") {
+    const aiConfig = getAIConfig();
+
+    if (isMissingAIKey(aiConfig.apiKey)) {
       return NextResponse.json({
         success: true,
-        reply: `Cảm ơn bạn đã quan tâm! Hiện tại hệ thống AI đang cập nhật. Để được tư vấn ngay, vui lòng gọi hotline 0987.443.258 hoặc nhắn tin qua Zalo nhé! 😊`,
+        reply: normalizeAssistantReply(
+          "Cảm ơn bạn đã quan tâm. Hiện tại hệ thống AI đang cập nhật, bạn vui lòng gọi 0987.443.258 hoặc nhắn Zalo để được tư vấn ngay nhé."
+        ),
       });
     }
 
-    let reply = "";
+    let reply = DEFAULT_FALLBACK_REPLY;
 
-    if (aiProvider === "gemini") {
-      reply = await callGemini(aiApiKey, message, history);
+    if (aiConfig.provider === "gemini") {
+      reply = await callGemini(aiConfig.apiKey!, message, history);
+    } else if (aiConfig.provider === "openai") {
+      reply = await callOpenAI(aiConfig.apiKey!, aiConfig.model, aiConfig.baseUrl, message, history);
     } else {
-      reply = await callOpenAI(aiApiKey, message, history);
+      reply = await callNineRouter(
+        aiConfig.apiKey!,
+        aiConfig.model,
+        aiConfig.baseUrl,
+        message,
+        history
+      );
     }
 
-    // Cache for 5 minutes, stale-while-revalidate for 10
-    const response = NextResponse.json({ success: true, reply });
+    const response = NextResponse.json({
+      success: true,
+      reply: normalizeAssistantReply(reply) || DEFAULT_FALLBACK_REPLY,
+    });
     response.headers.set("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
     return response;
   } catch (error) {
     console.error("Chat API Error:", error);
     return NextResponse.json({
       success: true,
-      reply: "Xin lỗi, hệ thống đang bận. Bạn vui lòng gọi 0987.443.258 để được hỗ trợ nhanh nhất ạ!",
+      reply: DEFAULT_FALLBACK_REPLY,
     });
   }
 }
 
-async function callGemini(apiKey: string, userMessage: string, history: { role: string; content: string }[] = []): Promise<string> {
+async function callGemini(
+  apiKey: string,
+  userMessage: string,
+  history: ChatMessage[] = []
+): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  
-  console.log("[Gemini] Calling API with", history.length, "history messages...");
+  const contents =
+    history.length > 0
+      ? history.map((message) => ({
+          role: message.role === "assistant" ? "model" : "user",
+          parts: [{ text: message.content }],
+        }))
+      : [{ role: "user", parts: [{ text: userMessage }] }];
 
-  // Build multi-turn conversation for Gemini
-  const contents = history.map((msg) => ({
-    role: msg.role === "assistant" ? "model" : "user",
-    parts: [{ text: msg.content }],
-  }));
-
-  // If history is empty, just send the current message
-  if (contents.length === 0) {
-    contents.push({ role: "user", parts: [{ text: userMessage }] });
-  }
-  
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents,
       generationConfig: {
-        maxOutputTokens: 800,
-        temperature: 0.7,
+        maxOutputTokens: 220,
+        temperature: 0.35,
       },
     }),
   });
 
   const data = await res.json();
-  
-  // Log error details for debugging
+
   if (!res.ok) {
     console.error("[Gemini] API Error:", res.status, JSON.stringify(data));
-    
-    // Try fallback model for any error (404, 400, 429 rate limit, etc.)
-    console.log("[Gemini] Trying fallback model gemini-1.5-flash...");
+
     try {
       return await callGeminiFallback(apiKey, userMessage);
     } catch {
-      // Both models failed - return friendly message
-      return "Hệ thống AI đang tạm quá tải. Anh/chị vui lòng gọi trực tiếp hotline 0987.443.258 để được tư vấn ngay nhé! 😊";
+      return DEFAULT_FALLBACK_REPLY;
     }
   }
 
-  console.log("[Gemini] Success:", data?.candidates?.[0]?.content?.parts?.[0]?.text?.substring(0, 50));
-
-  return (
-    data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-    "Xin lỗi, mình chưa hiểu câu hỏi. Gọi 0987.443.258 để được tư vấn trực tiếp nhé!"
-  );
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || DEFAULT_FALLBACK_REPLY;
 }
 
 async function callGeminiFallback(apiKey: string, userMessage: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`;
-  
-  const res = await fetch(url, {
+
+  const res = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ parts: [{ text: userMessage }] }],
       generationConfig: {
-        maxOutputTokens: 300,
-        temperature: 0.7,
+        maxOutputTokens: 180,
+        temperature: 0.3,
       },
     }),
   });
@@ -171,17 +329,18 @@ async function callGeminiFallback(apiKey: string, userMessage: string): Promise<
     throw new Error(`Gemini fallback error: ${res.status}`);
   }
 
-  return (
-    data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-    "Xin lỗi, mình chưa hiểu câu hỏi. Gọi 0987.443.258 để được tư vấn trực tiếp nhé!"
-  );
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || DEFAULT_FALLBACK_REPLY;
 }
 
-async function callOpenAI(apiKey: string, userMessage: string, history: { role: string; content: string }[] = []): Promise<string> {
-  // Build messages with history
-  const messages: { role: string; content: string }[] = [
-    { role: "system", content: SYSTEM_PROMPT },
-  ];
+async function callOpenAICompatible({
+  apiKey,
+  baseUrl,
+  history = [],
+  label,
+  model,
+  userMessage,
+}: ChatCompletionOptions): Promise<string> {
+  const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }];
 
   if (history.length > 0) {
     messages.push(...history);
@@ -189,29 +348,60 @@ async function callOpenAI(apiKey: string, userMessage: string, history: { role: 
     messages.push({ role: "user", content: userMessage });
   }
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model,
       messages,
-      max_tokens: 800,
-      temperature: 0.7,
+      max_tokens: 220,
+      temperature: 0.3,
     }),
   });
 
   const data = await res.json();
 
   if (!res.ok) {
-    console.error("[OpenAI] API Error:", res.status, JSON.stringify(data));
-    throw new Error(`OpenAI error: ${res.status}`);
+    console.error(`[${label}] API Error:`, res.status, JSON.stringify(data));
+    throw new Error(`${label} error: ${res.status}`);
   }
 
-  return (
-    data?.choices?.[0]?.message?.content ||
-    "Xin lỗi, mình chưa hiểu câu hỏi. Gọi 0987.443.258 để được tư vấn trực tiếp nhé!"
-  );
+  return data?.choices?.[0]?.message?.content || DEFAULT_FALLBACK_REPLY;
+}
+
+async function callOpenAI(
+  apiKey: string,
+  model: string,
+  baseUrl: string,
+  userMessage: string,
+  history: ChatMessage[] = []
+): Promise<string> {
+  return callOpenAICompatible({
+    apiKey,
+    baseUrl,
+    history,
+    label: "OpenAI",
+    model,
+    userMessage,
+  });
+}
+
+async function callNineRouter(
+  apiKey: string,
+  model: string,
+  baseUrl: string,
+  userMessage: string,
+  history: ChatMessage[] = []
+): Promise<string> {
+  return callOpenAICompatible({
+    apiKey,
+    baseUrl,
+    history,
+    label: "9Router",
+    model,
+    userMessage,
+  });
 }
