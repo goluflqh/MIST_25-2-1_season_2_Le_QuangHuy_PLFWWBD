@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, DM_Sans } from "next/font/google";
+import { AuthProvider } from "@/components/AuthProvider";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import ChatbotWidget from "@/components/ChatbotWidget";
+import { getCurrentSessionUser } from "@/lib/session";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -34,29 +36,40 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const currentUser = await getCurrentSessionUser();
+
   return (
     <html lang="vi" className="scroll-smooth scroll-pt-32" data-scroll-behavior="smooth">
       <body
         className={`${spaceGrotesk.variable} ${dmSans.variable} antialiased bg-slate-50 font-body text-slate-800 flex flex-col min-h-screen`}
       >
-        <div className="fixed inset-0 overflow-hidden pointer-events-none z-[-1]">
-          <div className="absolute top-0 right-0 -mr-32 -mt-32 w-96 h-96 rounded-full bg-red-100 blur-3xl opacity-50 mix-blend-multiply"></div>
-          <div className="absolute top-[20%] left-0 -ml-32 w-80 h-80 rounded-full bg-yellow-100 blur-3xl opacity-50 mix-blend-multiply"></div>
-        </div>
-        
-        <div className="fixed bg-orange-300 w-80 h-80 bottom-[20%] left-[20%] animate-blob animate-delay-[4000ms] rounded-[40%_60%_70%_30%/40%_50%_60%_50%] opacity-20 blur-3xl pointer-events-none z-[-1]"></div>
+        <AuthProvider
+          key={currentUser ? `${currentUser.id}:${currentUser.role}:${currentUser.name}` : "guest"}
+          initialUser={
+            currentUser
+              ? { id: currentUser.id, name: currentUser.name, role: currentUser.role }
+              : null
+          }
+        >
+          <div className="fixed inset-0 overflow-hidden pointer-events-none z-[-1]">
+            <div className="absolute top-0 right-0 -mr-32 -mt-32 w-96 h-96 rounded-full bg-red-100 blur-3xl opacity-50 mix-blend-multiply"></div>
+            <div className="absolute top-[20%] left-0 -ml-32 w-80 h-80 rounded-full bg-yellow-100 blur-3xl opacity-50 mix-blend-multiply"></div>
+          </div>
 
-        <Header />
-        <main className="flex-grow pt-[100px]">
-          {children}
-        </main>
-        <Footer />
-        <ChatbotWidget />
+          <div className="fixed bg-orange-300 w-80 h-80 bottom-[20%] left-[20%] animate-blob animate-delay-[4000ms] rounded-[40%_60%_70%_30%/40%_50%_60%_50%] opacity-20 blur-3xl pointer-events-none z-[-1]"></div>
+
+          <Header />
+          <main className="flex-grow pt-[100px]">
+            {children}
+          </main>
+          <Footer />
+          <ChatbotWidget />
+        </AuthProvider>
       </body>
     </html>
   );

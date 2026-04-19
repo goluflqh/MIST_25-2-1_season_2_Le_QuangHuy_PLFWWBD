@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useAuth } from "@/components/AuthProvider";
 
 interface UserInfo {
   id: string;
@@ -257,6 +258,7 @@ export default function AccountPageClient({
   initialWarranties,
 }: AccountPageClientProps) {
   const router = useRouter();
+  const { user, setUser } = useAuth();
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ service: "", message: "" });
@@ -268,8 +270,26 @@ export default function AccountPageClient({
   const [reviewSuccess, setReviewSuccess] = useState(false);
 
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/dang-nhap");
+    const previousUser = user ?? {
+      id: initialUser.id,
+      name: initialUser.name,
+      role: initialUser.role,
+    };
+
+    setUser(null);
+
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+
+      if (!response.ok) {
+        throw new Error("Logout failed");
+      }
+
+      router.replace("/dang-nhap");
+      router.refresh();
+    } catch {
+      setUser(previousUser);
+    }
   };
 
   const handleSubmitRequest = async (e: React.FormEvent) => {
