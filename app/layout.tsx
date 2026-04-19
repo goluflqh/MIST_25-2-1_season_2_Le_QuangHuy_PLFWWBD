@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, DM_Sans } from "next/font/google";
+import Header from "@/components/layout/Header";
+import Footer from "@/components/layout/Footer";
+import ChatbotWidget from "@/components/ChatbotWidget";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -31,15 +34,6 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
-import dynamic from "next/dynamic";
-import { Suspense } from "react";
-
-const ChatbotWidget = dynamic(() => import("@/components/ChatbotWidget"), {
-  ssr: false,
-});
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -62,9 +56,7 @@ export default function RootLayout({
           {children}
         </main>
         <Footer />
-        <Suspense fallback={null}>
-          <ChatbotWidget />
-        </Suspense>
+        <ChatbotWidget />
       </body>
     </html>
   );

@@ -38,7 +38,24 @@ export default function AdminPricingPage() {
     setIsLoading(false);
   };
 
-  useEffect(() => { fetchItems(); }, []);
+  useEffect(() => {
+    let isActive = true;
+
+    const loadInitialItems = async () => {
+      try {
+        const res = await fetch("/api/admin/pricing").then((r) => r.json());
+        if (isActive && res.success) setItems(res.items);
+      } finally {
+        if (isActive) setIsLoading(false);
+      }
+    };
+
+    void loadInitialItems();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

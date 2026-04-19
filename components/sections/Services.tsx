@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Services() {
   return (
@@ -15,10 +16,12 @@ export default function Services() {
         {/* Service 1: Đóng Pin (Left Image, Right Content) */}
         <div className="glass-panel rounded-3xl overflow-hidden flex flex-col md:flex-row hover:shadow-2xl transition-shadow duration-500 group border-l-4 border-l-primary">
           <div className="md:w-5/12 h-64 md:h-auto relative overflow-hidden">
-            <img
-              src="https://images.unsplash.com/photo-1617711481197-07eaaf9a7d30?auto=format&fit=crop&w=800&q=80"
+            <Image
+              src="https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80"
               alt="Đóng Pin Chuyên Nghiệp"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              fill
+              sizes="(max-width: 768px) 100vw, 42vw"
+              className="object-cover group-hover:scale-105 transition-transform duration-700"
             />
             <div className="absolute top-4 left-4 bg-primary text-white text-xs font-bold px-3 py-1 rounded-full uppercase shadow-lg backdrop-blur-md">
               🔋 Năng Lượng
@@ -80,10 +83,12 @@ export default function Services() {
         {/* Service 2: Camera (Right Image, Left Content) */}
         <div className="glass-panel rounded-3xl overflow-hidden flex flex-col md:flex-row-reverse hover:shadow-2xl transition-shadow duration-500 group border-r-4 border-r-blue-500">
           <div className="md:w-5/12 h-64 md:h-auto relative overflow-hidden">
-            <img
-              src="https://images.unsplash.com/photo-1557597774-9d273e3814de?auto=format&fit=crop&q=80&w=800"
+            <Image
+              src="https://images.unsplash.com/photo-1558002038-1055907df827?auto=format&fit=crop&q=80&w=800"
               alt="Lắp Đặt Camera An Ninh"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              fill
+              sizes="(max-width: 768px) 100vw, 42vw"
+              className="object-cover group-hover:scale-105 transition-transform duration-700"
             />
             <div className="absolute top-4 right-4 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase shadow-lg backdrop-blur-md">
               🎥 An Ninh

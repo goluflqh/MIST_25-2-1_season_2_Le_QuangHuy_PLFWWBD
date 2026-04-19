@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 
 // POST /api/referral — Apply referral code during registration bonus
-export async function POST(request: Request) {
+export async function POST() {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("session_token")?.value;

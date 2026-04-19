@@ -12,10 +12,13 @@ interface UserInfo {
 export default function Header() {
   const router = useRouter();
   const pathname = usePathname();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isServicesOpen, setIsServicesOpen] = useState(false);
+  const [mobileMenuState, setMobileMenuState] = useState({ open: false, pathname });
+  const [servicesMenuState, setServicesMenuState] = useState({ open: false, pathname });
   const [user, setUser] = useState<UserInfo | null>(null);
   const [notifCount, setNotifCount] = useState(0);
+
+  const isMobileMenuOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
+  const isServicesOpen = servicesMenuState.pathname === pathname && servicesMenuState.open;
 
   // Fetch auth state
   useEffect(() => {
@@ -48,13 +51,20 @@ export default function Header() {
     setNotifCount(0);
   };
 
-  // Close mobile menu on route change
-  useEffect(() => {
-    setIsMobileMenuOpen(false);
-    setIsServicesOpen(false);
-  }, [pathname]);
+  const closeMenus = () => {
+    setMobileMenuState({ open: false, pathname });
+    setServicesMenuState({ open: false, pathname });
+  };
+
+  const toggleMobileMenu = () => {
+    setMobileMenuState((prev) => ({
+      open: !(prev.pathname === pathname && prev.open),
+      pathname,
+    }));
+  };
 
   const handleLogout = async () => {
+    closeMenus();
     await fetch("/api/auth/logout", { method: "POST" });
     setUser(null);
     router.push("/");
@@ -74,7 +84,11 @@ export default function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
         {/* Logo */}
         <button
-          onClick={() => { if (pathname === "/") window.scrollTo({ top: 0, behavior: "smooth" }); else router.push("/"); }}
+          onClick={() => {
+            closeMenus();
+            if (pathname === "/") window.scrollTo({ top: 0, behavior: "smooth" });
+            else router.push("/");
+          }}
           className="flex items-center gap-2.5 group shrink-0 cursor-pointer"
         >
           <svg width="40" height="40" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" className="transform transition-transform group-hover:scale-105 duration-300">
@@ -106,7 +120,11 @@ export default function Header() {
           </Link>
 
           {/* Services Dropdown */}
-          <div className="relative" onMouseEnter={() => setIsServicesOpen(true)} onMouseLeave={() => setIsServicesOpen(false)}>
+          <div
+            className="relative"
+            onMouseEnter={() => setServicesMenuState({ open: true, pathname })}
+            onMouseLeave={() => setServicesMenuState({ open: false, pathname })}
+          >
             <button className={`font-body font-semibold text-sm px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${pathname.startsWith("/dich-vu") ? "text-primary bg-red-50" : "text-slate-600 hover:text-primary hover:bg-slate-50"}`}>
               Dịch Vụ
               <svg className={`w-3.5 h-3.5 transition-transform ${isServicesOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -133,7 +151,14 @@ export default function Header() {
         <div className="hidden lg:flex items-center gap-3">
           {user ? (
             <>
-              <Link href={user.role === "ADMIN" ? "/dashboard" : "/tai-khoan"} onClick={dismissNotifications} className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors">
+              <Link
+                href={user.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
+                onClick={() => {
+                  dismissNotifications();
+                  closeMenus();
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors"
+              >
                 <div className="relative">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-xs font-bold">
                     {user.name.charAt(0)}
@@ -165,7 +190,7 @@ export default function Header() {
         {/* Mobile Menu Toggle */}
         <button
           aria-label="Toggle Mobile Menu"
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          onClick={toggleMobileMenu}
           className="lg:hidden text-slate-700 hover:text-primary p-2 -mr-2"
         >
           {isMobileMenuOpen ? (
@@ -184,19 +209,19 @@ export default function Header() {
       {isMobileMenuOpen && (
         <div className="lg:hidden bg-white border-t border-slate-100 shadow-xl animate-fade-in">
           <nav className="px-4 py-4 space-y-1">
-            <Link href="/" className={`block px-4 py-3 rounded-xl font-body font-semibold text-sm ${isActive("/") ? "text-primary bg-red-50" : "text-slate-700 hover:bg-slate-50"}`}>
+            <Link href="/" onClick={closeMenus} className={`block px-4 py-3 rounded-xl font-body font-semibold text-sm ${isActive("/") ? "text-primary bg-red-50" : "text-slate-700 hover:bg-slate-50"}`}>
               🏠 Trang Chủ
             </Link>
 
             {/* Mobile Service Links */}
             <p className="px-4 pt-3 pb-1 font-body text-xs font-bold text-slate-400 uppercase tracking-wider">Dịch vụ</p>
             {serviceLinks.map((link) => (
-              <Link key={link.href} href={link.href} className={`block px-4 py-3 rounded-xl font-body font-semibold text-sm ${isActive(link.href) ? "text-primary bg-red-50" : "text-slate-700 hover:bg-slate-50"}`}>
+              <Link key={link.href} href={link.href} onClick={closeMenus} className={`block px-4 py-3 rounded-xl font-body font-semibold text-sm ${isActive(link.href) ? "text-primary bg-red-50" : "text-slate-700 hover:bg-slate-50"}`}>
                 {link.name}
               </Link>
             ))}
 
-            <Link href="/bao-gia" className={`block px-4 py-3 rounded-xl font-body font-semibold text-sm ${isActive("/bao-gia") ? "text-primary bg-red-50" : "text-slate-700 hover:bg-slate-50"}`}>
+            <Link href="/bao-gia" onClick={closeMenus} className={`block px-4 py-3 rounded-xl font-body font-semibold text-sm ${isActive("/bao-gia") ? "text-primary bg-red-50" : "text-slate-700 hover:bg-slate-50"}`}>
               💰 Bảng Giá
             </Link>
 
@@ -206,7 +231,14 @@ export default function Header() {
             {/* Auth / User */}
             {user ? (
               <>
-                <Link href={user.role === "ADMIN" ? "/dashboard" : "/tai-khoan"} onClick={dismissNotifications} className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50">
+                <Link
+                  href={user.role === "ADMIN" ? "/dashboard" : "/tai-khoan"}
+                  onClick={() => {
+                    dismissNotifications();
+                    closeMenus();
+                  }}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50"
+                >
                   <div className="relative">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white font-bold">
                       {user.name.charAt(0)}
@@ -228,10 +260,10 @@ export default function Header() {
               </>
             ) : (
               <div className="px-4 pt-2 space-y-2">
-                <Link href="/dang-nhap" className="block w-full text-center py-3 rounded-xl font-body font-bold text-sm text-slate-700 border border-slate-200 hover:bg-slate-50">
+                <Link href="/dang-nhap" onClick={closeMenus} className="block w-full text-center py-3 rounded-xl font-body font-bold text-sm text-slate-700 border border-slate-200 hover:bg-slate-50">
                   Đăng Nhập
                 </Link>
-                <Link href="/dang-ky" className="block w-full text-center py-3 rounded-xl font-body font-bold text-sm text-white bg-gradient-to-r from-primary to-orange-600 shadow-md">
+                <Link href="/dang-ky" onClick={closeMenus} className="block w-full text-center py-3 rounded-xl font-body font-bold text-sm text-white bg-gradient-to-r from-primary to-orange-600 shadow-md">
                   Đăng Ký Miễn Phí
                 </Link>
               </div>

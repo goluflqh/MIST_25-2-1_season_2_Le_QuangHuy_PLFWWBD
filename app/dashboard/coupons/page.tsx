@@ -10,8 +10,30 @@ export default function AdminCouponsPage() {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ code: "", description: "", discount: "", pointsCost: 50, usageLimit: 1 });
 
-  const fetchCoupons = async () => { const res = await fetch("/api/admin/coupons").then((r) => r.json()); if (res.success) setCoupons(res.coupons); setIsLoading(false); };
-  useEffect(() => { fetchCoupons(); }, []);
+  const fetchCoupons = async () => {
+    const res = await fetch("/api/admin/coupons").then((r) => r.json());
+    if (res.success) setCoupons(res.coupons);
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadInitialCoupons = async () => {
+      try {
+        const res = await fetch("/api/admin/coupons").then((r) => r.json());
+        if (isActive && res.success) setCoupons(res.coupons);
+      } finally {
+        if (isActive) setIsLoading(false);
+      }
+    };
+
+    void loadInitialCoupons();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

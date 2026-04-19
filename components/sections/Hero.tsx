@@ -12,12 +12,12 @@ const slidesData = [
     caption: "☀️ Đèn năng lượng mặt trời cao cấp",
   },
   {
-    image: "https://images.unsplash.com/photo-1557597774-9d273e3814de?auto=format&fit=crop&q=80&w=1200",
+    image: "https://images.unsplash.com/photo-1558002038-1055907df827?auto=format&fit=crop&q=80&w=1200",
     alt: "Security Camera",
     caption: "🎥 Lắp đặt Camera an ninh uy tín 24/7",
   },
   {
-    image: "https://images.unsplash.com/photo-1617711481197-07eaaf9a7d30?auto=format&fit=crop&w=1200&q=80",
+    image: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
     alt: "Industrial Battery Pack",
     caption: "🔋 Phục hồi & dựng Mạch BMS mạnh mẽ",
   },
