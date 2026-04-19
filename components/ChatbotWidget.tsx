@@ -9,6 +9,34 @@ interface Message {
   timestamp: Date;
 }
 
+function toLookupText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeChatText(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function includesAny(text: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
 // FAQ: câu hỏi đơn giản, trả lời cố định (tiết kiệm quota)
 const FAQ_DATA = [
   {
@@ -69,11 +97,19 @@ const OPEN_ENDED_SIGNALS = [
 ];
 
 function classifyAndAnswer(userMessage: string): string | null {
-  const lowerMsg = userMessage.toLowerCase().trim();
+  const lookupMessage = toLookupText(userMessage);
+
+  if (
+    (includesAny(lookupMessage, ["sac nhanh day", "nhanh het", "pin yeu", "tu hao", "bao ao"]) &&
+      includesAny(lookupMessage, ["pin", "binh", "cell", "sac", "dien"])) ||
+    includesAny(lookupMessage, ["phong pin", "pin phong", "khong nhan sac", "sut ap", "chai pin"])
+  ) {
+    return "Dấu hiệu này thường do pin chai cell, lệch cell hoặc mạch pin lỗi. Minh Hồng kiểm tra miễn phí rồi mới báo nên sửa hay đóng lại pin. Anh/chị gửi model hoặc gọi 0987.443.258 là bên em tư vấn nhanh.";
+  }
 
   // 1. Nếu tin nhắn quá ngắn (≤ 3 từ), FAQ có thể handle
   // 2. Nếu có dấu hiệu mở → luôn dùng AI
-  const isOpenEnded = OPEN_ENDED_SIGNALS.some((signal) => lowerMsg.includes(signal));
+  const isOpenEnded = OPEN_ENDED_SIGNALS.some((signal) => lookupMessage.includes(toLookupText(signal)));
 
   if (isOpenEnded) {
     return null; // → gửi AI
@@ -81,11 +117,13 @@ function classifyAndAnswer(userMessage: string): string | null {
 
   // 3. Tìm FAQ match: phải match ít nhất 1 requiredKeyword
   for (const faq of FAQ_DATA) {
-    const hasRequired = faq.requiredKeywords.some((kw) => lowerMsg.includes(kw));
-    const keywordHits = faq.keywords.filter((kw) => lowerMsg.includes(kw)).length;
+    const normalizedRequired = faq.requiredKeywords.map((kw) => toLookupText(kw));
+    const normalizedKeywords = faq.keywords.map((kw) => toLookupText(kw));
+    const hasRequired = normalizedRequired.some((kw) => lookupMessage.includes(kw));
+    const keywordHits = normalizedKeywords.filter((kw) => lookupMessage.includes(kw)).length;
 
     // Match nếu: có required keyword + ít nhất 1 keyword khác, HOẶC 2+ required keywords
-    if (hasRequired && (keywordHits >= 1 || lowerMsg.length < 25)) {
+    if (hasRequired && (keywordHits >= 1 || lookupMessage.length < 25)) {
       return faq.answer;
     }
   }
@@ -119,7 +157,7 @@ export default function ChatbotWidget() {
     const userMsg: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: text,
+      content: normalizeChatText(text),
       timestamp: new Date(),
     };
 
@@ -132,18 +170,16 @@ export default function ChatbotWidget() {
 
     if (faqAnswer) {
       // Câu hỏi đơn giản → trả lời tức thì (MIỄN PHÍ, không tốn quota)
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            role: "assistant",
-            content: faqAnswer,
-            timestamp: new Date(),
-          },
-        ]);
-        setIsLoading(false);
-      }, 400);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: normalizeChatText(faqAnswer),
+          timestamp: new Date(),
+        },
+      ]);
+      setIsLoading(false);
       return;
     }
 
@@ -151,8 +187,8 @@ export default function ChatbotWidget() {
     try {
       const history = [...messages, userMsg]
         .filter((m) => m.role !== "system")
-        .slice(-10)
-        .map((m) => ({ role: m.role, content: m.content }));
+        .slice(-6)
+        .map((m) => ({ role: m.role, content: normalizeChatText(m.content) }));
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -167,7 +203,9 @@ export default function ChatbotWidget() {
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: data.reply || "Xin lỗi, mình chưa hiểu câu hỏi. Bạn có thể gọi 0987.443.258 để được tư vấn trực tiếp nhé!",
+          content:
+            normalizeChatText(data.reply) ||
+            "Xin lỗi, mình chưa hiểu câu hỏi. Bạn có thể gọi 0987.443.258 để được tư vấn trực tiếp nhé!",
           timestamp: new Date(),
         },
       ]);
