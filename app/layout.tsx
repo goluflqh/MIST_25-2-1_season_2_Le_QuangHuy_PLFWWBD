@@ -24,11 +24,20 @@ export const metadata: Metadata = {
     default: "Minh Hồng - Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
     template: "%s | Minh Hồng",
   },
-  description: "Trung tâm phục hồi, đóng ráp bình ắc quy Lithium cao cấp và thiết bị công cụ. Lắp đặt thi công camera an ninh uy tín tại TPHCM.",
-  keywords: ["đóng pin lithium", "lắp camera", "đèn năng lượng mặt trời", "pin lưu trữ", "Minh Hồng", "điện máy"],
+  description:
+    "Trung tâm đóng pin Lithium, pin lưu trữ, đèn năng lượng mặt trời và lắp đặt camera an ninh uy tín tại Đà Nẵng.",
+  keywords: [
+    "đóng pin lithium",
+    "lắp camera",
+    "đèn năng lượng mặt trời",
+    "pin lưu trữ",
+    "Minh Hồng",
+    "điện máy",
+  ],
   openGraph: {
     title: "Minh Hồng - Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
-    description: "Trung tâm phục hồi, đóng ráp bình ắc quy Lithium cao cấp. Lắp đặt camera an ninh uy tín.",
+    description:
+      "Chuyên đóng pin Lithium, pin lưu trữ, đèn năng lượng và lắp camera an ninh tại Đà Nẵng.",
     type: "website",
     locale: "vi_VN",
     siteName: "Minh Hồng",
@@ -64,9 +73,7 @@ export default async function RootLayout({
           <div className="fixed bg-orange-300 w-80 h-80 bottom-[20%] left-[20%] animate-blob animate-delay-[4000ms] rounded-[40%_60%_70%_30%/40%_50%_60%_50%] opacity-20 blur-3xl pointer-events-none z-[-1]"></div>
 
           <Header />
-          <main className="flex-grow pt-[100px]">
-            {children}
-          </main>
+          <main className="flex-grow pt-[100px]">{children}</main>
           <Footer />
           <ChatbotWidget />
         </AuthProvider>
