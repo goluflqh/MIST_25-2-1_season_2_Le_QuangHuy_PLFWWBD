@@ -40,7 +40,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className="scroll-smooth scroll-pt-32">
+    <html lang="vi" className="scroll-smooth scroll-pt-32" data-scroll-behavior="smooth">
       <body
         className={`${spaceGrotesk.variable} ${dmSans.variable} antialiased bg-slate-50 font-body text-slate-800 flex flex-col min-h-screen`}
       >

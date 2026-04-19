@@ -5,7 +5,7 @@ const PROTECTED_ROUTES = ["/dashboard", "/tai-khoan"];
 // Routes only for guests (redirect to account if already logged in)
 const GUEST_ONLY_ROUTES = ["/dang-nhap", "/dang-ky"];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const sessionToken = request.cookies.get("session_token")?.value;
 
