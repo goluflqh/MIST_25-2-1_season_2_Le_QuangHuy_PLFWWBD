@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -13,7 +13,7 @@ function validatePhone(phone: string): string | null {
   return null;
 }
 
-export default function RegisterPage() {
+function RegisterPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const refCode = searchParams.get("ref");
@@ -131,5 +131,30 @@ export default function RegisterPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+function RegisterPageFallback() {
+  return (
+    <div className="max-w-md mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in-up">
+      <div className="bg-white rounded-3xl shadow-xl p-8 border border-slate-100">
+        <div className="space-y-4 animate-pulse">
+          <div className="h-8 w-40 bg-slate-200 rounded-xl mx-auto"></div>
+          <div className="h-4 w-56 bg-slate-100 rounded-xl mx-auto"></div>
+          <div className="h-12 w-full bg-slate-100 rounded-xl"></div>
+          <div className="h-12 w-full bg-slate-100 rounded-xl"></div>
+          <div className="h-12 w-full bg-slate-100 rounded-xl"></div>
+          <div className="h-12 w-full bg-slate-200 rounded-xl"></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<RegisterPageFallback />}>
+      <RegisterPageContent />
+    </Suspense>
   );
 }

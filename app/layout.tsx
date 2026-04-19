@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, DM_Sans } from "next/font/google";
+import Header from "@/components/layout/Header";
+import Footer from "@/components/layout/Footer";
+import ChatbotWidget from "@/components/ChatbotWidget";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -10,7 +13,7 @@ const spaceGrotesk = Space_Grotesk({
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
-  subsets: ["vietnamese", "latin"],
+  subsets: ["latin", "latin-ext"],
   weight: ["400", "500", "700"],
 });
 
@@ -30,10 +33,6 @@ export const metadata: Metadata = {
   },
   robots: { index: true, follow: true },
 };
-
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
-import ChatbotWidget from "@/components/ChatbotWidget";
 
 export default function RootLayout({
   children,

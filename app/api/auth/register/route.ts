@@ -1,11 +1,25 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, generateSessionToken } from "@/lib/auth";
+import { checkRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import { normalizePhone, isValidPhone, sanitizeText, isStrongPassword } from "@/lib/sanitize";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIP(request);
+    const rl = checkRateLimit(`register:${ip}`, RATE_LIMITS.register);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, message: "Quá nhiều lần đăng ký. Vui lòng thử lại sau." },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
-    const { name, phone, password, referralCode } = body;
+    const name = sanitizeText(body.name || "");
+    const phone = normalizePhone(sanitizeText(body.phone || ""));
+    const password = body.password || "";
+    const referralCode = sanitizeText(body.referralCode || "");
 
     if (!name || !phone || !password) {
       return NextResponse.json(
@@ -14,7 +28,21 @@ export async function POST(request: Request) {
       );
     }
 
-    if (password.length < 6) {
+    if (name.length < 2 || name.length > 50) {
+      return NextResponse.json(
+        { success: false, message: "Tên phải từ 2 đến 50 ký tự." },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidPhone(phone)) {
+      return NextResponse.json(
+        { success: false, message: "Số điện thoại không hợp lệ." },
+        { status: 400 }
+      );
+    }
+
+    if (!isStrongPassword(password)) {
       return NextResponse.json(
         { success: false, message: "Mật khẩu phải có ít nhất 6 ký tự." },
         { status: 400 }
@@ -31,7 +59,6 @@ export async function POST(request: Request) {
 
     const hashedPassword = await hashPassword(password);
 
-    // Check referral code
     let referrer = null;
     if (referralCode) {
       referrer = await prisma.user.findUnique({ where: { referralCode } });
@@ -43,11 +70,10 @@ export async function POST(request: Request) {
         phone,
         password: hashedPassword,
         referredBy: referralCode || null,
-        loyaltyPoints: referrer ? 20 : 0, // bonus for being referred
+        loyaltyPoints: referrer ? 20 : 0,
       },
     });
 
-    // Award referrer bonus points
     if (referrer) {
       await prisma.user.update({
         where: { id: referrer.id },
@@ -56,7 +82,7 @@ export async function POST(request: Request) {
     }
 
     const token = generateSessionToken();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await prisma.session.create({
       data: { userId: user.id, token, expiresAt },

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { checkRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import { sanitizeText } from "@/lib/sanitize";
 
 const SYSTEM_PROMPT = `Bạn là trợ lý AI tư vấn cho cửa hàng "Minh Hồng" - chuyên đóng pin và lắp đặt camera an ninh.
 
@@ -40,8 +42,18 @@ const SYSTEM_PROMPT = `Bạn là trợ lý AI tư vấn cho cửa hàng "Minh H�
 
 export async function POST(request: Request) {
   try {
+    // Rate limit: 15 requests per minute per IP
+    const ip = getClientIP(request);
+    const rl = checkRateLimit(`chat:${ip}`, RATE_LIMITS.chat);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, reply: "Bạn gửi quá nhanh. Vui lòng đợi một chút nhé!" },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
-    const message = body?.message;
+    const message = sanitizeText(body?.message || "");
     const history: { role: string; content: string }[] = body?.history || [];
 
     if (!message) {
@@ -70,7 +82,10 @@ export async function POST(request: Request) {
       reply = await callOpenAI(aiApiKey, message, history);
     }
 
-    return NextResponse.json({ success: true, reply });
+    // Cache for 5 minutes, stale-while-revalidate for 10
+    const response = NextResponse.json({ success: true, reply });
+    response.headers.set("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
+    return response;
   } catch (error) {
     console.error("Chat API Error:", error);
     return NextResponse.json({

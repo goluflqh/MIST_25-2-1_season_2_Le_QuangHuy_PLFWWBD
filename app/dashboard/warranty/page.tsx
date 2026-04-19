@@ -15,8 +15,30 @@ export default function AdminWarrantyPage() {
   const [formData, setFormData] = useState({ serialNo: "", productName: "", customerPhone: "", service: "DONG_PIN", endDate: "", notes: "" });
   const [error, setError] = useState("");
 
-  const fetchWarranties = async () => { const res = await fetch("/api/admin/warranty").then((r) => r.json()); if (res.success) setWarranties(res.warranties); setIsLoading(false); };
-  useEffect(() => { fetchWarranties(); }, []);
+  const fetchWarranties = async () => {
+    const res = await fetch("/api/admin/warranty").then((r) => r.json());
+    if (res.success) setWarranties(res.warranties);
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadInitialWarranties = async () => {
+      try {
+        const res = await fetch("/api/admin/warranty").then((r) => r.json());
+        if (isActive && res.success) setWarranties(res.warranties);
+      } finally {
+        if (isActive) setIsLoading(false);
+      }
+    };
+
+    void loadInitialWarranties();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

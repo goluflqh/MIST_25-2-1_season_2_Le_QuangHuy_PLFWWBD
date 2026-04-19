@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 
 interface NavCounts { contacts: number; reviews: number; }
 
@@ -57,8 +57,8 @@ function SidebarNav({ pathname, counts }: { pathname: string; counts: NavCounts 
 export default function AdminSidebar() {
   const pathname = usePathname();
   const [counts, setCounts] = useState<NavCounts>({ contacts: 0, reviews: 0 });
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const prevPathname = useRef(pathname);
+  const [mobileMenuState, setMobileMenuState] = useState({ open: false, pathname });
+  const mobileOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
 
   useEffect(() => {
     const fetchCounts = () => {
@@ -72,19 +72,22 @@ export default function AdminSidebar() {
     return () => clearInterval(interval);
   }, []);
 
-  // Close mobile sidebar on route change (using ref to avoid lint)
-  useEffect(() => {
-    if (prevPathname.current !== pathname) {
-      setMobileOpen(false);
-      prevPathname.current = pathname;
-    }
-  }, [pathname]);
+  const toggleMobileMenu = () => {
+    setMobileMenuState((prev) => ({
+      open: !(prev.pathname === pathname && prev.open),
+      pathname,
+    }));
+  };
+
+  const closeMobileMenu = () => {
+    setMobileMenuState({ open: false, pathname });
+  };
 
   return (
     <>
       {/* Mobile hamburger button */}
       <button
-        onClick={() => setMobileOpen(!mobileOpen)}
+        onClick={toggleMobileMenu}
         className="md:hidden fixed top-3 left-3 z-50 w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center shadow-lg"
         aria-label="Toggle admin menu"
       >
@@ -98,7 +101,7 @@ export default function AdminSidebar() {
       {/* Mobile overlay + sidebar */}
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-40">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
+          <div className="absolute inset-0 bg-black/50" onClick={closeMobileMenu} />
           <aside className="absolute left-0 top-0 bottom-0 w-64 bg-slate-900 text-white flex flex-col animate-fade-in">
             <SidebarNav pathname={pathname} counts={counts} />
           </aside>
