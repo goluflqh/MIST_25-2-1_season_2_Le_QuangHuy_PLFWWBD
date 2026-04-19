@@ -48,6 +48,9 @@ async function main() {
     console.log("✅ Customer:", user.name);
   }
 
+  await prisma.contactRequest.deleteMany();
+  console.log("🧹 Cleared existing contact requests.");
+
   // --- Create Sample Contact Requests ---
   const contactRequests = [
     {
@@ -56,6 +59,10 @@ async function main() {
       service: "DONG_PIN",
       message: "Em cần đóng lại pin máy khoan Makita 18V, pin cũ dung lượng giảm nhiều rồi.",
       status: "PENDING",
+      source: "service-dong-pin",
+      sourcePath: "/?service=DONG_PIN&source=service-dong-pin#quote",
+      utmSource: "facebook",
+      utmCampaign: "battery-leads-april",
     },
     {
       name: "Chị Mai",
@@ -63,6 +70,12 @@ async function main() {
       service: "CAMERA",
       message: "Nhà em cần lắp 4 mắt camera, 2 ngoài trời 2 trong nhà. Nhờ anh tư vấn giúp.",
       status: "CONTACTED",
+      source: "service-camera",
+      sourcePath: "/?service=CAMERA&source=service-camera#quote",
+      referrer: "https://www.google.com/",
+      utmSource: "google",
+      utmMedium: "cpc",
+      utmCampaign: "camera-search",
     },
     {
       name: "Nguyễn Văn Minh",
@@ -70,6 +83,8 @@ async function main() {
       service: "DONG_PIN",
       message: "Đóng pin xe đạp điện 48V 20Ah, cell Samsung. Cho em xin giá.",
       status: "IN_PROGRESS",
+      source: "pricing-page",
+      sourcePath: "/?source=pricing-page#quote",
     },
     {
       name: "Anh Hùng",
@@ -77,6 +92,8 @@ async function main() {
       service: "CAMERA",
       message: "Cửa hàng tạp hoá cần lắp camera giám sát, khoảng 6 mắt. Khảo sát giúp anh.",
       status: "COMPLETED",
+      source: "homepage",
+      sourcePath: "/#quote",
     },
     {
       name: "Trần Thị Lan",
@@ -84,6 +101,12 @@ async function main() {
       service: "KHAC",
       message: "Có sửa pin laptop Dell không ạ? Pin chai hết rồi.",
       status: "PENDING",
+      source: "homepage",
+      sourcePath: "/#quote",
+      referrer: "https://facebook.com/",
+      utmSource: "facebook",
+      utmMedium: "social",
+      utmContent: "organic-post",
     },
   ];
 

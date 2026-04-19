@@ -6,7 +6,26 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "prisma generate",
+    "db:format": "prisma format",
+    "db:validate": "prisma validate",
+    "db:status": "prisma migrate status",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:seed:base": "tsx prisma/seed.ts",
+    "db:seed:pricing": "tsx prisma/seed-pricing.ts",
+    "db:seed": "npm run db:seed:base && npm run db:seed:pricing",
+    "db:local:up": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 up",
+    "db:local:down": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 down",
+    "db:local:reset": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 reset",
+    "db:local:logs": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 logs",
+    "db:local:ps": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 ps"
+  },
+  "prisma": {
+    "seed": "npm run db:seed"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -28,6 +47,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsx": "^4.20.6",
     "typescript": "^5"
   }
 }
