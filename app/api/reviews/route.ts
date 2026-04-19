@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
+import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
 
 // GET /api/reviews — Public: get approved reviews
 export async function GET() {
@@ -21,14 +21,8 @@ export async function GET() {
 // POST /api/reviews — User submits a review (requires login)
 export async function POST(request: Request) {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get("session_token")?.value;
-    if (!token) return NextResponse.json({ success: false, message: "Vui lòng đăng nhập." }, { status: 401 });
-
-    const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-    if (!session || session.expiresAt < new Date()) {
-      return NextResponse.json({ success: false, message: "Phiên hết hạn." }, { status: 401 });
-    }
+    const session = await getCurrentSession();
+    if (!session) return unauthorizedResponse("Phiên hết hạn.");
 
     const body = await request.json();
     const { rating, comment, service } = body;

@@ -1,8 +1,11 @@
+import type { Session, User } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 
-async function getValidSessionByToken(token: string | undefined) {
+type SessionWithUser = Session & { user: User };
+
+async function getValidSessionByToken(token: string | undefined): Promise<SessionWithUser | null> {
   if (!token) return null;
 
   const session = await prisma.session.findUnique({
@@ -17,6 +20,16 @@ async function getValidSessionByToken(token: string | undefined) {
   return session;
 }
 
+export async function getCurrentSessionToken() {
+  const cookieStore = await cookies();
+  return cookieStore.get("session_token")?.value;
+}
+
+export async function getCurrentSession() {
+  const token = await getCurrentSessionToken();
+  return getValidSessionByToken(token);
+}
+
 export async function getSessionUser(request: NextRequest) {
   const token = request.cookies.get("session_token")?.value;
   const session = await getValidSessionByToken(token);
@@ -25,22 +38,32 @@ export async function getSessionUser(request: NextRequest) {
 }
 
 export async function getCurrentSessionUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("session_token")?.value;
-  const session = await getValidSessionByToken(token);
+  const session = await getCurrentSession();
   if (!session) return null;
   return session.user;
 }
 
-export function requireAuth(handler: (req: NextRequest, user: { id: string; name: string; role: string }) => Promise<NextResponse>) {
-  return async (request: NextRequest) => {
-    const user = await getSessionUser(request);
-    if (!user) {
-      return NextResponse.json(
-        { success: false, message: "Vui lòng đăng nhập." },
-        { status: 401 }
-      );
-    }
-    return handler(request, user);
+export async function getCurrentAdminUser() {
+  const user = await getCurrentSessionUser();
+  if (!user || user.role !== "ADMIN") return null;
+  return user;
+}
+
+export function unauthorizedResponse(message?: string) {
+  return NextResponse.json(message ? { success: false, message } : { success: false }, { status: 401 });
+}
+
+export function forbiddenResponse(message?: string) {
+  return NextResponse.json(message ? { success: false, message } : { success: false }, { status: 403 });
+}
+
+export function buildPublicUser(user: User) {
+  return {
+    id: user.id,
+    name: user.name,
+    phone: user.phone,
+    role: user.role,
+    loyaltyPoints: user.loyaltyPoints,
+    createdAt: user.createdAt,
   };
 }

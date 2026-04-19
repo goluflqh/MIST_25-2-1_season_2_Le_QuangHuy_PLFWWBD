@@ -1,17 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
 import { hashPassword, verifyPassword } from "@/lib/auth";
+import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
 
 // PATCH /api/user/password — User changes their own password
 export async function PATCH(request: Request) {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get("session_token")?.value;
-    if (!token) return NextResponse.json({ success: false }, { status: 401 });
-
-    const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-    if (!session) return NextResponse.json({ success: false }, { status: 401 });
+    const session = await getCurrentSession();
+    if (!session) return unauthorizedResponse();
 
     const { currentPassword, newPassword } = await request.json();
 

@@ -11,12 +11,14 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>();
 
-// Auto-cleanup expired entries every 5 minutes
+// Auto-cleanup expired entries every 5 minutes.
 if (typeof setInterval !== "undefined") {
   setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of store) {
-      if (now > entry.resetAt) store.delete(key);
+      if (now > entry.resetAt) {
+        store.delete(key);
+      }
     }
   }, 5 * 60 * 1000);
 }
@@ -28,33 +30,100 @@ interface RateLimitConfig {
   windowSec: number;
 }
 
-interface RateLimitResult {
+export interface RateLimitResult {
   allowed: boolean;
   remaining: number;
   resetAt: number;
+  retryAfterSec: number;
+  limit: number;
+  count: number;
 }
 
-export function checkRateLimit(
+function getRetryAfterSeconds(resetAt: number, now: number) {
+  return Math.max(Math.ceil((resetAt - now) / 1000), 0);
+}
+
+function buildResult(entry: RateLimitEntry, config: RateLimitConfig, now: number): RateLimitResult {
+  const allowed = entry.count < config.limit;
+
+  return {
+    allowed,
+    remaining: Math.max(config.limit - entry.count, 0),
+    resetAt: entry.resetAt,
+    retryAfterSec: allowed ? 0 : getRetryAfterSeconds(entry.resetAt, now),
+    limit: config.limit,
+    count: entry.count,
+  };
+}
+
+export function getRateLimitStatus(
   identifier: string,
   config: RateLimitConfig
 ): RateLimitResult {
-  const key = identifier;
   const now = Date.now();
-  const entry = store.get(key);
+  const entry = store.get(identifier);
 
   if (!entry || now > entry.resetAt) {
-    store.set(key, { count: 1, resetAt: now + config.windowSec * 1000 });
-    return { allowed: true, remaining: config.limit - 1, resetAt: now + config.windowSec * 1000 };
+    return {
+      allowed: true,
+      remaining: config.limit,
+      resetAt: now + config.windowSec * 1000,
+      retryAfterSec: 0,
+      limit: config.limit,
+      count: 0,
+    };
   }
 
-  entry.count++;
-  store.set(key, entry);
+  return buildResult(entry, config, now);
+}
 
-  if (entry.count > config.limit) {
-    return { allowed: false, remaining: 0, resetAt: entry.resetAt };
+export function consumeRateLimit(
+  identifier: string,
+  config: RateLimitConfig
+): RateLimitResult {
+  const now = Date.now();
+  const current = store.get(identifier);
+
+  const entry =
+    !current || now > current.resetAt
+      ? { count: 0, resetAt: now + config.windowSec * 1000 }
+      : current;
+
+  entry.count += 1;
+  store.set(identifier, entry);
+
+  return {
+    allowed: entry.count <= config.limit,
+    remaining: Math.max(config.limit - entry.count, 0),
+    resetAt: entry.resetAt,
+    retryAfterSec: entry.count <= config.limit ? 0 : getRetryAfterSeconds(entry.resetAt, now),
+    limit: config.limit,
+    count: entry.count,
+  };
+}
+
+export function resetRateLimit(identifier: string) {
+  store.delete(identifier);
+}
+
+// Backward-compatible alias for existing routes that consume the limit immediately.
+export const checkRateLimit = consumeRateLimit;
+
+export function formatDurationVi(totalSeconds: number) {
+  const seconds = Math.max(Math.ceil(totalSeconds), 0);
+
+  if (seconds < 60) {
+    return `${seconds} giây`;
   }
 
-  return { allowed: true, remaining: config.limit - entry.count, resetAt: entry.resetAt };
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (remainingSeconds === 0) {
+    return `${minutes} phút`;
+  }
+
+  return `${minutes} phút ${remainingSeconds} giây`;
 }
 
 export function getClientIP(request: Request): string {
@@ -67,9 +136,9 @@ export function getClientIP(request: Request): string {
 
 /** Preset configs for common endpoints */
 export const RATE_LIMITS = {
-  login: { limit: 5, windowSec: 15 * 60 } as RateLimitConfig,       // 5 req / 15 min
-  register: { limit: 3, windowSec: 60 * 60 } as RateLimitConfig,     // 3 req / hour
-  chat: { limit: 15, windowSec: 60 } as RateLimitConfig,             // 15 req / min
-  contact: { limit: 5, windowSec: 10 * 60 } as RateLimitConfig,      // 5 req / 10 min
-  general: { limit: 30, windowSec: 60 } as RateLimitConfig,          // 30 req / min
+  login: { limit: 5, windowSec: 5 * 60 } as RateLimitConfig,
+  register: { limit: 4, windowSec: 10 * 60 } as RateLimitConfig,
+  chat: { limit: 15, windowSec: 60 } as RateLimitConfig,
+  contact: { limit: 5, windowSec: 10 * 60 } as RateLimitConfig,
+  general: { limit: 30, windowSec: 60 } as RateLimitConfig,
 } as const;

@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, startTransition, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
 
 function validatePhone(phone: string): string | null {
   const cleaned = phone.replace(/\s|-/g, "");
@@ -16,6 +17,7 @@ function validatePhone(phone: string): string | null {
 function RegisterPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { setUser } = useAuth();
   const refCode = searchParams.get("ref");
 
   const [name, setName] = useState("");
@@ -67,7 +69,11 @@ function RegisterPageContent() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) { setError(data.error || data.message || "Đăng ký thất bại."); return; }
-      router.push("/tai-khoan");
+      setUser(data.user ?? null);
+      startTransition(() => {
+        router.replace("/tai-khoan");
+        router.refresh();
+      });
     } catch {
       setError("Lỗi kết nối. Vui lòng thử lại.");
     } finally {

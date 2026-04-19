@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
+import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
 
 // GET /api/user/notifications?lastSeen=ISO — new notifications since lastSeen
 export async function GET(request: Request) {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get("session_token")?.value;
-    if (!token) return NextResponse.json({ success: false }, { status: 401 });
-
-    const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
-    if (!session) return NextResponse.json({ success: false }, { status: 401 });
+    const session = await getCurrentSession();
+    if (!session) return unauthorizedResponse();
 
     const user = session.user;
     const url = new URL(request.url);

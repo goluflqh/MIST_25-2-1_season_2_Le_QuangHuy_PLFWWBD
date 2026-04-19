@@ -1,18 +1,64 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword, generateSessionToken } from "@/lib/auth";
-import { checkRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import {
+  consumeRateLimit,
+  formatDurationVi,
+  getClientIP,
+  getRateLimitStatus,
+  RATE_LIMITS,
+  resetRateLimit,
+  type RateLimitResult,
+} from "@/lib/rate-limit";
 import { normalizePhone, isValidPhone, sanitizeText } from "@/lib/sanitize";
+
+const INVALID_MSG = "Số điện thoại hoặc mật khẩu chưa đúng.";
+
+function createRateLimitedResponse(message: string, result: RateLimitResult) {
+  const retryAfterSec = Math.max(result.retryAfterSec, 1);
+  const response = NextResponse.json(
+    {
+      success: false,
+      message,
+      retryAfterSec,
+      remainingAttempts: 0,
+    },
+    { status: 429 }
+  );
+
+  response.headers.set("Retry-After", retryAfterSec.toString());
+  response.headers.set("X-RateLimit-Limit", result.limit.toString());
+  response.headers.set("X-RateLimit-Remaining", "0");
+  response.headers.set("X-RateLimit-Reset", Math.ceil(result.resetAt / 1000).toString());
+
+  return response;
+}
+
+function getBlockedMessage(retryAfterSec: number) {
+  const waitText = formatDurationVi(retryAfterSec);
+  return `Bạn đã thử đăng nhập hơi nhiều lần liên tiếp. Vui lòng chờ khoảng ${waitText} rồi thử lại, hoặc bấm "Quên mật khẩu" để được hỗ trợ nhanh hơn.`;
+}
+
+function getLoginWarning(remaining: number) {
+  if (remaining <= 0) {
+    return `Bạn đã dùng hết lượt thử nhanh trong đợt này. Nếu nhập sai thêm 1 lần, hệ thống sẽ tạm nghỉ ${formatDurationVi(RATE_LIMITS.login.windowSec)}.`;
+  }
+
+  if (remaining <= 2) {
+    return `Còn ${remaining} lần thử nhanh trước khi hệ thống tạm nghỉ ${formatDurationVi(RATE_LIMITS.login.windowSec)}.`;
+  }
+
+  return null;
+}
 
 export async function POST(request: Request) {
   try {
     const ip = getClientIP(request);
-    const rl = checkRateLimit(`login:${ip}`, RATE_LIMITS.login);
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { success: false, message: "Quá nhiều lần thử. Vui lòng đợi 15 phút." },
-        { status: 429 }
-      );
+    const identifier = `login:${ip}`;
+    const currentLimit = getRateLimitStatus(identifier, RATE_LIMITS.login);
+
+    if (!currentLimit.allowed) {
+      return createRateLimitedResponse(getBlockedMessage(currentLimit.retryAfterSec), currentLimit);
     }
 
     const body = await request.json();
@@ -21,7 +67,7 @@ export async function POST(request: Request) {
 
     if (!phone || !password) {
       return NextResponse.json(
-        { success: false, message: "Vui lòng nhập SĐT và mật khẩu." },
+        { success: false, message: "Vui lòng nhập đầy đủ số điện thoại và mật khẩu." },
         { status: 400 }
       );
     }
@@ -34,26 +80,29 @@ export async function POST(request: Request) {
     }
 
     const user = await prisma.user.findUnique({ where: { phone } });
+    const isValid = user ? await verifyPassword(password, user.password) : false;
 
-    // Generic error message to prevent user enumeration
-    const INVALID_MSG = "Số điện thoại hoặc mật khẩu không đúng.";
+    if (!user || !isValid) {
+      const failedAttempt = consumeRateLimit(identifier, RATE_LIMITS.login);
 
-    if (!user) {
+      if (!failedAttempt.allowed) {
+        return createRateLimitedResponse(getBlockedMessage(failedAttempt.retryAfterSec), failedAttempt);
+      }
+
       return NextResponse.json(
-        { success: false, message: INVALID_MSG },
+        {
+          success: false,
+          message: INVALID_MSG,
+          warning: getLoginWarning(failedAttempt.remaining),
+          remainingAttempts: failedAttempt.remaining,
+        },
         { status: 401 }
       );
     }
 
-    const isValid = await verifyPassword(password, user.password);
-    if (!isValid) {
-      return NextResponse.json(
-        { success: false, message: INVALID_MSG },
-        { status: 401 }
-      );
-    }
+    resetRateLimit(identifier);
 
-    // Clean up old sessions for this user (keep max 5)
+    // Clean up old sessions for this user (keep max 5).
     const oldSessions = await prisma.session.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
@@ -61,7 +110,7 @@ export async function POST(request: Request) {
     });
     if (oldSessions.length > 0) {
       await prisma.session.deleteMany({
-        where: { id: { in: oldSessions.map((s) => s.id) } },
+        where: { id: { in: oldSessions.map((session) => session.id) } },
       });
     }
 
