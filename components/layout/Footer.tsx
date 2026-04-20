@@ -160,10 +160,10 @@ export default function Footer() {
               </p>
               <div className="flex gap-2 mt-3">
                 <a href={siteConfig.mapUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 text-white text-xs font-body font-bold rounded-lg hover:bg-slate-700 transition-colors">
-                  📍 Chỉ Đường
+                  Chỉ Đường
                 </a>
                 <a href={siteConfig.zaloUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-blue-600 text-white text-xs font-body font-bold rounded-lg hover:bg-blue-500 transition-colors">
-                  💬 Zalo
+                  Chat Zalo
                 </a>
               </div>
             </div>

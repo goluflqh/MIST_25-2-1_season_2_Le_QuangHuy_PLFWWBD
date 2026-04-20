@@ -145,10 +145,10 @@ export default function Header({
   };
 
   const serviceLinks = [
-    { name: "🔋 Đóng Pin Lithium", href: "/dich-vu/dong-pin" },
-    { name: "☀️ Đèn Năng Lượng Mặt Trời", href: "/dich-vu/den-nang-luong" },
-    { name: "⚡ Pin Lưu Trữ & Kích Đề", href: "/dich-vu/pin-luu-tru" },
-    { name: "📹 Camera An Ninh", href: "/dich-vu/camera" },
+    { name: "Đóng Pin Lithium", href: "/dich-vu/dong-pin" },
+    { name: "Đèn Năng Lượng Mặt Trời", href: "/dich-vu/den-nang-luong" },
+    { name: "Pin Lưu Trữ & Kích Đề", href: "/dich-vu/pin-luu-tru" },
+    { name: "Camera An Ninh", href: "/dich-vu/camera" },
   ];
 
   const isActive = (href: string) => pathname === href;
@@ -331,7 +331,7 @@ export default function Header({
               onClick={closeMenus}
               className={`block px-4 py-3 rounded-xl font-body font-semibold text-sm ${isActive("/") ? "text-primary bg-red-50" : "text-slate-700 hover:bg-slate-50"}`}
             >
-              🏠 Trang Chủ
+              Trang Chủ
             </Link>
 
             <p className="px-4 pt-3 pb-1 font-body text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -353,7 +353,7 @@ export default function Header({
               onClick={closeMenus}
               className={`block px-4 py-3 rounded-xl font-body font-semibold text-sm ${isActive("/bao-gia") ? "text-primary bg-red-50" : "text-slate-700 hover:bg-slate-50"}`}
             >
-              💰 Bảng Giá
+              Bảng Giá
             </Link>
 
             <div className="h-px bg-slate-100 mx-4 my-2"></div>
@@ -390,7 +390,7 @@ export default function Header({
                   disabled={isLoggingOut}
                   className="w-full text-left px-4 py-3 rounded-xl font-body font-semibold text-sm text-red-500 hover:bg-red-50 disabled:text-slate-300 disabled:hover:bg-transparent"
                 >
-                  {isLoggingOut ? "Đang đăng xuất..." : "🚪 Đăng Xuất"}
+                  {isLoggingOut ? "Đang đăng xuất..." : "Đăng Xuất"}
                 </button>
               </>
             ) : (

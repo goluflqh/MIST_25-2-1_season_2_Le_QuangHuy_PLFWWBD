@@ -153,3 +153,22 @@
     animation-delay: 300ms;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-marquee,
+  .animate-blob,
+  .animate-bounce-slow,
+  .animate-float,
+  .shimmer-effect::after {
+    animation: none !important;
+  }
+
+  .btn-hover-fx,
+  .glass-panel {
+    transition-duration: 0.01ms !important;
+  }
+}
