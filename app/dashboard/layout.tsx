@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import AdminSidebar from "@/components/AdminSidebar";
 import { NotifyProvider } from "@/components/NotifyProvider";
+import { getAdminNotificationCounts } from "@/lib/notifications";
 import { getCurrentSessionUser } from "@/lib/session";
 
 export default async function AdminLayout({
@@ -14,14 +14,11 @@ export default async function AdminLayout({
   if (!admin) redirect("/dang-nhap");
   if (admin.role !== "ADMIN") redirect("/tai-khoan");
 
-  const [pendingContacts, pendingReviews] = await Promise.all([
-    prisma.contactRequest.count({ where: { status: "PENDING" } }),
-    prisma.review.count({ where: { approved: false } }),
-  ]);
+  const counts = await getAdminNotificationCounts();
 
   return (
     <div className="flex min-h-[calc(100vh-100px)]">
-      <AdminSidebar initialCounts={{ contacts: pendingContacts, reviews: pendingReviews }} />
+      <AdminSidebar initialCounts={counts} />
 
       {/* Main Content */}
       <div className="flex-1 bg-slate-50">

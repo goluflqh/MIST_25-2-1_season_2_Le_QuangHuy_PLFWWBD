@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -12,6 +12,7 @@ interface UserInfo {
   role: string;
   loyaltyPoints: number;
   createdAt: string;
+  createdAtLabel: string;
 }
 
 interface ServiceRequest {
@@ -20,6 +21,7 @@ interface ServiceRequest {
   message: string | null;
   status: string;
   createdAt: string;
+  createdAtLabel: string;
 }
 
 interface WarrantyInfo {
@@ -28,6 +30,8 @@ interface WarrantyInfo {
   productName: string;
   service: string;
   endDate: string;
+  endDateLabel: string;
+  isActive: boolean;
   notes: string | null;
 }
 
@@ -53,6 +57,19 @@ const statusConfig: Record<string, { label: string; color: string }> = {
   CANCELLED: { label: "Đã huỷ", color: "bg-red-100 text-red-700" },
 };
 
+const clientDateTimeFormatter = new Intl.DateTimeFormat("vi-VN", {
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  month: "2-digit",
+  timeZone: "Asia/Ho_Chi_Minh",
+  year: "numeric",
+});
+
+function formatClientVietnamDateTime(date: Date) {
+  return clientDateTimeFormatter.format(date);
+}
+
 function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
   if (warranties.length === 0) return null;
 
@@ -61,7 +78,7 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
       <h3 className="font-heading font-bold text-slate-900 mb-3">🛡️ Phiếu Bảo Hành Của Bạn</h3>
       <div className="space-y-3">
         {warranties.map((warranty) => {
-          const isValid = new Date() < new Date(warranty.endDate);
+          const isValid = warranty.isActive;
           return (
             <div
               key={warranty.id}
@@ -84,7 +101,7 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
                   </p>
                   <p className="font-body text-xs text-slate-400">
                     {serviceLabels[warranty.service]} · Hết hạn:{" "}
-                    {new Date(warranty.endDate).toLocaleDateString("vi-VN")}
+                    {warranty.endDateLabel}
                   </p>
                 </div>
               </div>
@@ -287,12 +304,14 @@ function PasswordChangeSection() {
 }
 
 interface AccountPageClientProps {
+  dataWarning?: string | null;
   initialRequests: ServiceRequest[];
   initialUser: UserInfo;
   initialWarranties: WarrantyInfo[];
 }
 
 export default function AccountPageClient({
+  dataWarning,
   initialRequests,
   initialUser,
   initialWarranties,
@@ -331,8 +350,9 @@ export default function AccountPageClient({
         throw new Error("Logout failed");
       }
 
-      router.replace("/dang-nhap");
-      router.refresh();
+      startTransition(() => {
+        router.replace("/dang-nhap");
+      });
     } catch {
       setUser(previousUser);
     } finally {
@@ -375,6 +395,7 @@ export default function AccountPageClient({
             message: formData.message.trim() || null,
             status: "PENDING",
             createdAt: new Date().toISOString(),
+            createdAtLabel: formatClientVietnamDateTime(new Date()),
           },
           ...prev,
         ]);
@@ -445,6 +466,12 @@ export default function AccountPageClient({
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 animate-fade-in-up">
+      {dataWarning ? (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-body font-semibold text-amber-800">
+          {dataWarning}
+        </div>
+      ) : null}
+
       <div className="bg-white rounded-2xl shadow-sm p-6 sm:p-8 border border-slate-100 mb-6">
         <div className="flex flex-col sm:flex-row items-center gap-5">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-2xl font-heading font-extrabold shadow-lg shrink-0">
@@ -453,8 +480,7 @@ export default function AccountPageClient({
           <div className="text-center sm:text-left flex-1">
             <h1 className="font-heading font-extrabold text-xl text-slate-900">{initialUser.name}</h1>
             <p className="font-body text-sm text-slate-500">
-              📱 {initialUser.phone} · Thành viên từ{" "}
-              {new Date(initialUser.createdAt).toLocaleDateString("vi-VN")}
+              📱 {initialUser.phone} · Thành viên từ {initialUser.createdAtLabel}
             </p>
           </div>
           <div className="flex gap-2">
@@ -750,9 +776,7 @@ export default function AccountPageClient({
                   {request.message ? (
                     <p className="font-body text-xs text-slate-400 mt-0.5 truncate">{request.message}</p>
                   ) : null}
-                  <p className="font-body text-[10px] text-slate-300 mt-1">
-                    {new Date(request.createdAt).toLocaleString("vi-VN")}
-                  </p>
+                  <p className="font-body text-[10px] text-slate-300 mt-1">{request.createdAtLabel}</p>
                 </div>
               </div>
             ))}

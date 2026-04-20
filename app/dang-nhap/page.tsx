@@ -91,7 +91,6 @@ export default function LoginPage() {
       const targetPath = data.user?.role === "ADMIN" ? "/dashboard" : "/tai-khoan";
       startTransition(() => {
         router.replace(targetPath);
-        router.refresh();
       });
     } catch {
       setError("Lỗi kết nối. Vui lòng thử lại.");

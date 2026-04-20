@@ -72,7 +72,6 @@ function RegisterPageContent() {
       setUser(data.user ?? null);
       startTransition(() => {
         router.replace("/tai-khoan");
-        router.refresh();
       });
     } catch {
       setError("Lỗi kết nối. Vui lòng thử lại.");

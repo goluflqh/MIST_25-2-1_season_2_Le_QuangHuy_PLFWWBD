@@ -1,17 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 
-export default function Header() {
+export default function Header({
+  initialNotificationCount = 0,
+  initialNotificationUserId = null,
+}: {
+  initialNotificationCount?: number;
+  initialNotificationUserId?: string | null;
+}) {
+  const enableBackgroundPolling = process.env.NODE_ENV === "production";
   const router = useRouter();
   const pathname = usePathname();
   const { user, setUser } = useAuth();
   const [mobileMenuState, setMobileMenuState] = useState({ open: false, pathname });
   const [servicesMenuState, setServicesMenuState] = useState({ open: false, pathname });
-  const [notifCount, setNotifCount] = useState(0);
+  const [notifCount, setNotifCount] = useState(initialNotificationCount);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const isMobileMenuOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
@@ -19,6 +26,12 @@ export default function Header() {
   const visibleUser = user;
   const visibleNotifCount = visibleUser ? notifCount : 0;
   const currentUserId = visibleUser?.id ?? null;
+
+  useEffect(() => {
+    if (currentUserId === initialNotificationUserId) {
+      setNotifCount(initialNotificationCount);
+    }
+  }, [currentUserId, initialNotificationCount, initialNotificationUserId]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -61,21 +74,31 @@ export default function Header() {
       }
     };
 
-    void fetchNotifs();
-    const interval = window.setInterval(() => {
+    const hasDismissedNotifications = Boolean(localStorage.getItem("mh_notif_seen"));
+    const shouldFetchImmediately =
+      currentUserId !== initialNotificationUserId || hasDismissedNotifications;
+
+    if (shouldFetchImmediately) {
       void fetchNotifs();
-    }, 30000);
+    }
+    const interval = enableBackgroundPolling
+      ? window.setInterval(() => {
+          void fetchNotifs();
+        }, 30000)
+      : null;
 
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       isActive = false;
-      clearInterval(interval);
+      if (interval !== null) {
+        clearInterval(interval);
+      }
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [currentUserId]);
+  }, [currentUserId, enableBackgroundPolling, initialNotificationUserId]);
 
   const dismissNotifications = () => {
     localStorage.setItem("mh_notif_seen", new Date().toISOString());
@@ -111,8 +134,9 @@ export default function Header() {
         throw new Error("Logout failed");
       }
 
-      router.replace("/");
-      router.refresh();
+      startTransition(() => {
+        router.replace("/");
+      });
     } catch {
       setUser(previousUser);
     } finally {

@@ -55,6 +55,7 @@ function SidebarNav({ pathname, counts }: { pathname: string; counts: NavCounts 
 }
 
 export default function AdminSidebar({ initialCounts }: { initialCounts: NavCounts }) {
+  const enableBackgroundPolling = process.env.NODE_ENV === "production";
   const pathname = usePathname();
   const [counts, setCounts] = useState<NavCounts>(initialCounts);
   const [mobileMenuState, setMobileMenuState] = useState({ open: false, pathname });
@@ -87,20 +88,24 @@ export default function AdminSidebar({ initialCounts }: { initialCounts: NavCoun
       }
     };
 
-    const interval = window.setInterval(() => {
-      void fetchCounts();
-    }, 30000);
+    const interval = enableBackgroundPolling
+      ? window.setInterval(() => {
+          void fetchCounts();
+        }, 30000)
+      : null;
 
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       isActive = false;
-      clearInterval(interval);
+      if (interval !== null) {
+        clearInterval(interval);
+      }
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [enableBackgroundPolling]);
 
   const toggleMobileMenu = () => {
     setMobileMenuState((prev) => ({

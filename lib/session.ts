@@ -1,17 +1,32 @@
 import type { Session, User } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { prisma } from "@/lib/prisma";
+import {
+  isPrismaDatabaseUnavailable,
+  logPrismaAvailabilityWarning,
+  prisma,
+} from "@/lib/prisma";
 
 type SessionWithUser = Session & { user: User };
 
 async function getValidSessionByToken(token: string | undefined): Promise<SessionWithUser | null> {
   if (!token) return null;
 
-  const session = await prisma.session.findUnique({
-    where: { token },
-    include: { user: true },
-  });
+  let session: SessionWithUser | null = null;
+
+  try {
+    session = await prisma.session.findUnique({
+      where: { token },
+      include: { user: true },
+    });
+  } catch (error) {
+    if (isPrismaDatabaseUnavailable(error)) {
+      logPrismaAvailabilityWarning("Session lookup skipped", error);
+      return null;
+    }
+
+    throw error;
+  }
 
   if (!session || session.expiresAt < new Date()) {
     return null;
