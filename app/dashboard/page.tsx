@@ -45,7 +45,7 @@ export default async function DashboardPage() {
       : 0;
 
   return (
-    <div className="space-y-6 animate-fade-in-up">
+    <div data-testid="dashboard-page" className="space-y-6 animate-fade-in-up">
       <div>
         <h2 className="font-heading font-extrabold text-2xl text-slate-900 mb-1">Tổng Quan Cửa Hàng 👋</h2>
         <p className="font-body text-sm text-slate-500">Dashboard quản lý yêu cầu dịch vụ Minh Hồng</p>
@@ -91,7 +91,10 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+      <div
+        data-testid="dashboard-chatbot-health"
+        className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100"
+      >
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <h3 className="font-heading font-bold text-slate-900">Sức Khỏe Chatbot</h3>

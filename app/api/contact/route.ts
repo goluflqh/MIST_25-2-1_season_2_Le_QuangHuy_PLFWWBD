@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server";
+import {
+  createErrorResponse,
+  createInvalidJsonResponse,
+  createRateLimitResponse,
+  logApiError,
+  readJsonBody,
+} from "@/lib/api-route";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit, formatDurationVi, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { forbiddenResponse, getCurrentAdminUser, getCurrentSession } from "@/lib/session";
@@ -19,54 +26,49 @@ export async function POST(request: Request) {
     const rateLimit = checkRateLimit(`contact:${ip}`, RATE_LIMITS.contact);
 
     if (!rateLimit.allowed) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: `Bạn gửi hơi nhanh. Vui lòng thử lại sau ${formatDurationVi(rateLimit.retryAfterSec)}.`,
-          retryAfterSec: rateLimit.retryAfterSec,
-        },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(rateLimit.retryAfterSec),
-          },
-        }
+      return createRateLimitResponse(
+        `Bạn gửi hơi nhanh. Vui lòng thử lại sau ${formatDurationVi(rateLimit.retryAfterSec)}.`,
+        rateLimit
       );
     }
 
-    const body = await request.json();
-    const name = optionalText(body?.name, 80);
-    const phone = normalizePhone(typeof body?.phone === "string" ? body.phone : "");
-    const service = optionalText(body?.service, 40);
-    const message = optionalText(body?.message, 500);
-    const source = optionalText(body?.source, 64) || "homepage";
-    const sourcePath = optionalText(body?.sourcePath, 255);
-    const referrer = optionalText(body?.referrer, 255);
-    const utmSource = optionalText(body?.utmSource, 100);
-    const utmMedium = optionalText(body?.utmMedium, 100);
-    const utmCampaign = optionalText(body?.utmCampaign, 120);
-    const utmTerm = optionalText(body?.utmTerm, 120);
-    const utmContent = optionalText(body?.utmContent, 120);
+    const body = await readJsonBody(request);
+    if (!body) {
+      return createInvalidJsonResponse();
+    }
+
+    const name = optionalText(body.name, 80);
+    const phone = normalizePhone(typeof body.phone === "string" ? body.phone : "");
+    const service = optionalText(body.service, 40);
+    const message = optionalText(body.message, 500);
+    const source = optionalText(body.source, 64) || "homepage";
+    const sourcePath = optionalText(body.sourcePath, 255);
+    const referrer = optionalText(body.referrer, 255);
+    const utmSource = optionalText(body.utmSource, 100);
+    const utmMedium = optionalText(body.utmMedium, 100);
+    const utmCampaign = optionalText(body.utmCampaign, 120);
+    const utmTerm = optionalText(body.utmTerm, 120);
+    const utmContent = optionalText(body.utmContent, 120);
 
     if (!name || !phone || !service) {
-      return NextResponse.json(
-        { success: false, message: "Thiếu thông tin bắt buộc (tên, SĐT, dịch vụ)." },
-        { status: 400 }
-      );
+      return createErrorResponse({
+        status: 400,
+        message: "Thiếu thông tin bắt buộc (tên, SĐT, dịch vụ).",
+      });
     }
 
     if (name.length < 2) {
-      return NextResponse.json(
-        { success: false, message: "Vui lòng nhập họ tên đầy đủ hơn một chút." },
-        { status: 400 }
-      );
+      return createErrorResponse({
+        status: 400,
+        message: "Vui lòng nhập họ tên đầy đủ hơn một chút.",
+      });
     }
 
     if (!isValidPhone(phone)) {
-      return NextResponse.json(
-        { success: false, message: "Số điện thoại không hợp lệ. Vui lòng kiểm tra lại." },
-        { status: 400 }
-      );
+      return createErrorResponse({
+        status: 400,
+        message: "Số điện thoại không hợp lệ. Vui lòng kiểm tra lại.",
+      });
     }
 
     const serviceType = VALID_SERVICES.includes(service) ? service : "KHAC";
@@ -106,11 +108,11 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
-    console.error("Contact API Error:", error);
-    return NextResponse.json(
-      { success: false, message: "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." },
-      { status: 500 }
-    );
+    logApiError("Contact API Error", error);
+    return createErrorResponse({
+      status: 500,
+      message: "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.",
+    });
   }
 }
 
@@ -125,7 +127,10 @@ export async function GET() {
 
     return NextResponse.json({ success: true, contacts });
   } catch (error) {
-    console.error("Contact GET Error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    logApiError("Contact GET Error", error);
+    return createErrorResponse({
+      status: 500,
+      message: "Không tải được danh sách yêu cầu lúc này.",
+    });
   }
 }

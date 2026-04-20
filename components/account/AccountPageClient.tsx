@@ -465,7 +465,10 @@ export default function AccountPageClient({
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 animate-fade-in-up">
+    <div
+      data-testid="account-page"
+      className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 animate-fade-in-up"
+    >
       {dataWarning ? (
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-body font-semibold text-amber-800">
           {dataWarning}
@@ -478,7 +481,9 @@ export default function AccountPageClient({
             {initialUser.name.charAt(0).toUpperCase()}
           </div>
           <div className="text-center sm:text-left flex-1">
-            <h1 className="font-heading font-extrabold text-xl text-slate-900">{initialUser.name}</h1>
+            <h1 data-testid="account-name" className="font-heading font-extrabold text-xl text-slate-900">
+              {initialUser.name}
+            </h1>
             <p className="font-body text-sm text-slate-500">
               📱 {initialUser.phone} · Thành viên từ {initialUser.createdAtLabel}
             </p>
@@ -493,6 +498,7 @@ export default function AccountPageClient({
               </Link>
             ) : null}
             <button
+              data-testid="account-logout"
               onClick={handleLogout}
               disabled={isLoggingOut}
               className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-xl font-body font-bold text-sm hover:bg-red-100 transition-colors"
@@ -554,6 +560,7 @@ export default function AccountPageClient({
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
         <button
+          data-testid="account-request-toggle"
           onClick={() => setShowForm(!showForm)}
           className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
         >
@@ -742,7 +749,10 @@ export default function AccountPageClient({
       <ReferralSection />
       <PasswordChangeSection />
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div
+        data-testid="account-request-history"
+        className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden"
+      >
         <div className="px-6 py-4 border-b border-slate-100">
           <h3 className="font-heading font-bold text-slate-900">📋 Lịch Sử Yêu Cầu Của Bạn</h3>
           <p className="font-body text-xs text-slate-400 mt-0.5">{requests.length} yêu cầu</p>

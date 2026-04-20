@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
+import {
+  createErrorResponse,
+  createInvalidJsonResponse,
+  createRateLimitResponse,
+  logApiError,
+  readJsonBody,
+} from "@/lib/api-route";
 import { prisma } from "@/lib/prisma";
-import { hashPassword, generateSessionToken } from "@/lib/auth";
+import { generateSessionToken, hashPassword } from "@/lib/auth";
 import {
   consumeRateLimit,
   formatDurationVi,
@@ -9,26 +16,12 @@ import {
   RATE_LIMITS,
   type RateLimitResult,
 } from "@/lib/rate-limit";
-import { normalizePhone, isValidPhone, sanitizeText, isStrongPassword } from "@/lib/sanitize";
+import { isStrongPassword, isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
 
 function createRateLimitedResponse(message: string, result: RateLimitResult) {
-  const retryAfterSec = Math.max(result.retryAfterSec, 1);
-  const response = NextResponse.json(
-    {
-      success: false,
-      message,
-      retryAfterSec,
-      remainingAttempts: 0,
-    },
-    { status: 429 }
-  );
-
-  response.headers.set("Retry-After", retryAfterSec.toString());
-  response.headers.set("X-RateLimit-Limit", result.limit.toString());
-  response.headers.set("X-RateLimit-Remaining", "0");
-  response.headers.set("X-RateLimit-Reset", Math.ceil(result.resetAt / 1000).toString());
-
-  return response;
+  return createRateLimitResponse(message, result, {
+    remainingAttempts: 0,
+  });
 }
 
 function getBlockedMessage(retryAfterSec: number) {
@@ -57,38 +50,42 @@ export async function POST(request: Request) {
       return createRateLimitedResponse(getBlockedMessage(currentLimit.retryAfterSec), currentLimit);
     }
 
-    const body = await request.json();
-    const name = sanitizeText(body.name || "");
-    const phone = normalizePhone(sanitizeText(body.phone || ""));
-    const password = body.password || "";
-    const referralCode = sanitizeText(body.referralCode || "");
+    const body = await readJsonBody(request);
+    if (!body) {
+      return createInvalidJsonResponse();
+    }
+
+    const name = sanitizeText(typeof body.name === "string" ? body.name : "");
+    const phone = normalizePhone(sanitizeText(typeof body.phone === "string" ? body.phone : ""));
+    const password = typeof body.password === "string" ? body.password : "";
+    const referralCode = sanitizeText(typeof body.referralCode === "string" ? body.referralCode : "");
 
     if (!name || !phone || !password) {
-      return NextResponse.json(
-        { success: false, message: "Vui lòng điền đầy đủ thông tin." },
-        { status: 400 }
-      );
+      return createErrorResponse({
+        status: 400,
+        message: "Vui lòng điền đầy đủ thông tin.",
+      });
     }
 
     if (name.length < 2 || name.length > 50) {
-      return NextResponse.json(
-        { success: false, message: "Tên phải từ 2 đến 50 ký tự." },
-        { status: 400 }
-      );
+      return createErrorResponse({
+        status: 400,
+        message: "Tên phải từ 2 đến 50 ký tự.",
+      });
     }
 
     if (!isValidPhone(phone)) {
-      return NextResponse.json(
-        { success: false, message: "Số điện thoại không hợp lệ." },
-        { status: 400 }
-      );
+      return createErrorResponse({
+        status: 400,
+        message: "Số điện thoại không hợp lệ.",
+      });
     }
 
     if (!isStrongPassword(password)) {
-      return NextResponse.json(
-        { success: false, message: "Mật khẩu phải có ít nhất 6 ký tự." },
-        { status: 400 }
-      );
+      return createErrorResponse({
+        status: 400,
+        message: "Mật khẩu phải có ít nhất 6 ký tự.",
+      });
     }
 
     const attempt = consumeRateLimit(identifier, RATE_LIMITS.register);
@@ -98,15 +95,15 @@ export async function POST(request: Request) {
 
     const existingUser = await prisma.user.findUnique({ where: { phone } });
     if (existingUser) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Số điện thoại này đã được đăng ký. Bạn có thể đăng nhập hoặc bấm quên mật khẩu nếu cần.",
+      return createErrorResponse({
+        status: 409,
+        message:
+          "Số điện thoại này đã được đăng ký. Bạn có thể đăng nhập hoặc bấm quên mật khẩu nếu cần.",
+        extra: {
           warning: getRegisterWarning(attempt.remaining),
           remainingAttempts: attempt.remaining,
         },
-        { status: 409 }
-      );
+      });
     }
 
     const hashedPassword = await hashPassword(password);
@@ -159,10 +156,10 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error) {
-    console.error("Register API Error:", error);
-    return NextResponse.json(
-      { success: false, message: "Lỗi hệ thống. Vui lòng thử lại." },
-      { status: 500 }
-    );
+    logApiError("Register API Error", error);
+    return createErrorResponse({
+      status: 500,
+      message: "Lỗi hệ thống. Vui lòng thử lại.",
+    });
   }
 }

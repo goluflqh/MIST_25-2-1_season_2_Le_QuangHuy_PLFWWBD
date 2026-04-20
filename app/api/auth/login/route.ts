@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
+import {
+  createErrorResponse,
+  createInvalidJsonResponse,
+  createRateLimitResponse,
+  logApiError,
+  readJsonBody,
+} from "@/lib/api-route";
 import { prisma } from "@/lib/prisma";
-import { verifyPassword, generateSessionToken } from "@/lib/auth";
+import { generateSessionToken, verifyPassword } from "@/lib/auth";
 import {
   consumeRateLimit,
   formatDurationVi,
@@ -10,28 +17,14 @@ import {
   resetRateLimit,
   type RateLimitResult,
 } from "@/lib/rate-limit";
-import { normalizePhone, isValidPhone, sanitizeText } from "@/lib/sanitize";
+import { isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
 
 const INVALID_MSG = "Số điện thoại hoặc mật khẩu chưa đúng.";
 
 function createRateLimitedResponse(message: string, result: RateLimitResult) {
-  const retryAfterSec = Math.max(result.retryAfterSec, 1);
-  const response = NextResponse.json(
-    {
-      success: false,
-      message,
-      retryAfterSec,
-      remainingAttempts: 0,
-    },
-    { status: 429 }
-  );
-
-  response.headers.set("Retry-After", retryAfterSec.toString());
-  response.headers.set("X-RateLimit-Limit", result.limit.toString());
-  response.headers.set("X-RateLimit-Remaining", "0");
-  response.headers.set("X-RateLimit-Reset", Math.ceil(result.resetAt / 1000).toString());
-
-  return response;
+  return createRateLimitResponse(message, result, {
+    remainingAttempts: 0,
+  });
 }
 
 function getBlockedMessage(retryAfterSec: number) {
@@ -61,22 +54,26 @@ export async function POST(request: Request) {
       return createRateLimitedResponse(getBlockedMessage(currentLimit.retryAfterSec), currentLimit);
     }
 
-    const body = await request.json();
-    const phone = normalizePhone(sanitizeText(body.phone || ""));
-    const password = body.password || "";
+    const body = await readJsonBody(request);
+    if (!body) {
+      return createInvalidJsonResponse();
+    }
+
+    const phone = normalizePhone(sanitizeText(typeof body.phone === "string" ? body.phone : ""));
+    const password = typeof body.password === "string" ? body.password : "";
 
     if (!phone || !password) {
-      return NextResponse.json(
-        { success: false, message: "Vui lòng nhập đầy đủ số điện thoại và mật khẩu." },
-        { status: 400 }
-      );
+      return createErrorResponse({
+        status: 400,
+        message: "Vui lòng nhập đầy đủ số điện thoại và mật khẩu.",
+      });
     }
 
     if (!isValidPhone(phone)) {
-      return NextResponse.json(
-        { success: false, message: "Số điện thoại không hợp lệ." },
-        { status: 400 }
-      );
+      return createErrorResponse({
+        status: 400,
+        message: "Số điện thoại không hợp lệ.",
+      });
     }
 
     const user = await prisma.user.findUnique({ where: { phone } });
@@ -89,25 +86,24 @@ export async function POST(request: Request) {
         return createRateLimitedResponse(getBlockedMessage(failedAttempt.retryAfterSec), failedAttempt);
       }
 
-      return NextResponse.json(
-        {
-          success: false,
-          message: INVALID_MSG,
+      return createErrorResponse({
+        status: 401,
+        message: INVALID_MSG,
+        extra: {
           warning: getLoginWarning(failedAttempt.remaining),
           remainingAttempts: failedAttempt.remaining,
         },
-        { status: 401 }
-      );
+      });
     }
 
     resetRateLimit(identifier);
 
-    // Clean up old sessions for this user (keep max 5).
     const oldSessions = await prisma.session.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
       skip: 4,
     });
+
     if (oldSessions.length > 0) {
       await prisma.session.deleteMany({
         where: { id: { in: oldSessions.map((session) => session.id) } },
@@ -140,10 +136,10 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error) {
-    console.error("Login API Error:", error);
-    return NextResponse.json(
-      { success: false, message: "Lỗi hệ thống. Vui lòng thử lại." },
-      { status: 500 }
-    );
+    logApiError("Login API Error", error);
+    return createErrorResponse({
+      status: 500,
+      message: "Lỗi hệ thống. Vui lòng thử lại.",
+    });
   }
 }
