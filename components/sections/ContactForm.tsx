@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
+import { siteConfig } from "@/lib/site";
 import * as z from "zod";
 
 const serviceOptions = [
@@ -17,11 +20,53 @@ const serviceOptions = [
 
 const sourceLabels: Record<string, string> = {
   homepage: "Trang chủ",
+  "homepage-services-camera": "Khối dịch vụ camera trang chủ",
+  "homepage-services-dong-pin": "Khối dịch vụ đóng pin trang chủ",
   "pricing-page": "Trang báo giá",
   "service-dong-pin": "Trang dịch vụ đóng pin",
   "service-den-nlmt": "Trang đèn NLMT",
   "service-pin-luu-tru": "Trang pin lưu trữ",
   "service-camera": "Trang camera",
+};
+
+const serviceSuccessContent: Record<
+  (typeof serviceOptions)[number]["value"],
+  {
+    eta: string;
+    followUp: string;
+    title: string;
+  }
+> = {
+  DONG_PIN: {
+    eta: "khoảng 10-15 phút",
+    followUp: "thông số pin, dòng xả và phương án cell/mạch phù hợp nhất",
+    title: "Yêu cầu đóng pin đã vào hàng ưu tiên",
+  },
+  DEN_NLMT: {
+    eta: "khoảng 10-15 phút",
+    followUp: "thời lượng sáng, nhu cầu thay pin và phương án dùng ổn vào mùa mưa",
+    title: "Yêu cầu đèn năng lượng mặt trời đã được ghi nhận",
+  },
+  PIN_LUU_TRU: {
+    eta: "khoảng 10-20 phút",
+    followUp: "điện áp, dung lượng và phương án đóng bộ pin theo nhu cầu thực tế",
+    title: "Yêu cầu pin lưu trữ đã được tiếp nhận",
+  },
+  CAMERA: {
+    eta: "khoảng 10-20 phút",
+    followUp: "bố trí mắt camera, góc nhìn và lịch khảo sát nếu anh/chị cần lắp tận nơi",
+    title: "Yêu cầu camera đã sẵn sàng để tư vấn",
+  },
+  CUSTOM: {
+    eta: "khoảng 15-20 phút",
+    followUp: "cấu hình riêng, kích thước bộ pin và chi tiết kỹ thuật cần làm theo yêu cầu",
+    title: "Yêu cầu đóng bộ riêng đã được ghi nhận",
+  },
+  KHAC: {
+    eta: "khoảng 10-15 phút",
+    followUp: "nhu cầu cụ thể và phương án phù hợp nhất cho trường hợp của anh/chị",
+    title: "Yêu cầu tư vấn đã được gửi thành công",
+  },
 };
 
 const validServiceIds = new Set(serviceOptions.map((option) => option.value));
@@ -42,11 +87,15 @@ function readTrackingValue(searchParams: { get(name: string): string | null }, k
 }
 
 export default function ContactForm() {
+  const { user } = useAuth();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submittedServiceId, setSubmittedServiceId] = useState<
+    (typeof serviceOptions)[number]["value"] | ""
+  >("");
 
   const serviceFromQuery = searchParams.get("service") || "";
   const selectedSource = searchParams.get("source") || "homepage";
@@ -117,6 +166,11 @@ export default function ContactForm() {
         return;
       }
 
+      setSubmittedServiceId(
+        validServiceIds.has(data.serviceId as (typeof serviceOptions)[number]["value"])
+          ? (data.serviceId as (typeof serviceOptions)[number]["value"])
+          : "KHAC"
+      );
       setIsSuccess(true);
       reset({
         name: "",
@@ -134,6 +188,12 @@ export default function ContactForm() {
       setIsSubmitting(false);
     }
   };
+
+  const successServiceId =
+    submittedServiceId && validServiceIds.has(submittedServiceId) ? submittedServiceId : "KHAC";
+  const successContent = serviceSuccessContent[successServiceId];
+  const successServiceLabel =
+    serviceOptions.find((option) => option.value === successServiceId)?.label || "📞 Tư vấn khác";
 
   return (
     <section id="quote" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 mb-8 relative z-20">
@@ -162,28 +222,83 @@ export default function ContactForm() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
                 </svg>
               </div>
-              <h3 className="font-heading font-bold text-2xl text-slate-800">Gửi Thành Công!</h3>
+              <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-body font-bold uppercase tracking-wide text-slate-500">
+                {successServiceLabel}
+              </div>
+              <h3 className="font-heading font-bold text-2xl text-slate-800">
+                {successContent.title}
+              </h3>
               <p className="font-body text-slate-600">
-                Cảm ơn bạn. Đội ngũ kỹ thuật Minh Hồng sẽ liên hệ lại qua số điện thoại bạn vừa
-                cung cấp trong ít phút nữa.
+                Cảm ơn anh/chị. Đội ngũ Minh Hồng sẽ gọi lại trong {successContent.eta} để trao
+                đổi rõ hơn về {successContent.followUp}.
               </p>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 w-full">
-                <p className="font-body text-sm text-yellow-800 mb-2">
-                  💡 <b>Tạo tài khoản</b> để theo dõi trạng thái yêu cầu & đánh giá dịch vụ!
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 w-full text-left">
+                <p className="font-body text-sm font-bold text-slate-700 mb-2">
+                  Bước tiếp theo em gợi ý cho anh/chị:
                 </p>
+                <ul className="space-y-2 font-body text-sm text-slate-600">
+                  <li>1. Giữ máy giúp em để kỹ thuật gọi xác nhận nhanh.</li>
+                  <li>2. Nếu có ảnh thiết bị hoặc mẫu cần làm, anh/chị có thể gửi thêm qua Zalo.</li>
+                  <li>3. Em sẽ ưu tiên tư vấn đúng nhu cầu trước, rồi mới chốt giá chi tiết.</li>
+                </ul>
+              </div>
+              <div className="grid w-full gap-3 sm:grid-cols-2">
                 <a
-                  href="/dang-ky"
-                  className="inline-block px-4 py-2 bg-yellow-500 text-slate-900 rounded-lg font-body font-bold text-sm hover:bg-yellow-600 transition-colors"
+                  href={siteConfig.zaloUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-body font-bold text-white transition-colors hover:bg-blue-500"
                 >
-                  Đăng Ký Miễn Phí →
+                  Gửi ảnh qua Zalo
+                </a>
+                <a
+                  href={siteConfig.hotlineHref}
+                  className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-3 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  Gọi {siteConfig.hotlineDisplay}
                 </a>
               </div>
-              <button
-                onClick={() => setIsSuccess(false)}
-                className="mt-2 px-6 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-bold transition-colors"
-              >
-                Gửi yêu cầu khác
-              </button>
+              {user ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 w-full">
+                  <p className="font-body text-sm text-emerald-800 mb-2">
+                    Anh/chị đã có tài khoản rồi, có thể theo dõi lại yêu cầu ngay trong mục tài
+                    khoản.
+                  </p>
+                  <Link
+                    href="/tai-khoan"
+                    className="inline-block px-4 py-2 bg-emerald-600 text-white rounded-lg font-body font-bold text-sm hover:bg-emerald-500 transition-colors"
+                  >
+                    Xem tài khoản →
+                  </Link>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 w-full">
+                  <p className="font-body text-sm text-yellow-800 mb-2">
+                    💡 <b>Tạo tài khoản miễn phí</b> để theo dõi trạng thái yêu cầu, lịch sử dịch vụ
+                    và nhận ưu đãi về sau.
+                  </p>
+                  <Link
+                    href="/dang-ky"
+                    className="inline-block px-4 py-2 bg-yellow-500 text-slate-900 rounded-lg font-body font-bold text-sm hover:bg-yellow-600 transition-colors"
+                  >
+                    Đăng ký miễn phí →
+                  </Link>
+                </div>
+              )}
+              <div className="flex flex-wrap justify-center gap-3">
+                <button
+                  onClick={() => setIsSuccess(false)}
+                  className="mt-1 px-6 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-bold transition-colors"
+                >
+                  Gửi yêu cầu khác
+                </button>
+                <Link
+                  href="/bao-gia"
+                  className="mt-1 px-6 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg font-bold transition-colors"
+                >
+                  Xem bảng giá
+                </Link>
+              </div>
             </div>
           ) : (
             <form

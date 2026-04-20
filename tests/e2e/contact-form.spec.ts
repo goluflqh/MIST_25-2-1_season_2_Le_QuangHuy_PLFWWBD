@@ -52,8 +52,12 @@ test.describe("Contact form", () => {
     await fillContactForm(page);
     await page.getByTestId("contact-submit").click();
 
-    await expect(page.getByTestId("contact-success")).toBeVisible();
-    await expect(page.getByText(/G.i Th.nh C.ng!/i)).toBeVisible();
+    const successPanel = page.getByTestId("contact-success");
+
+    await expect(successPanel).toBeVisible();
+    await expect(successPanel).toContainText(/Y.u c.u camera/i);
+    await expect(page.getByRole("link", { name: /G.i .nh qua Zalo/i })).toBeVisible();
+    await expect(successPanel).toContainText(/theo d.i tr.ng th.i y.u c.u/i);
   });
 
   test("shows an API error message when the request fails", async ({ page }) => {

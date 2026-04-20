@@ -74,9 +74,20 @@ export default function Services() {
               ĐẶC BIỆT: Nhận đóng bình thủ công theo mọi yêu cầu thông số của khách!
             </div>
 
-            <Link href="/bao-gia" className="w-max bg-slate-900 hover:bg-primary text-white font-body font-bold py-3 px-8 rounded-xl transition-colors ring-1 ring-slate-900 hover:ring-0 inline-block">
-              Tham khảo Bảng Giá Nhỏ
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/?service=DONG_PIN&source=homepage-services-dong-pin#quote"
+                className="w-max bg-slate-900 hover:bg-primary text-white font-body font-bold py-3 px-8 rounded-xl transition-colors ring-1 ring-slate-900 hover:ring-0 inline-block"
+              >
+                Nhận tư vấn đóng pin
+              </Link>
+              <Link
+                href="/bao-gia?source=homepage-services-dong-pin"
+                className="w-max border-2 border-slate-200 hover:border-primary text-slate-700 font-body font-bold py-3 px-8 rounded-xl transition-colors inline-block"
+              >
+                Xem bảng giá
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -117,9 +128,20 @@ export default function Services() {
               </li>
             </ul>
 
-            <Link href="/#quote" className="w-max bg-white hover:bg-slate-50 text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-8 rounded-xl transition-colors inline-block">
-              Yêu Cầu Khảo Sát Tận Nơi
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/?service=CAMERA&source=homepage-services-camera#quote"
+                className="w-max bg-white hover:bg-slate-50 text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-8 rounded-xl transition-colors inline-block"
+              >
+                Yêu cầu khảo sát tận nơi
+              </Link>
+              <Link
+                href="/dich-vu/camera"
+                className="w-max text-blue-700 font-body font-bold py-3 px-2 rounded-xl transition-colors inline-block hover:text-blue-600"
+              >
+                Xem chi tiết dịch vụ →
+              </Link>
+            </div>
           </div>
         </div>
       </div>
