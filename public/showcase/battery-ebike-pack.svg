@@ -1,0 +1,33 @@
+<svg width="960" height="720" viewBox="0 0 960 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="96" y1="72" x2="864" y2="648" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#7F1D1D"/>
+    </linearGradient>
+    <linearGradient id="pack" x1="256" y1="152" x2="640" y2="408" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F87171"/>
+      <stop offset="1" stop-color="#F97316"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="720" rx="48" fill="url(#bg)"/>
+  <circle cx="760" cy="132" r="116" fill="#FB7185" fill-opacity="0.18"/>
+  <circle cx="192" cy="560" r="148" fill="#FDBA74" fill-opacity="0.14"/>
+  <rect x="96" y="94" width="768" height="532" rx="32" fill="#0B1120" fill-opacity="0.72" stroke="#FCA5A5" stroke-opacity="0.28" stroke-width="2"/>
+  <rect x="224" y="168" width="408" height="232" rx="28" fill="url(#pack)"/>
+  <rect x="632" y="244" width="28" height="80" rx="12" fill="#FDBA74"/>
+  <rect x="260" y="202" width="86" height="164" rx="18" fill="#FFF7ED" fill-opacity="0.88"/>
+  <rect x="360" y="202" width="86" height="164" rx="18" fill="#FFF7ED" fill-opacity="0.88"/>
+  <rect x="460" y="202" width="86" height="164" rx="18" fill="#FFF7ED" fill-opacity="0.88"/>
+  <path d="M224 474H730" stroke="#64748B" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="292" cy="522" r="52" stroke="#E2E8F0" stroke-width="16"/>
+  <circle cx="648" cy="522" r="52" stroke="#E2E8F0" stroke-width="16"/>
+  <path d="M292 522L400 430H540L618 522" stroke="#E2E8F0" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M472 368V248" stroke="#7F1D1D" stroke-width="16" stroke-linecap="round"/>
+  <path d="M424 304H520" stroke="#7F1D1D" stroke-width="16" stroke-linecap="round"/>
+  <rect x="124" y="118" width="140" height="42" rx="21" fill="#111827"/>
+  <text x="154" y="145" fill="#FDE68A" font-family="Arial, sans-serif" font-size="24" font-weight="700">48V 20Ah</text>
+  <rect x="124" y="562" width="182" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="152" y="588" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="22" font-weight="700">E-bike rebuild</text>
+  <rect x="624" y="562" width="190" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="650" y="588" fill="#FCA5A5" font-family="Arial, sans-serif" font-size="22" font-weight="700">BMS + balance</text>
+</svg>

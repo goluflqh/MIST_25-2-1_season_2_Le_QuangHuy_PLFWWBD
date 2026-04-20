@@ -1,0 +1,28 @@
+<svg width="960" height="720" viewBox="0 0 960 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="88" y1="82" x2="858" y2="640" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#92400E"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="720" rx="48" fill="url(#bg)"/>
+  <circle cx="802" cy="112" r="118" fill="#FCD34D" fill-opacity="0.18"/>
+  <circle cx="170" cy="594" r="150" fill="#FDBA74" fill-opacity="0.12"/>
+  <rect x="96" y="94" width="768" height="532" rx="32" fill="#111827" fill-opacity="0.7" stroke="#FDE68A" stroke-opacity="0.24" stroke-width="2"/>
+  <path d="M214 544H746" stroke="#334155" stroke-width="14" stroke-linecap="round"/>
+  <path d="M226 544V286H370V544" stroke="#E2E8F0" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M590 544V286H734V544" stroke="#E2E8F0" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="388" y="242" width="184" height="112" rx="18" fill="#FDE68A"/>
+  <path d="M420 272H540" stroke="#B45309" stroke-width="6" stroke-linecap="round"/>
+  <path d="M420 304H540" stroke="#B45309" stroke-width="6" stroke-linecap="round"/>
+  <rect x="390" y="404" width="178" height="104" rx="22" fill="#1E293B"/>
+  <rect x="418" y="432" width="122" height="24" rx="12" fill="#475569"/>
+  <circle cx="692" cy="244" r="34" fill="#FDE68A"/>
+  <circle cx="268" cy="244" r="28" fill="#FCD34D"/>
+  <rect x="134" y="126" width="188" height="42" rx="21" fill="#111827"/>
+  <text x="162" y="153" fill="#FEF3C7" font-family="Arial, sans-serif" font-size="24" font-weight="700">Gate solar kit</text>
+  <rect x="132" y="562" width="208" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="158" y="588" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="22" font-weight="700">Flood + battery box</text>
+  <rect x="612" y="562" width="202" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="638" y="588" fill="#FDE68A" font-family="Arial, sans-serif" font-size="22" font-weight="700">Longer runtime</text>
+</svg>

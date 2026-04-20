@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
+import { storagePreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
 
 export const metadata = buildMarketingMetadata({
@@ -60,6 +62,14 @@ export default function StorageBatteryPage() {
           </Link>
         </div>
       </div>
+
+      <ServicePreviewCatalog
+        accent="green"
+        eyebrow="Mẫu pin để xem trước"
+        title="Xem nhanh các bộ pin lưu trữ và kích đề tiêu biểu"
+        description="Khách có thể xem trước một số dạng bộ pin phổ biến để dễ trao đổi hơn về kích thước, điện áp và cách sử dụng. Phần đặt online đã được tính trước trong nội dung CTA để sau này mở rộng nhanh."
+        items={storagePreviewItems}
+      />
 
       {/* Products */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">

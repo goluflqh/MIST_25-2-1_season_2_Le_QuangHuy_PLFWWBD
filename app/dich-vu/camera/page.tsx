@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
+import { cameraPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
 
 export const metadata = buildMarketingMetadata({
@@ -50,6 +52,14 @@ export default function CameraServicePage() {
           </Link>
         </div>
       </div>
+
+      <ServicePreviewCatalog
+        accent="blue"
+        eyebrow="Mẫu lắp đặt để xem trước"
+        title="Xem nhanh những bộ camera khách hay chốt"
+        description="Khách hàng có thể xem trước bố cục và quy mô lắp đặt trước khi hẹn khảo sát. Hình ảnh hiện tại là minh họa local để dễ thay bằng ảnh công trình thật về sau."
+        items={cameraPreviewItems}
+      />
 
       {/* Features Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">

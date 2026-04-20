@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
+import { batteryPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
 
 export const metadata = buildMarketingMetadata({
@@ -49,6 +51,14 @@ export default function BatteryServicePage() {
           </Link>
         </div>
       </div>
+
+      <ServicePreviewCatalog
+        accent="red"
+        eyebrow="Mẫu cấu hình để xem trước"
+        title="Khách có thể xem nhanh các bộ pin được đặt nhiều"
+        description="Đây là các mẫu tham khảo để anh chị hình dung kích thước, nhóm thiết bị và mức đầu tư. Minh Hồng sẽ cân chỉnh lại cell, mạch và vỏ theo đúng nhu cầu thực tế trước khi chốt."
+        items={batteryPreviewItems}
+      />
 
       {/* Products Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">

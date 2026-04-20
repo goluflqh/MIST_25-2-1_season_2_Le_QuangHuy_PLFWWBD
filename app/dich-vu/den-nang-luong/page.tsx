@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
+import { solarPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
 
 export const metadata = buildMarketingMetadata({
@@ -49,6 +51,14 @@ export default function SolarLightPage() {
           </Link>
         </div>
       </div>
+
+      <ServicePreviewCatalog
+        accent="yellow"
+        eyebrow="Mẫu hệ đèn tham khảo"
+        title="Khách có thể xem trước các bộ đèn NLMT gợi ý"
+        description="Minh họa này giúp anh chị hình dung nhanh phong cách lắp đặt, nhóm pin và mức sáng phù hợp. Khi có ảnh công trình thật, mình chỉ cần thay nguồn ảnh mà không cần sửa lại bố cục."
+        items={solarPreviewItems}
+      />
 
       {/* Features Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">

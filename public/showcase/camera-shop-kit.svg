@@ -1,0 +1,35 @@
+<svg width="960" height="720" viewBox="0 0 960 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="104" y1="82" x2="852" y2="638" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#1E3A8A"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="720" rx="48" fill="url(#bg)"/>
+  <circle cx="790" cy="114" r="118" fill="#38BDF8" fill-opacity="0.14"/>
+  <circle cx="178" cy="602" r="152" fill="#1D4ED8" fill-opacity="0.14"/>
+  <rect x="96" y="94" width="768" height="532" rx="32" fill="#020617" fill-opacity="0.74" stroke="#7DD3FC" stroke-opacity="0.24" stroke-width="2"/>
+  <rect x="182" y="248" width="596" height="286" rx="26" fill="#0F172A"/>
+  <path d="M182 304H778" stroke="#1E293B" stroke-width="8"/>
+  <path d="M182 394H778" stroke="#1E293B" stroke-width="8"/>
+  <path d="M322 248V534" stroke="#1E293B" stroke-width="8"/>
+  <path d="M498 248V534" stroke="#1E293B" stroke-width="8"/>
+  <path d="M648 248V534" stroke="#1E293B" stroke-width="8"/>
+  <g fill="#E0F2FE">
+    <rect x="214" y="188" width="110" height="54" rx="18"/>
+    <rect x="408" y="188" width="110" height="54" rx="18"/>
+    <rect x="602" y="188" width="110" height="54" rx="18"/>
+    <rect x="700" y="300" width="82" height="40" rx="14"/>
+  </g>
+  <g fill="#0F172A">
+    <circle cx="268" cy="215" r="16"/>
+    <circle cx="462" cy="215" r="16"/>
+    <circle cx="656" cy="215" r="16"/>
+  </g>
+  <rect x="126" y="126" width="196" height="42" rx="21" fill="#111827"/>
+  <text x="154" y="153" fill="#BFDBFE" font-family="Arial, sans-serif" font-size="24" font-weight="700">Shop camera 4P</text>
+  <rect x="124" y="562" width="178" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="152" y="588" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="22" font-weight="700">Cashier + door</text>
+  <rect x="624" y="562" width="198" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="650" y="588" fill="#7DD3FC" font-family="Arial, sans-serif" font-size="22" font-weight="700">Parking overview</text>
+</svg>
