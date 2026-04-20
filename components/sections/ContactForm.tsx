@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { getLeadSourceLabel } from "@/lib/lead-sources";
 import { siteConfig } from "@/lib/site";
 import * as z from "zod";
 
@@ -17,17 +18,6 @@ const serviceOptions = [
   { value: "CUSTOM", label: "🔧 Đóng Bình Theo Yêu Cầu Riêng" },
   { value: "KHAC", label: "📞 Tư Vấn Khác" },
 ] as const;
-
-const sourceLabels: Record<string, string> = {
-  homepage: "Trang chủ",
-  "homepage-services-camera": "Khối dịch vụ camera trang chủ",
-  "homepage-services-dong-pin": "Khối dịch vụ đóng pin trang chủ",
-  "pricing-page": "Trang báo giá",
-  "service-dong-pin": "Trang dịch vụ đóng pin",
-  "service-den-nlmt": "Trang đèn NLMT",
-  "service-pin-luu-tru": "Trang pin lưu trữ",
-  "service-camera": "Trang camera",
-};
 
 const serviceSuccessContent: Record<
   (typeof serviceOptions)[number]["value"],
@@ -98,8 +88,10 @@ export default function ContactForm() {
   >("");
 
   const serviceFromQuery = searchParams.get("service") || "";
+  const messageFromQuery = searchParams.get("message") || "";
   const selectedSource = searchParams.get("source") || "homepage";
-  const selectedSourceLabel = sourceLabels[selectedSource] || "Nguồn khác";
+  const selectedSourceLabel = getLeadSourceLabel(selectedSource);
+  const hasChatbotPrefill = selectedSource.startsWith("chatbot") && Boolean(messageFromQuery);
 
   const {
     register,
@@ -127,6 +119,12 @@ export default function ContactForm() {
       setValue("serviceId", serviceFromQuery, { shouldValidate: true });
     }
   }, [serviceFromQuery, setValue]);
+
+  useEffect(() => {
+    if (messageFromQuery) {
+      setValue("message", messageFromQuery);
+    }
+  }, [messageFromQuery, setValue]);
 
   const onSubmit = async (data: FormData) => {
     setIsSubmitting(true);
@@ -178,7 +176,7 @@ export default function ContactForm() {
         serviceId: validServiceIds.has(serviceFromQuery as (typeof serviceOptions)[number]["value"])
           ? serviceFromQuery
           : "",
-        message: "",
+        message: messageFromQuery,
       });
       setTimeout(() => setIsSuccess(false), 8000);
     } catch (err) {
@@ -307,14 +305,25 @@ export default function ContactForm() {
               className="bg-white p-6 rounded-3xl shadow-xl flex flex-col gap-4"
               noValidate
             >
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div
+                data-testid="contact-source-card"
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+              >
                 <p className="font-body text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Nguồn lead
                 </p>
-                <p className="font-body text-sm font-bold text-slate-700">{selectedSourceLabel}</p>
+                <p data-testid="contact-source-label" className="font-body text-sm font-bold text-slate-700">
+                  {selectedSourceLabel}
+                </p>
                 {selectedServiceLabel ? (
                   <p className="font-body text-xs text-slate-500 mt-1">
                     Đang ưu tiên tư vấn cho: {selectedServiceLabel}
+                  </p>
+                ) : null}
+                {hasChatbotPrefill ? (
+                  <p className="mt-2 font-body text-xs text-slate-500">
+                    Em đã mang sẵn phần mô tả từ chatbot sang đây rồi, anh/chị sửa lại cho đúng ý
+                    trước khi gửi là được.
                   </p>
                 ) : null}
               </div>

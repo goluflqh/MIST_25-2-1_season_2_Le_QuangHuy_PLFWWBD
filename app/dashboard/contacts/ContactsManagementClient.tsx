@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useNotify } from "@/components/NotifyProvider";
+import { getLeadSourceLabel } from "@/lib/lead-sources";
 
 interface ContactRequest {
   id: string;
@@ -40,15 +41,6 @@ const statusConfig: Record<string, { label: string; color: string }> = {
   IN_PROGRESS: { label: "Đang xử lý", color: "bg-orange-100 text-orange-800 border-orange-200" },
   COMPLETED: { label: "Hoàn thành", color: "bg-green-100 text-green-800 border-green-200" },
   CANCELLED: { label: "Đã huỷ", color: "bg-red-100 text-red-800 border-red-200" },
-};
-
-const sourceLabels: Record<string, string> = {
-  homepage: "Trang chủ",
-  "pricing-page": "Trang báo giá",
-  "service-dong-pin": "Trang đóng pin",
-  "service-den-nlmt": "Trang đèn NLMT",
-  "service-pin-luu-tru": "Trang pin lưu trữ",
-  "service-camera": "Trang camera",
 };
 
 function formatReferrer(referrer: string | null) {
@@ -220,7 +212,7 @@ export default function ContactsManagementClient({
                   <div className="mt-2 flex flex-wrap gap-2">
                     {contact.source ? (
                       <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-body font-bold text-slate-600">
-                        Nguồn: {sourceLabels[contact.source] || contact.source}
+                    Nguồn: {getLeadSourceLabel(contact.source)}
                       </span>
                     ) : null}
                     {contact.utmSource ? (

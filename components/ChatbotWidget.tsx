@@ -1,17 +1,50 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { getLocalChatbotReply } from "@/lib/chatbot";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import {
+  analyzeChatbotMessage,
+  chatbotServiceChoices,
+  getChatbotLeadSource,
+  getChatbotServiceLabel,
+  normalizeChatbotServiceId,
+  type ChatbotIntent,
+  type ChatbotResponsePlan,
+  type ChatbotServiceId,
+} from "@/lib/chatbot";
 import { siteConfig } from "@/lib/site";
 
-interface Message {
+interface AssistantMeta {
+  intent: ChatbotIntent;
+  service: ChatbotServiceId | null;
+  serviceLabel: string | null;
+  shouldOfferLeadForm: boolean;
+  shouldOfferHumanSupport: boolean;
+  shouldSuggestServices: boolean;
+  usedFallback?: boolean;
+}
+
+interface MessageAction {
+  external?: boolean;
+  href?: string;
   id: string;
-  role: "user" | "assistant" | "system";
+  kind: "link" | "prompt";
+  label: string;
+  prompt?: string;
+  tone: "primary" | "secondary";
+}
+
+interface Message {
+  actions?: MessageAction[];
   content: string;
+  id: string;
+  meta?: AssistantMeta;
+  role: "user" | "assistant" | "system";
   timestamp: Date;
 }
 
-const HOTLINE = siteConfig.hotlineDisplay;
+const DEFAULT_REPLY_FALLBACK =
+  "Dạ em đang phản hồi hơi chậm một chút. Anh/chị nói thêm model hoặc nhu cầu sử dụng, em sẽ gợi ý sát hơn cho mình nhé.";
 
 function normalizeChatText(value: string): string {
   return value
@@ -26,13 +59,132 @@ function normalizeChatText(value: string): string {
     .trim();
 }
 
+function buildLeadHref(service: ChatbotServiceId | null, userMessage: string) {
+  const params = new URLSearchParams();
+  const normalizedMessage = normalizeChatText(userMessage).slice(0, 180);
+
+  if (service && service !== "KHAC") {
+    params.set("service", service);
+  }
+
+  params.set("source", getChatbotLeadSource(service));
+
+  if (normalizedMessage) {
+    params.set("message", normalizedMessage);
+  }
+
+  return `/?${params.toString()}#quote`;
+}
+
+function getLatestServiceContext(messages: Message[]) {
+  const latestAssistantWithService = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.meta?.service);
+
+  return latestAssistantWithService?.meta?.service || null;
+}
+
+function toAssistantMeta(
+  value:
+    | (Partial<AssistantMeta> & { usedFallback?: boolean })
+    | (Partial<ChatbotResponsePlan> & { usedFallback?: boolean })
+    | null
+    | undefined,
+  fallbackService: ChatbotServiceId | null = null
+): AssistantMeta | undefined {
+  if (!value) return undefined;
+
+  const service =
+    normalizeChatbotServiceId(
+      typeof value.service === "string" ? value.service : fallbackService
+    ) || fallbackService;
+
+  return {
+    intent: (value.intent as ChatbotIntent | undefined) || "general",
+    service,
+    serviceLabel:
+      typeof value.serviceLabel === "string"
+        ? value.serviceLabel
+        : getChatbotServiceLabel(service),
+    shouldOfferLeadForm: Boolean(value.shouldOfferLeadForm),
+    shouldOfferHumanSupport: Boolean(value.shouldOfferHumanSupport),
+    shouldSuggestServices: Boolean(value.shouldSuggestServices),
+    usedFallback: Boolean(value.usedFallback),
+  };
+}
+
+function buildAssistantActions(meta: AssistantMeta | undefined, userMessage: string): MessageAction[] {
+  if (!meta) {
+    return [];
+  }
+
+  if (meta.shouldSuggestServices) {
+    return chatbotServiceChoices.map((choice) => ({
+      id: `suggest-${choice.id.toLowerCase()}`,
+      kind: "prompt",
+      label: choice.label,
+      prompt: choice.prompt,
+      tone: "secondary",
+    }));
+  }
+
+  const actions: MessageAction[] = [];
+
+  if (meta.shouldOfferLeadForm) {
+    actions.push({
+      id: "lead-form",
+      kind: "link",
+      label: meta.intent === "quote" ? "Gửi nhu cầu để em báo sát hơn" : "Để lại nhu cầu",
+      href: buildLeadHref(meta.service, userMessage),
+      tone: "primary",
+    });
+  }
+
+  if (meta.shouldOfferHumanSupport) {
+    actions.push({
+      id: "zalo",
+      external: true,
+      href: siteConfig.zaloUrl,
+      kind: "link",
+      label: "Nhắn Zalo",
+      tone: "secondary",
+    });
+  }
+
+  return actions;
+}
+
+function createAssistantMessage(
+  content: string,
+  meta?: AssistantMeta,
+  userMessage = ""
+): Message {
+  return {
+    actions: buildAssistantActions(meta, userMessage),
+    content: normalizeChatText(content),
+    id: (Date.now() + Math.random()).toString(),
+    meta,
+    role: "assistant",
+    timestamp: new Date(),
+  };
+}
+
+function getCurrentSourcePath() {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+
+  return `${window.location.pathname}${window.location.search}`;
+}
+
 export default function ChatbotWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
       role: "assistant",
-      content: "Xin chào anh/chị! Em là trợ lý tư vấn của Minh Hồng. Anh/chị đang cần tư vấn về đóng pin, đèn năng lượng mặt trời hay lắp camera ạ?",
+      content:
+        "Xin chào anh/chị! Em là trợ lý tư vấn của Minh Hồng. Anh/chị cứ nói sơ nhu cầu, em sẽ hỗ trợ ngắn gọn và đi đúng ý hơn cho mình nhé.",
       timestamp: new Date(),
     },
   ]);
@@ -48,10 +200,12 @@ export default function ChatbotWidget() {
     const text = (overrideText || inputValue).trim();
     if (!text || isLoading) return;
 
+    const normalizedUserText = normalizeChatText(text);
+    const serviceContext = getLatestServiceContext(messages);
     const userMsg: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: normalizeChatText(text),
+      content: normalizedUserText,
       timestamp: new Date(),
     };
 
@@ -59,126 +213,184 @@ export default function ChatbotWidget() {
     setInputValue("");
     setIsLoading(true);
 
-    // Bước 1: Phân loại — FAQ hay AI?
-    const faqAnswer = getLocalChatbotReply(text);
+    const localPlan = analyzeChatbotMessage(text, { serviceContext });
 
-    if (faqAnswer) {
-      // Câu hỏi đơn giản → trả lời tức thì (MIỄN PHÍ, không tốn quota)
+    if (localPlan.localReply) {
+      const localReply = localPlan.localReply;
       setMessages((prev) => [
         ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: normalizeChatText(faqAnswer),
-          timestamp: new Date(),
-        },
+        createAssistantMessage(
+          localReply,
+          toAssistantMeta(localPlan, localPlan.service || serviceContext),
+          normalizedUserText
+        ),
       ]);
       setIsLoading(false);
       return;
     }
 
-    // Bước 2: Câu hỏi mở/phức tạp → gửi AI API (tốn quota)
     try {
       const history = [...messages, userMsg]
-        .filter((m) => m.role !== "system")
+        .filter((message) => message.role !== "system")
         .slice(-6)
-        .map((m) => ({ role: m.role, content: normalizeChatText(m.content) }));
+        .map((message) => ({
+          role: message.role,
+          content: normalizeChatText(message.content),
+        }));
 
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({
+          history,
+          message: text,
+          serviceContext: localPlan.service || serviceContext,
+          sourcePath: getCurrentSourcePath(),
+        }),
       });
 
       const data = await res.json();
+      const assistantMeta = toAssistantMeta(data?.meta, localPlan.service || serviceContext);
 
       setMessages((prev) => [
         ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content:
-            normalizeChatText(data.reply) ||
-            `Em chưa hiểu rõ ý anh/chị lắm. Anh/chị có thể hỏi rõ hơn một chút, hoặc gọi ${HOTLINE} nếu muốn bên em tư vấn nhanh nhé!`,
-          timestamp: new Date(),
-        },
+        createAssistantMessage(
+          typeof data?.reply === "string" ? data.reply : DEFAULT_REPLY_FALLBACK,
+          assistantMeta,
+          normalizedUserText
+        ),
       ]);
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: `Dạ, hiện tại hệ thống đang hơi bận. Anh/chị gọi ${HOTLINE} thì bên em hỗ trợ nhanh hơn ngay ạ!`,
-          timestamp: new Date(),
-        },
-      ]);
+      setMessages((prev) => [...prev, createAssistantMessage(DEFAULT_REPLY_FALLBACK)]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       sendMessage();
     }
   };
 
+  const renderMessageActions = (message: Message) => {
+    if (!message.actions?.length) {
+      return null;
+    }
+
+    return (
+      <div
+        data-testid="chatbot-message-actions"
+        className="mt-2 flex max-w-[90%] flex-wrap gap-2"
+      >
+        {message.actions.map((action) => {
+          const baseClass =
+            action.tone === "primary"
+              ? "inline-flex items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-xs font-body font-semibold text-white transition-colors hover:bg-slate-800"
+              : "inline-flex items-center justify-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:border-slate-300";
+
+          if (action.kind === "prompt") {
+            return (
+              <button
+                key={action.id}
+                data-testid={`chatbot-action-${action.id}`}
+                onClick={() => sendMessage(action.prompt)}
+                className={baseClass}
+                type="button"
+              >
+                {action.label}
+              </button>
+            );
+          }
+
+          if (action.external) {
+            return (
+              <a
+                key={action.id}
+                data-testid={`chatbot-action-${action.id}`}
+                href={action.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={baseClass}
+                onClick={() => setIsOpen(false)}
+              >
+                {action.label}
+              </a>
+            );
+          }
+
+          return (
+            <Link
+              key={action.id}
+              data-testid={`chatbot-action-${action.id}`}
+              href={action.href || "/"}
+              className={baseClass}
+              onClick={() => setIsOpen(false)}
+            >
+              {action.label}
+            </Link>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <>
-      {/* Chat Panel */}
       {isOpen && (
-        <div className="fixed bottom-24 right-4 sm:right-6 z-50 w-[340px] sm:w-[380px] h-[500px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-fade-in-up">
-          {/* Header */}
-          <div className="bg-slate-900 px-5 py-4 flex items-center justify-between shrink-0">
+        <div
+          data-testid="chatbot-panel"
+          className="fixed bottom-24 right-4 z-50 flex h-[500px] w-[340px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-fade-in-up sm:right-6 sm:w-[380px]"
+        >
+          <div className="flex shrink-0 items-center justify-between bg-slate-900 px-5 py-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-linear-to-r from-red-500 to-orange-500 flex items-center justify-center text-white font-bold text-sm">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-linear-to-r from-red-500 to-orange-500 text-sm font-bold text-white">
                 MH
               </div>
               <div>
-                <p className="font-heading font-bold text-white text-sm">Minh Hồng AI</p>
-                <p className="text-[10px] text-green-400 font-body flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full"></span> Trực tuyến
+                <p className="font-heading text-sm font-bold text-white">Minh Hồng AI</p>
+                <p className="flex items-center gap-1 font-body text-[10px] text-green-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span> Trực tuyến
                 </p>
               </div>
             </div>
             <button
               onClick={() => setIsOpen(false)}
-              className="text-slate-400 hover:text-white transition-colors"
+              className="text-slate-400 transition-colors hover:text-white"
               aria-label="Đóng chat"
+              type="button"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm font-body leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-slate-900 text-white rounded-br-sm"
-                      : "bg-white text-slate-700 border border-slate-200 rounded-bl-sm shadow-sm"
-                  }`}
-                >
-                  {msg.content}
+          <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4">
+            {messages.map((message) => (
+              <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={message.role === "user" ? "flex max-w-[80%] flex-col items-end" : "flex max-w-[90%] flex-col items-start"}>
+                  <div
+                    className={`px-4 py-2.5 text-sm font-body leading-relaxed ${
+                      message.role === "user"
+                        ? "rounded-2xl rounded-br-sm bg-slate-900 text-white"
+                        : "rounded-2xl rounded-bl-sm border border-slate-200 bg-white text-slate-700 shadow-sm"
+                    }`}
+                  >
+                    {message.content}
+                  </div>
+                  {message.role === "assistant" ? renderMessageActions(message) : null}
                 </div>
               </div>
             ))}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
+                <div className="rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm">
                   <div className="flex gap-1.5">
-                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce"></span>
-                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce animation-delay-150"></span>
-                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce animation-delay-300"></span>
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300"></span>
+                    <span className="animation-delay-150 h-2 w-2 animate-bounce rounded-full bg-slate-300"></span>
+                    <span className="animation-delay-300 h-2 w-2 animate-bounce rounded-full bg-slate-300"></span>
                   </div>
                 </div>
               </div>
@@ -186,38 +398,42 @@ export default function ChatbotWidget() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Quick Actions */}
-          <div className="px-3 py-2 bg-white border-t border-slate-100 flex gap-2 overflow-x-auto shrink-0">
-            {["Giá đóng pin?", "Đèn NLMT", "Lắp camera", "Địa chỉ shop"].map((q) => (
-              <button
-                key={q}
-                onClick={() => sendMessage(q)}
-                className="shrink-0 text-xs font-body font-semibold px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors"
-              >
-                {q}
-              </button>
-            ))}
+          <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-slate-100 bg-white px-3 py-2">
+            {["Bảo hành pin ra sao?", "Camera cửa hàng", "Đèn NLMT dùng mưa ổn không?", "Địa chỉ shop"].map(
+              (question) => (
+                <button
+                  key={question}
+                  onClick={() => sendMessage(question)}
+                  className="shrink-0 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
+                  type="button"
+                >
+                  {question}
+                </button>
+              )
+            )}
           </div>
 
-          {/* Input */}
-          <div className="px-3 py-3 bg-white border-t border-slate-100 shrink-0">
+          <div className="shrink-0 border-t border-slate-100 bg-white px-3 py-3">
             <div className="flex items-center gap-2">
               <input
+                data-testid="chatbot-input"
                 type="text"
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={(event) => setInputValue(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Nhập câu hỏi..."
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-body focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all"
+                placeholder="Anh/chị đang cần em hỗ trợ gì?"
+                className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-body outline-none transition-all focus:border-red-500 focus:ring-2 focus:ring-red-500"
                 disabled={isLoading}
               />
               <button
+                data-testid="chatbot-send"
                 onClick={() => sendMessage()}
                 disabled={isLoading || !inputValue.trim()}
-                className="w-10 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white flex items-center justify-center transition-colors shrink-0"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
                 aria-label="Gửi tin nhắn"
+                type="button"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
               </button>
@@ -226,55 +442,54 @@ export default function ChatbotWidget() {
         </div>
       )}
 
-      {/* Floating Bubble */}
-      <div className="fixed bottom-6 right-4 sm:right-6 z-50 flex items-end gap-3">
-        {/* Tooltip label — visible when closed */}
+      <div className="fixed bottom-6 right-4 z-50 flex items-end gap-3 sm:right-6">
         {!isOpen && (
-          <div className="mb-2 px-3 py-1.5 bg-slate-900 text-white text-xs font-body font-bold rounded-xl shadow-lg animate-fade-in-up whitespace-nowrap">
-            Hỏi AI tư vấn 🤖
-            <div className="absolute -right-1.5 bottom-3 w-3 h-3 bg-slate-900 rotate-45"></div>
+          <div className="relative mb-2 whitespace-nowrap rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-body font-bold text-white shadow-lg animate-fade-in-up">
+            Hỏi AI tư vấn
+            <div className="absolute -right-1.5 bottom-3 h-3 w-3 rotate-45 bg-slate-900"></div>
           </div>
         )}
 
         <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="relative group rounded-full w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center shadow-lg hover:shadow-2xl transition-all transform hover:scale-110"
+          data-testid="chatbot-toggle"
+          onClick={() => setIsOpen((current) => !current)}
+          className="group relative flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all hover:scale-110 hover:shadow-2xl sm:h-16 sm:w-16"
           aria-label="Mở chatbot tư vấn AI"
-          style={{ background: "linear-gradient(135deg, #dc2626 0%, #ea580c 50%, #f59e0b 100%)" }}
+          style={{
+            background: "linear-gradient(135deg, #dc2626 0%, #ea580c 50%, #f59e0b 100%)",
+          }}
+          type="button"
         >
-          {/* Pulse glow ring */}
           {!isOpen && (
-            <span className="absolute inset-0 rounded-full animate-ping opacity-20" style={{ background: "linear-gradient(135deg, #dc2626, #f59e0b)" }}></span>
+            <span
+              className="absolute inset-0 rounded-full animate-ping opacity-20"
+              style={{ background: "linear-gradient(135deg, #dc2626, #f59e0b)" }}
+            ></span>
           )}
 
           {isOpen ? (
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
           ) : (
-            /* Robot face icon */
-            <svg className="w-8 h-8 text-white drop-shadow-sm" viewBox="0 0 24 24" fill="none">
-              {/* Head */}
-              <rect x="4" y="6" width="16" height="14" rx="3" fill="white" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5"/>
-              {/* Antenna */}
-              <line x1="12" y1="6" x2="12" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <svg className="h-8 w-8 text-white drop-shadow-sm" viewBox="0 0 24 24" fill="none">
+              <rect x="4" y="6" width="16" height="14" rx="3" fill="white" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" />
+              <line x1="12" y1="6" x2="12" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               <circle cx="12" cy="2.5" r="1.5" fill="currentColor" />
-              {/* Eyes */}
               <circle cx="9" cy="12" r="1.8" fill="currentColor" />
               <circle cx="15" cy="12" r="1.8" fill="currentColor" />
-              {/* Smile */}
-              <path d="M9 16 C10 17.5, 14 17.5, 15 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
-              {/* Sparkle */}
-              <circle cx="9" cy="11.5" r="0.5" fill="white" opacity="0.8"/>
-              <circle cx="15" cy="11.5" r="0.5" fill="white" opacity="0.8"/>
+              <path d="M9 16 C10 17.5, 14 17.5, 15 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+              <circle cx="9" cy="11.5" r="0.5" fill="white" opacity="0.8" />
+              <circle cx="15" cy="11.5" r="0.5" fill="white" opacity="0.8" />
             </svg>
           )}
 
-          {/* Notification badge */}
           {!isOpen && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-5 w-5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-60"></span>
-              <span className="relative inline-flex items-center justify-center rounded-full h-5 w-5 bg-green-500 border-2 border-white text-[8px] text-white font-black">AI</span>
+            <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-60"></span>
+              <span className="relative inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-green-500 text-[8px] font-black text-white">
+                AI
+              </span>
             </span>
           )}
         </button>
