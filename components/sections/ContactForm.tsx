@@ -29,7 +29,7 @@ const serviceSuccessContent: Record<
 > = {
   DONG_PIN: {
     eta: "khoảng 10-15 phút",
-    followUp: "thông số pin, dòng xả và phương án cell/mạch phù hợp nhất",
+    followUp: "thông số pin, dòng xả và phương án cell hoặc mạch phù hợp nhất",
     title: "Yêu cầu đóng pin đã vào hàng ưu tiên",
   },
   DEN_NLMT: {
@@ -71,9 +71,14 @@ const formSchema = z.object({
 });
 
 type FormData = z.infer<typeof formSchema>;
+type ServiceId = (typeof serviceOptions)[number]["value"];
 
 function readTrackingValue(searchParams: { get(name: string): string | null }, key: string) {
   return searchParams.get(key) || "";
+}
+
+function getInitialServiceValue(serviceFromQuery: string) {
+  return validServiceIds.has(serviceFromQuery as ServiceId) ? serviceFromQuery : "";
 }
 
 export default function ContactForm() {
@@ -83,9 +88,7 @@ export default function ContactForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submittedServiceId, setSubmittedServiceId] = useState<
-    (typeof serviceOptions)[number]["value"] | ""
-  >("");
+  const [submittedServiceId, setSubmittedServiceId] = useState<ServiceId | "">("");
 
   const serviceFromQuery = searchParams.get("service") || "";
   const messageFromQuery = searchParams.get("message") || "";
@@ -115,8 +118,9 @@ export default function ContactForm() {
     serviceOptions.find((option) => option.value === selectedServiceId)?.label || "";
 
   useEffect(() => {
-    if (validServiceIds.has(serviceFromQuery as (typeof serviceOptions)[number]["value"])) {
-      setValue("serviceId", serviceFromQuery, { shouldValidate: true });
+    const initialService = getInitialServiceValue(serviceFromQuery);
+    if (initialService) {
+      setValue("serviceId", initialService, { shouldValidate: true });
     }
   }, [serviceFromQuery, setValue]);
 
@@ -125,6 +129,27 @@ export default function ContactForm() {
       setValue("message", messageFromQuery);
     }
   }, [messageFromQuery, setValue]);
+
+  const resetForNextRequest = () => {
+    reset({
+      name: "",
+      phone: "",
+      serviceId: getInitialServiceValue(serviceFromQuery),
+      message: messageFromQuery,
+    });
+    setSubmitError(null);
+    setSubmittedServiceId("");
+  };
+
+  const handleCloseSuccess = () => {
+    setIsSuccess(false);
+    setSubmitError(null);
+  };
+
+  const handleStartNewRequest = () => {
+    resetForNextRequest();
+    setIsSuccess(false);
+  };
 
   const onSubmit = async (data: FormData) => {
     setIsSubmitting(true);
@@ -165,20 +190,9 @@ export default function ContactForm() {
       }
 
       setSubmittedServiceId(
-        validServiceIds.has(data.serviceId as (typeof serviceOptions)[number]["value"])
-          ? (data.serviceId as (typeof serviceOptions)[number]["value"])
-          : "KHAC"
+        validServiceIds.has(data.serviceId as ServiceId) ? (data.serviceId as ServiceId) : "KHAC"
       );
       setIsSuccess(true);
-      reset({
-        name: "",
-        phone: "",
-        serviceId: validServiceIds.has(serviceFromQuery as (typeof serviceOptions)[number]["value"])
-          ? serviceFromQuery
-          : "",
-        message: messageFromQuery,
-      });
-      setTimeout(() => setIsSuccess(false), 8000);
     } catch (err) {
       console.error("Contact form error:", err);
       setSubmitError("Không thể gửi yêu cầu lúc này. Vui lòng kiểm tra kết nối và thử lại.");
@@ -194,53 +208,84 @@ export default function ContactForm() {
     serviceOptions.find((option) => option.value === successServiceId)?.label || "📞 Tư vấn khác";
 
   return (
-    <section id="quote" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 mb-8 relative z-20">
-      <div className="bg-gradient-to-br from-red-600 to-orange-500 rounded-[2.5rem] p-8 md:p-12 shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-10">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2"></div>
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-yellow-400 opacity-20 rounded-full blur-2xl transform -translate-x-1/4 translate-y-1/2"></div>
+    <section id="quote" className="relative z-20 mx-auto mb-8 max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      <div className="relative flex flex-col items-center justify-between gap-10 overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-red-600 to-orange-500 p-8 shadow-2xl md:flex-row md:p-12">
+        <div className="absolute right-0 top-0 h-64 w-64 translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-10 blur-3xl"></div>
+        <div className="absolute bottom-0 left-0 h-48 w-48 -translate-x-1/4 translate-y-1/2 rounded-full bg-yellow-400 opacity-20 blur-2xl"></div>
 
-        <div className="relative z-10 md:w-1/2 text-white text-center md:text-left">
-          <h2 className="font-heading font-extrabold text-3xl md:text-4xl mb-4 leading-tight">
+        <div className="relative z-10 text-center text-white md:w-1/2 md:text-left">
+          <h2 className="mb-4 font-heading text-3xl font-extrabold leading-tight md:text-4xl">
             Cần Tư Vấn Thiết Bị & Báo Giá Nhanh?
           </h2>
-          <p className="font-body text-red-100 text-lg mb-0">
+          <p className="mb-0 text-lg text-red-100 font-body">
             Vui lòng để lại thông tin, anh Hồng cùng đội ngũ kỹ thuật sẽ sớm liên hệ
             phân tích giải pháp tối ưu và báo giá chi tiết, minh bạch nhất cho bạn.
           </p>
         </div>
 
-        <div className="relative z-10 md:w-1/2 w-full max-w-md mx-auto">
+        <div className="relative z-10 mx-auto w-full max-w-md md:w-1/2">
           {isSuccess ? (
             <div
               data-testid="contact-success"
-              className="bg-white p-8 rounded-3xl shadow-xl flex flex-col items-center text-center gap-4 animate-fade-in"
+              className="animate-fade-in rounded-3xl bg-white p-8 text-center shadow-xl"
             >
-              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-2">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
-                </svg>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex-1"></div>
+                <button
+                  data-testid="contact-success-close"
+                  onClick={handleCloseSuccess}
+                  type="button"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-400 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-600"
+                  aria-label="Đóng thông báo thành công"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
               </div>
+
+              <div className="mb-2 flex justify-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
+                  <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="3"
+                      d="M5 13l4 4L19 7"
+                    ></path>
+                  </svg>
+                </div>
+              </div>
+
               <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-body font-bold uppercase tracking-wide text-slate-500">
                 {successServiceLabel}
               </div>
-              <h3 className="font-heading font-bold text-2xl text-slate-800">
+
+              <h3 className="mt-4 font-heading text-2xl font-bold text-slate-800">
                 {successContent.title}
               </h3>
-              <p className="font-body text-slate-600">
+              <p className="mt-3 text-slate-600 font-body">
                 Cảm ơn anh/chị. Đội ngũ Minh Hồng sẽ gọi lại trong {successContent.eta} để trao
                 đổi rõ hơn về {successContent.followUp}.
               </p>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 w-full text-left">
-                <p className="font-body text-sm font-bold text-slate-700 mb-2">
+
+              <div className="mt-5 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left">
+                <p className="mb-2 text-sm font-bold text-slate-700 font-body">
                   Bước tiếp theo em gợi ý cho anh/chị:
                 </p>
-                <ul className="space-y-2 font-body text-sm text-slate-600">
+                <ul className="space-y-2 text-sm text-slate-600 font-body">
                   <li>1. Giữ máy giúp em để kỹ thuật gọi xác nhận nhanh.</li>
                   <li>2. Nếu có ảnh thiết bị hoặc mẫu cần làm, anh/chị có thể gửi thêm qua Zalo.</li>
                   <li>3. Em sẽ ưu tiên tư vấn đúng nhu cầu trước, rồi mới chốt giá chi tiết.</li>
                 </ul>
               </div>
-              <div className="grid w-full gap-3 sm:grid-cols-2">
+
+              <div className="mt-5 grid w-full gap-3 sm:grid-cols-2">
                 <a
                   href={siteConfig.zaloUrl}
                   target="_blank"
@@ -256,43 +301,55 @@ export default function ContactForm() {
                   Gọi {siteConfig.hotlineDisplay}
                 </a>
               </div>
+
               {user ? (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 w-full">
-                  <p className="font-body text-sm text-emerald-800 mb-2">
+                <div className="mt-5 w-full rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="mb-2 text-sm text-emerald-800 font-body">
                     Anh/chị đã có tài khoản rồi, có thể theo dõi lại yêu cầu ngay trong mục tài
                     khoản.
                   </p>
                   <Link
                     href="/tai-khoan"
-                    className="inline-block px-4 py-2 bg-emerald-600 text-white rounded-lg font-body font-bold text-sm hover:bg-emerald-500 transition-colors"
+                    className="inline-block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-emerald-500"
                   >
                     Xem tài khoản →
                   </Link>
                 </div>
               ) : (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 w-full">
-                  <p className="font-body text-sm text-yellow-800 mb-2">
+                <div className="mt-5 w-full rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+                  <p className="mb-2 text-sm text-yellow-800 font-body">
                     💡 <b>Tạo tài khoản miễn phí</b> để theo dõi trạng thái yêu cầu, lịch sử dịch vụ
                     và nhận ưu đãi về sau.
                   </p>
                   <Link
                     href="/dang-ky"
-                    className="inline-block px-4 py-2 bg-yellow-500 text-slate-900 rounded-lg font-body font-bold text-sm hover:bg-yellow-600 transition-colors"
+                    className="inline-block rounded-lg bg-yellow-500 px-4 py-2 text-sm font-body font-bold text-slate-900 transition-colors hover:bg-yellow-600"
                   >
                     Đăng ký miễn phí →
                   </Link>
                 </div>
               )}
-              <div className="flex flex-wrap justify-center gap-3">
+
+              <div className="mt-5 flex flex-wrap justify-center gap-3">
                 <button
-                  onClick={() => setIsSuccess(false)}
-                  className="mt-1 px-6 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-bold transition-colors"
+                  data-testid="contact-success-back"
+                  onClick={handleCloseSuccess}
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-5 py-2 font-body text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  Quay lại form
+                </button>
+                <button
+                  data-testid="contact-success-new-request"
+                  onClick={handleStartNewRequest}
+                  type="button"
+                  className="rounded-lg bg-slate-100 px-5 py-2 font-body text-sm font-bold text-slate-700 transition-colors hover:bg-slate-200"
                 >
                   Gửi yêu cầu khác
                 </button>
                 <Link
                   href="/bao-gia"
-                  className="mt-1 px-6 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg font-bold transition-colors"
+                  className="rounded-lg border border-slate-200 px-5 py-2 font-body text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
                 >
                   Xem bảng giá
                 </Link>
@@ -302,26 +359,26 @@ export default function ContactForm() {
             <form
               data-testid="contact-form"
               onSubmit={handleSubmit(onSubmit)}
-              className="bg-white p-6 rounded-3xl shadow-xl flex flex-col gap-4"
+              className="flex flex-col gap-4 rounded-3xl bg-white p-6 shadow-xl"
               noValidate
             >
               <div
                 data-testid="contact-source-card"
                 className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
               >
-                <p className="font-body text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 font-body">
                   Nguồn lead
                 </p>
-                <p data-testid="contact-source-label" className="font-body text-sm font-bold text-slate-700">
+                <p data-testid="contact-source-label" className="text-sm font-bold text-slate-700 font-body">
                   {selectedSourceLabel}
                 </p>
                 {selectedServiceLabel ? (
-                  <p className="font-body text-xs text-slate-500 mt-1">
+                  <p className="mt-1 text-xs text-slate-500 font-body">
                     Đang ưu tiên tư vấn cho: {selectedServiceLabel}
                   </p>
                 ) : null}
                 {hasChatbotPrefill ? (
-                  <p className="mt-2 font-body text-xs text-slate-500">
+                  <p className="mt-2 text-xs text-slate-500 font-body">
                     Em đã mang sẵn phần mô tả từ chatbot sang đây rồi, anh/chị sửa lại cho đúng ý
                     trước khi gửi là được.
                   </p>
@@ -340,10 +397,14 @@ export default function ContactForm() {
                   placeholder="Họ tên của bạn..."
                   aria-label="Họ và tên"
                   aria-invalid={Boolean(errors.name)}
-                  className={`w-full bg-slate-50 border ${errors.name ? "border-red-500 focus:ring-red-500" : "border-slate-200 focus:ring-primary"} text-slate-800 font-body px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition-shadow`}
+                  className={`w-full rounded-xl border px-4 py-4 font-body text-slate-800 transition-shadow focus:border-transparent focus:outline-none focus:ring-2 ${
+                    errors.name
+                      ? "border-red-500 focus:ring-red-500"
+                      : "border-slate-200 bg-slate-50 focus:ring-primary"
+                  }`}
                 />
                 {errors.name ? (
-                  <p className="text-red-500 text-sm font-body mt-1 ml-1">{errors.name.message}</p>
+                  <p className="ml-1 mt-1 text-sm text-red-500 font-body">{errors.name.message}</p>
                 ) : null}
               </div>
 
@@ -360,12 +421,18 @@ export default function ContactForm() {
                     placeholder="Số điện thoại của bạn..."
                     aria-label="Số điện thoại"
                     aria-invalid={Boolean(errors.phone)}
-                    className={`w-full bg-slate-50 border ${errors.phone ? "border-red-500 focus:ring-red-500" : "border-slate-200 focus:ring-primary"} text-slate-800 font-body px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition-shadow`}
+                    className={`w-full rounded-xl border px-4 py-4 font-body text-slate-800 transition-shadow focus:border-transparent focus:outline-none focus:ring-2 ${
+                      errors.phone
+                        ? "border-red-500 focus:ring-red-500"
+                        : "border-slate-200 bg-slate-50 focus:ring-primary"
+                    }`}
                   />
                   <div
-                    className={`absolute inset-y-0 right-3 flex items-center pointer-events-none ${errors.phone ? "text-red-500" : "text-slate-400"}`}
+                    className={`pointer-events-none absolute inset-y-0 right-3 flex items-center ${
+                      errors.phone ? "text-red-500" : "text-slate-400"
+                    }`}
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -376,7 +443,7 @@ export default function ContactForm() {
                   </div>
                 </div>
                 {errors.phone ? (
-                  <p className="text-red-500 text-sm font-body mt-1 ml-1">{errors.phone.message}</p>
+                  <p className="ml-1 mt-1 text-sm text-red-500 font-body">{errors.phone.message}</p>
                 ) : null}
               </div>
 
@@ -390,7 +457,11 @@ export default function ContactForm() {
                   {...register("serviceId")}
                   aria-label="Dịch vụ quan tâm"
                   aria-invalid={Boolean(errors.serviceId)}
-                  className={`w-full bg-slate-50 border ${errors.serviceId ? "border-red-500 focus:ring-red-500" : "border-slate-200 focus:ring-primary"} text-slate-700 font-body px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent appearance-none`}
+                  className={`w-full appearance-none rounded-xl border px-4 py-4 font-body text-slate-700 focus:border-transparent focus:outline-none focus:ring-2 ${
+                    errors.serviceId
+                      ? "border-red-500 focus:ring-red-500"
+                      : "border-slate-200 bg-slate-50 focus:ring-primary"
+                  }`}
                 >
                   <option value="">-- Chọn dịch vụ cần tư vấn --</option>
                   {serviceOptions.map((option) => (
@@ -400,7 +471,9 @@ export default function ContactForm() {
                   ))}
                 </select>
                 {errors.serviceId ? (
-                  <p className="text-red-500 text-sm font-body mt-1 ml-1">{errors.serviceId.message}</p>
+                  <p className="ml-1 mt-1 text-sm text-red-500 font-body">
+                    {errors.serviceId.message}
+                  </p>
                 ) : null}
               </div>
 
@@ -415,7 +488,7 @@ export default function ContactForm() {
                   placeholder="Ghi chú thêm (tuỳ chọn)..."
                   rows={2}
                   aria-label="Ghi chú thêm"
-                  className="w-full bg-slate-50 border border-slate-200 focus:ring-primary text-slate-800 font-body px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition-shadow resize-none"
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-body text-slate-800 transition-shadow focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
 
@@ -433,11 +506,11 @@ export default function ContactForm() {
                 data-testid="contact-submit"
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full bg-slate-900 hover:bg-primary text-white font-heading font-bold text-lg py-4 rounded-xl transition-colors mt-2 shadow-md hover:shadow-glow-primary hover:-translate-y-1 transform disabled:opacity-70 disabled:hover:translate-y-0 disabled:hover:shadow-md flex items-center justify-center gap-2"
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-4 text-lg font-bold text-white shadow-md transition-colors transform hover:-translate-y-1 hover:bg-primary hover:shadow-glow-primary disabled:opacity-70 disabled:hover:translate-y-0 disabled:hover:shadow-md font-heading"
               >
                 {isSubmitting ? (
                   <>
-                    <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                    <svg className="-ml-1 mr-2 h-5 w-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path
                         className="opacity-75"

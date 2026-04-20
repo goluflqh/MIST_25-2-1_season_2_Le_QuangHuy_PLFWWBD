@@ -27,21 +27,88 @@ test("answers solar light rain questions more helpfully", () => {
   assert.match(result.localReply || "", /mùa mưa|ngoài trời|kín nước/i);
 });
 
-test("routes open-ended solar usage questions to the API layer instead of a canned FAQ", () => {
+test("routes open-ended solar usage questions to the right service context", () => {
   const result = analyzeChatbotMessage("đèn năng lượng mặt trời dùng như thế nào");
 
-  assert.equal(result.intent, "open_question");
+  assert.equal(result.intent, "faq");
   assert.equal(result.service, "DEN_NLMT");
-  assert.equal(result.localReply, null);
+  assert.match(result.localReply || "", /ban ngày|tấm pin|cả đêm/i);
 });
 
-test("treats solar budget questions as pricing instead of rain-weather FAQs", () => {
+test("keeps solar savings questions on a meaningful energy answer", () => {
+  const result = analyzeChatbotMessage("dùng đèn năng lượng có tiết kiệm thật ko");
+
+  assert.equal(result.intent, "faq");
+  assert.equal(result.service, "DEN_NLMT");
+  assert.match(result.localReply || "", /tiết kiệm điện|chỗ lắp có nắng|khó kéo điện/i);
+  assert.doesNotMatch(result.localReply || "", /nhận làm pin cho đèn/i);
+});
+
+test("treats solar budget questions as pricing instead of weather FAQs", () => {
   const result = analyzeChatbotMessage("1 triệu có đủ mua đèn năng lượng ko");
 
   assert.equal(result.intent, "quote");
   assert.equal(result.service, "DEN_NLMT");
-  assert.match(result.localReply || "", /tầm 1 triệu|ngân sách đó/i);
+  assert.match(result.localReply || "", /1 triệu|ngân sách đó/i);
   assert.equal(result.shouldOfferLeadForm, true);
+});
+
+test("reuses solar context for short budget follow-ups and changes the amount", () => {
+  const history = [
+    {
+      role: "assistant" as const,
+      content: "Đèn NLMT có thể tiết kiệm điện nếu lắp đúng chỗ.",
+      meta: { intent: "faq" as const, service: "DEN_NLMT" as const },
+    },
+    {
+      role: "user" as const,
+      content: "2 triệu mua được mấy cái",
+    },
+    {
+      role: "assistant" as const,
+      content: "Ngân sách 2 triệu thì đã dễ chọn hơn nhiều rồi anh/chị ạ.",
+      meta: { intent: "quote" as const, service: "DEN_NLMT" as const },
+    },
+  ];
+
+  const result = analyzeChatbotMessage("3 triệu thì sao", { history });
+
+  assert.equal(result.intent, "quote");
+  assert.equal(result.service, "DEN_NLMT");
+  assert.match(result.localReply || "", /3 triệu/i);
+  assert.doesNotMatch(result.localReply || "", /1 triệu/i);
+});
+
+test("reuses service context for short usage follow-ups", () => {
+  const history = [
+    {
+      role: "assistant" as const,
+      content: "Đèn NLMT có thể tiết kiệm điện nếu lắp đúng chỗ.",
+      meta: { intent: "faq" as const, service: "DEN_NLMT" as const },
+    },
+  ];
+
+  const result = analyzeChatbotMessage("dùng như thế nào", { history });
+
+  assert.equal(result.intent, "faq");
+  assert.equal(result.service, "DEN_NLMT");
+  assert.match(result.localReply || "", /ban ngày|tấm pin|cả đêm/i);
+});
+
+test("suggests other service groups when the user asks beyond the current solar topic", () => {
+  const history = [
+    {
+      role: "assistant" as const,
+      content: "Đèn NLMT có thể tiết kiệm điện nếu lắp đúng chỗ.",
+      meta: { intent: "faq" as const, service: "DEN_NLMT" as const },
+    },
+  ];
+
+  const result = analyzeChatbotMessage("mua được cái gì ngoài đèn năng lượng", { history });
+
+  assert.equal(result.intent, "general");
+  assert.equal(result.shouldSuggestServices, true);
+  assert.match(result.localReply || "", /ngoài đèn năng lượng mặt trời|camera|đóng pin|pin lưu trữ/i);
 });
 
 test("keeps address requests on the location answer", () => {

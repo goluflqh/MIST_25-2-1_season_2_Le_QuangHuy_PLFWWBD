@@ -26,7 +26,17 @@ interface FaqRule {
   service?: ChatbotServiceId;
 }
 
+export interface ChatbotConversationMessage {
+  content: string;
+  meta?: {
+    intent?: ChatbotIntent | null;
+    service?: ChatbotServiceId | string | null;
+  };
+  role: "user" | "assistant" | "system";
+}
+
 interface ChatbotAnalysisOptions {
+  history?: ChatbotConversationMessage[];
   serviceContext?: ChatbotServiceId | null;
 }
 
@@ -35,6 +45,12 @@ interface ChatbotServiceConfig {
   label: string;
   leadSource: string;
   prompt: string;
+}
+
+interface ConversationContext {
+  activeService: ChatbotServiceId | null;
+  lastBudgetVnd: number | null;
+  lastIntent: ChatbotIntent | null;
 }
 
 export interface ChatbotResponsePlan {
@@ -78,7 +94,9 @@ const CHATBOT_SERVICE_CONFIG: Record<
       "mat troi",
       "solar",
       "den san vuon",
+      "den cong",
       "den duong",
+      "den pha solar",
     ],
     label: "đèn năng lượng mặt trời",
     leadSource: "chatbot-den-nlmt",
@@ -96,6 +114,7 @@ const CHATBOT_SERVICE_CONFIG: Record<
       "bo luu dien",
       "xe hoi",
       "o to",
+      "binh du phong",
     ],
     label: "pin lưu trữ",
     leadSource: "chatbot-pin-luu-tru",
@@ -145,24 +164,6 @@ const LOCATION_SIGNALS = [
 
 const WARRANTY_SIGNALS = ["bao hanh", "warranty", "doi tra", "loi 1 doi 1"];
 
-const FOLLOW_UP_CONTEXT_SIGNALS = [
-  "gia",
-  "bao nhieu",
-  "chi phi",
-  "the nao",
-  "nhu nao",
-  "sao em",
-  "sao vay",
-  "co ben khong",
-  "co on khong",
-  "co duoc khong",
-  "lam duoc khong",
-  "goi y giup",
-  "tu van tiep",
-  "loai nao",
-  "loai gi",
-];
-
 const GREETING_SIGNALS = ["xin chao", "chao em", "hello", "hi", "alo", "shop oi"];
 
 const QUOTE_SIGNALS = [
@@ -177,6 +178,9 @@ const QUOTE_SIGNALS = [
   "gia khoang",
   "co du mua",
   "ngan sach",
+  "mua duoc may cai",
+  "mua duoc cai gi",
+  "tam nay",
 ];
 
 const HUMAN_SUPPORT_SIGNALS = [
@@ -223,7 +227,52 @@ const OPEN_ENDED_SIGNALS = [
   "on khong",
   "duoc khong",
   "loai gi",
+  "tiet kiem",
+  "dang tien",
 ];
+
+const FOLLOW_UP_CONTEXT_SIGNALS = [
+  "gia",
+  "bao nhieu",
+  "chi phi",
+  "the nao",
+  "nhu nao",
+  "sao em",
+  "sao vay",
+  "co ben khong",
+  "co on khong",
+  "co duoc khong",
+  "lam duoc khong",
+  "goi y giup",
+  "tu van tiep",
+  "loai nao",
+  "loai gi",
+  "thi sao",
+  "cai gi",
+  "may cai",
+  "tam nay",
+  "tam do",
+];
+
+const SOLAR_SAVINGS_SIGNALS = [
+  "tiet kiem",
+  "giam tien dien",
+  "co loi khong",
+  "co tiet kiem khong",
+  "dang tien khong",
+];
+
+const SOLAR_USAGE_SIGNALS = [
+  "dung nhu the nao",
+  "cach dung",
+  "huong dan",
+  "nguyen ly",
+  "van hanh",
+  "lap sao",
+  "su dung sao",
+];
+
+const ALTERNATIVE_SERVICE_SIGNALS = ["ngoai", "ngoai ra", "con gi nua", "con gi khac", "khac nua"];
 
 const OUT_OF_SCOPE_HINTS = [
   "thu do",
@@ -302,7 +351,10 @@ const FAQ_RULES: FaqRule[] = [
   {
     answer:
       "Dạ có anh/chị nhé. Bên em nhận làm pin cho đèn năng lượng mặt trời và pin lưu trữ dân dụng. Khi cần, bên em sẽ kiểm tra luôn tình trạng tấm pin, bộ sạc và mức tiêu thụ tải để tư vấn cho đúng.",
-    requiredGroups: [["den nang luong", "nlmt", "mat troi", "solar"], ["pin", "luu tru", "den"]],
+    requiredGroups: [
+      ["den nang luong", "nlmt", "mat troi", "solar"],
+      ["pin", "thay pin", "lam pin", "binh", "luu tru"],
+    ],
     service: "DEN_NLMT",
   },
   {
@@ -324,6 +376,25 @@ const FAQ_RULES: FaqRule[] = [
     service: "DONG_PIN",
   },
 ];
+
+function normalizeNaturalText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}0-9\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function normalizeLookupText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function matchesPhrase(text: string, phrase: string) {
   if (!phrase) {
@@ -348,28 +419,66 @@ function matchesKeyword(text: string, keyword: string) {
   return matchesPhrase(text, normalizedKeyword);
 }
 
-function normalizeNaturalText(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}0-9\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function includesAny(text: string, keywords: string[]) {
   return keywords.some((keyword) => matchesKeyword(text, keyword));
 }
 
-function includesNaturalAny(text: string, keywords: string[]) {
-  return keywords.some((keyword) => matchesPhrase(text, normalizeNaturalText(keyword)));
+function scoreKeywords(text: string, keywords: string[]) {
+  return keywords.reduce((score, keyword) => (matchesKeyword(text, keyword) ? score + 1 : score), 0);
 }
 
-function hasBudgetIntent(naturalMessage: string, lookupMessage: string) {
+function parseBudgetVnd(lookupMessage: string) {
+  const match = lookupMessage.match(/(\d+(?:[.,]\d+)?)\s*(tr|trieu|k|nghin|ngan|vnd|dong)(?=\s|$)/);
+
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1].replace(",", "."));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return null;
+  }
+
+  switch (match[2]) {
+    case "tr":
+    case "trieu":
+      return Math.round(amount * 1_000_000);
+    case "k":
+    case "nghin":
+    case "ngan":
+      return Math.round(amount * 1_000);
+    case "vnd":
+    case "dong":
+      return amount >= 1_000 ? Math.round(amount) : null;
+    default:
+      return null;
+  }
+}
+
+function formatBudgetVnd(amount: number) {
+  if (amount >= 1_000_000) {
+    const value = Math.round((amount / 1_000_000) * 10) / 10;
+    return `${value.toString().replace(".", ",")} triệu`;
+  }
+
+  const thousandValue = Math.round(amount / 1_000);
+  return `${thousandValue} nghìn`;
+}
+
+function buildServiceLabels(serviceIds: ChatbotServiceId[]) {
+  return serviceIds
+    .map((serviceId) => getChatbotServiceLabel(serviceId))
+    .filter((value): value is string => Boolean(value))
+    .join(", ");
+}
+
+function hasBudgetIntent(lookupMessage: string, naturalMessage: string) {
   return (
-    /\b\d+([.,]\d+)?\s*(tr|triệu|trieu|k|nghìn|nghin|ngàn|ngan|vnd|đ|dong)\b/u.test(
+    parseBudgetVnd(lookupMessage) !== null ||
+    includesAny(lookupMessage, ["ngan sach", "co du mua", "tam nay", "tam do"]) ||
+    /\b\d+([.,]\d+)?\s*(tr|triệu|trieu|k|nghìn|nghin|ngan|vnd|đ|dong)\b/u.test(
       naturalMessage
-    ) ||
-    includesAny(lookupMessage, ["ngan sach", "co du mua", "tam nay", "tam 1 trieu", "tam 2 trieu"])
+    )
   );
 }
 
@@ -377,36 +486,122 @@ function matchesRule(text: string, rule: FaqRule) {
   return rule.requiredGroups.every((group) => includesAny(text, group));
 }
 
-function scoreKeywords(text: string, keywords: string[]) {
-  return keywords.reduce((score, keyword) => (matchesKeyword(text, keyword) ? score + 1 : score), 0);
-}
-
 function shouldReuseServiceContext(text: string) {
   const wordCount = text.split(" ").filter(Boolean).length;
   return wordCount <= 8 || includesAny(text, FOLLOW_UP_CONTEXT_SIGNALS);
 }
 
-function detectChatbotService(
-  text: string,
-  fallbackService: ChatbotServiceId | null = null
-): ChatbotServiceId | null {
-  let bestMatch: { score: number; service: ChatbotServiceId | null } = {
-    score: 0,
-    service: null,
-  };
-
-  for (const [service, config] of Object.entries(CHATBOT_SERVICE_CONFIG) as Array<
+function detectMentionedServices(text: string) {
+  return (Object.entries(CHATBOT_SERVICE_CONFIG) as Array<
     [Exclude<ChatbotServiceId, "KHAC">, ChatbotServiceConfig]
-  >) {
-    const score = scoreKeywords(text, config.keywords);
+  >)
+    .map(([service, config]) => ({
+      score: scoreKeywords(text, config.keywords),
+      service,
+    }))
+    .filter((match) => match.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .map((match) => match.service);
+}
 
-    if (score > bestMatch.score) {
-      bestMatch = { score, service };
+function detectExplicitService(text: string) {
+  return detectMentionedServices(text)[0] || null;
+}
+
+function normalizeIntent(value: string | null | undefined): ChatbotIntent | null {
+  if (
+    value === "greeting" ||
+    value === "faq" ||
+    value === "quote" ||
+    value === "contact" ||
+    value === "open_question" ||
+    value === "general"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+export function normalizeChatbotServiceId(
+  value: string | null | undefined
+): ChatbotServiceId | null {
+  if (!value) return null;
+
+  const normalizedValue = value.trim().toUpperCase();
+
+  if (
+    normalizedValue === "DONG_PIN" ||
+    normalizedValue === "DEN_NLMT" ||
+    normalizedValue === "PIN_LUU_TRU" ||
+    normalizedValue === "CAMERA" ||
+    normalizedValue === "CUSTOM" ||
+    normalizedValue === "KHAC"
+  ) {
+    return normalizedValue;
+  }
+
+  return null;
+}
+
+function inferIntentFromHistoryText(lookupMessage: string, naturalMessage: string) {
+  if (includesAny(lookupMessage, HUMAN_SUPPORT_SIGNALS)) return "contact" satisfies ChatbotIntent;
+  if (includesAny(lookupMessage, LOCATION_SIGNALS) || includesAny(lookupMessage, WARRANTY_SIGNALS)) {
+    return "faq" satisfies ChatbotIntent;
+  }
+  if (includesAny(lookupMessage, OPEN_ENDED_SIGNALS) || hasBudgetIntent(lookupMessage, naturalMessage)) {
+    return "open_question" satisfies ChatbotIntent;
+  }
+  if (includesAny(lookupMessage, QUOTE_SIGNALS)) return "quote" satisfies ChatbotIntent;
+  return null;
+}
+
+function resolveConversationContext(
+  history: ChatbotConversationMessage[] = [],
+  fallbackService: ChatbotServiceId | null = null
+): ConversationContext {
+  let activeService = fallbackService;
+  let lastIntent: ChatbotIntent | null = null;
+  let lastBudgetVnd: number | null = null;
+
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const item = history[index];
+    const lookupContent = normalizeLookupText(item.content);
+    const naturalContent = normalizeNaturalText(item.content);
+
+    if (item.role === "user" && lastBudgetVnd === null) {
+      lastBudgetVnd = parseBudgetVnd(lookupContent);
+    }
+
+    if (!lastIntent) {
+      lastIntent =
+        normalizeIntent(typeof item.meta?.intent === "string" ? item.meta.intent : null) ||
+        inferIntentFromHistoryText(lookupContent, naturalContent);
+    }
+
+    if (!activeService) {
+      activeService =
+        normalizeChatbotServiceId(
+          typeof item.meta?.service === "string" ? item.meta.service : null
+        ) || detectExplicitService(lookupContent);
+    }
+
+    if (activeService && lastIntent && lastBudgetVnd !== null) {
+      break;
     }
   }
 
-  if (bestMatch.service) {
-    return bestMatch.service;
+  return {
+    activeService,
+    lastBudgetVnd,
+    lastIntent,
+  };
+}
+
+function detectChatbotService(text: string, fallbackService: ChatbotServiceId | null = null) {
+  const explicitService = detectExplicitService(text);
+  if (explicitService) {
+    return explicitService;
   }
 
   if (fallbackService && shouldReuseServiceContext(text)) {
@@ -416,26 +611,31 @@ function detectChatbotService(
   return null;
 }
 
-function buildQuoteReply(
-  service: ChatbotServiceId,
-  options: { hasBudgetIntent: boolean }
+function wantsAlternativeServiceSuggestions(
+  lookupMessage: string,
+  activeService: ChatbotServiceId | null,
+  mentionedServices: ChatbotServiceId[]
 ) {
-  switch (service) {
-    case "CAMERA":
-      return "Em có thể tư vấn sơ bộ trước cho anh/chị được ạ. Với camera, giá còn lệch theo số mắt, nhu cầu xem ban đêm, loại đầu ghi và cách đi dây, nên nếu anh/chị cho em biết sơ mặt bằng hoặc số mắt dự tính thì em sẽ gợi ý sát hơn nhiều.";
-    case "DEN_NLMT":
-      if (options.hasBudgetIntent) {
-        return "Tầm 1 triệu vẫn có thể lên một số bộ đèn NLMT dân dụng anh/chị nhé, nhưng còn tùy mình cần sáng sân nhỏ, cổng hay lối đi và muốn sáng trong bao lâu mỗi đêm. Nếu anh/chị nói giúp vị trí lắp với mức sáng mong muốn, em sẽ gợi ý cấu hình gần ngân sách đó sát hơn.";
-      }
-      return "Em có thể gợi ý nhanh cho anh/chị trước nhé. Với đèn NLMT, chi phí thường phụ thuộc công suất đèn, thời gian sáng mong muốn và tình trạng pin cũ nếu mình đang cần thay pin.";
-    case "PIN_LUU_TRU":
-      return "Phần này em tư vấn sơ bộ được ạ. Giá pin lưu trữ sẽ đi theo điện áp, dung lượng, dòng xả và mức tải thực tế, nên có thêm thông số hoặc ảnh bộ pin cũ thì bên em báo sẽ sát hơn.";
-    case "CUSTOM":
-      return "Với bộ pin theo yêu cầu, bên em sẽ cần chốt kích thước, điện áp, dung lượng và mức xả trước thì mới báo sát được. Nếu tiện, anh/chị để lại nhu cầu chi tiết giúp em để bên em đi đúng cấu hình ngay từ đầu.";
-    case "DONG_PIN":
-    default:
-      return "Em có thể tư vấn sơ bộ cho anh/chị trước được nhé. Với đóng pin, giá thường lệch theo model, điện áp, dung lượng và loại cell mình muốn dùng, nên có thêm ảnh pin cũ hoặc tên thiết bị thì bên em báo sẽ sát hơn nhiều.";
+  if ((!activeService && mentionedServices.length === 0) || includesAny(lookupMessage, ["ngoai troi"])) {
+    return false;
   }
+
+  return (
+    (/\bngoai\b/u.test(lookupMessage) || includesAny(lookupMessage, ALTERNATIVE_SERVICE_SIGNALS)) &&
+    includesAny(lookupMessage, ["mua duoc cai gi", "cai gi", "goi y", "con gi", "nhom nao"])
+  );
+}
+
+function buildLocationReply() {
+  return `Bên em ở ${LOCATION}, mở cửa ${BUSINESS_HOURS}. Anh/chị cần chỉ đường, Zalo hay gọi nhanh thì liên hệ ${HOTLINE} nhé.`;
+}
+
+function buildWarrantyReply(lookupMessage: string, service: ChatbotServiceId | null) {
+  if (service === "CAMERA" || includesAny(lookupMessage, ["camera", "dau ghi"])) {
+    return "Với camera thì thời gian bảo hành sẽ theo cấu hình lắp đặt và từng thiết bị cụ thể như mắt camera, đầu ghi hay ổ cứng. Bên em vẫn hỗ trợ kiểm tra lại hệ thống nếu có lỗi phát sinh trong quá trình sử dụng.";
+  }
+
+  return "Bên em bảo hành pin theo từng dòng và cấu hình: thường gồm lỗi kỹ thuật của cell hoặc BMS như sụt áp bất thường, lệch cell, tự ngắt hay không nhận sạc. Không bảo hành các trường hợp vào nước, rơi vỡ, chập cháy do đấu sai, dùng sạc không đúng hoặc chai dần theo thời gian sử dụng. Anh/chị cho em biết pin loại nào và thông số cơ bản, em sẽ nói rõ thời gian với điều kiện cụ thể của bộ pin mình.";
 }
 
 function buildHumanSupportReply(service: ChatbotServiceId) {
@@ -443,20 +643,105 @@ function buildHumanSupportReply(service: ChatbotServiceId) {
   return `Dạ được anh/chị nhé. Anh/chị để lại nhu cầu giúp em, bên em sẽ giữ đúng phần ${serviceLabel} và phản hồi cho mình để đỡ phải nhắc lại từ đầu.`;
 }
 
-function buildWarrantyReply(lookupMessage: string, service: ChatbotServiceId | null) {
-  if (service === "CAMERA") {
-    return "Với camera thì thời gian bảo hành sẽ theo cấu hình lắp đặt và từng thiết bị cụ thể như mắt camera, đầu ghi hay ổ cứng. Bên em vẫn hỗ trợ kiểm tra lại hệ thống nếu có lỗi phát sinh trong quá trình sử dụng.";
+function buildAlternativeServicesReply(
+  excludedService: ChatbotServiceId | null,
+  budgetVnd: number | null
+) {
+  const remainingServices = chatbotServiceChoices
+    .map((choice) => choice.id)
+    .filter((serviceId) => serviceId !== excludedService);
+  const serviceList = buildServiceLabels(remainingServices);
+  const excludedLabel = getChatbotServiceLabel(excludedService) || "nhóm này";
+
+  if (budgetVnd) {
+    return `Ngoài ${excludedLabel}, bên em còn làm ${serviceList}. Với tầm ${formatBudgetVnd(
+      budgetVnd
+    )}, em nên khoanh lại đúng nhóm trước rồi mới gợi ý món hợp ngân sách cho anh/chị thì sẽ sát hơn nhiều.`;
   }
 
-  if (includesAny(lookupMessage, ["camera", "dau ghi"])) {
-    return "Với camera thì thời gian bảo hành sẽ theo cấu hình lắp đặt và từng thiết bị cụ thể như mắt camera, đầu ghi hay ổ cứng. Bên em vẫn hỗ trợ kiểm tra lại hệ thống nếu có lỗi phát sinh trong quá trình sử dụng.";
-  }
-
-  return "Bên em bảo hành pin theo từng dòng và cấu hình: thường gồm lỗi kỹ thuật của cell hoặc BMS như sụt áp bất thường, lệch cell, tự ngắt hay không nhận sạc. Không bảo hành các trường hợp vào nước, rơi vỡ, chập cháy do đấu sai, dùng sạc không đúng hoặc chai dần theo thời gian sử dụng. Anh/chị cho em biết pin loại nào và thông số cơ bản, em sẽ nói rõ thời gian với điều kiện cụ thể của bộ pin mình.";
+  return `Ngoài ${excludedLabel}, bên em còn làm ${serviceList}. Anh/chị muốn em nghiêng sang nhóm nào để em gợi ý nhanh đúng hướng hơn?`;
 }
 
-function buildLocationReply() {
-  return `Bên em ở ${LOCATION}, mở cửa ${BUSINESS_HOURS}. Anh/chị cần chỉ đường, Zalo hay gọi nhanh thì liên hệ ${HOTLINE} nhé.`;
+function buildSolarSavingsReply() {
+  return "Đèn năng lượng mặt trời có thể tiết kiệm điện thật nếu chỗ lắp có nắng tốt và mình chọn đúng nhu cầu sáng. Hợp nhất là các vị trí như cổng, sân, lối đi hoặc chỗ khó kéo điện; còn nếu nắng yếu, bật quá lâu hoặc chọn công suất không phù hợp thì hiệu quả sẽ giảm. Nếu anh/chị nói giúp khu vực lắp và số giờ nắng mỗi ngày, em sẽ gợi ý thực tế hơn cho chỗ nhà mình.";
+}
+
+function buildSolarUsageReply() {
+  return "Nguyên lý dùng khá đơn giản anh/chị nhé: ban ngày tấm pin hứng nắng để sạc vào pin, tối đèn lấy điện từ pin để sáng. Mình nên đặt tấm pin ở chỗ có nắng trực tiếp khoảng 5-6 tiếng trở lên, tránh bị che bóng và chọn chế độ sáng vừa nhu cầu để pin trụ ổn qua đêm. Nếu anh/chị nói giúp vị trí lắp với thời lượng sáng mong muốn, em sẽ gợi ý cách dùng sát hơn.";
+}
+
+function buildSolarBudgetReply(budgetVnd: number, lookupMessage: string) {
+  const budgetLabel = formatBudgetVnd(budgetVnd);
+  const wantsCount = includesAny(lookupMessage, ["may cai", "bao nhieu cai", "mua duoc may"]);
+
+  if (budgetVnd < 700_000) {
+    return `Tầm ${budgetLabel} thì mình nên nghiêng về đèn tường, lối đi hoặc nhu cầu sáng điểm nhỏ là hợp hơn. Nếu muốn sáng rộng sân hoặc cổng và trụ lâu cả đêm thì mức này sẽ hơi chật. ${
+      wantsCount
+        ? "Phần số lượng khó chốt chính xác chỉ theo ngân sách, vì còn lệch khá nhiều ở pin và công suất từng bộ. "
+        : ""
+    }Anh/chị nói giúp chỗ lắp với thời lượng sáng mong muốn, em sẽ gợi ý sát hơn.`;
+  }
+
+  if (budgetVnd < 1_500_000) {
+    return `Tầm ${budgetLabel} thì đã có thể lên một bộ đèn NLMT dân dụng khá ổn cho cổng, sân nhỏ hoặc lối đi rồi anh/chị nhé. ${
+      wantsCount
+        ? "Nếu hỏi mấy cái thì thường vẫn phải nhìn theo công suất và pin đi kèm hơn là đếm theo giá cứng. "
+        : ""
+    }Anh/chị cho em biết khu vực cần sáng và muốn sáng trong bao lâu mỗi đêm, em sẽ gợi ý cấu hình sát hơn.`;
+  }
+
+  if (budgetVnd < 3_000_000) {
+    return `Ngân sách ${budgetLabel} thì dễ chọn hơn nhiều rồi anh/chị ạ. Mình có thể nghiêng sang bộ sáng khỏe hơn cho sân hoặc cổng, hoặc chia thành vài điểm sáng vừa tùy cách lắp và thời lượng sáng mong muốn. ${
+      wantsCount
+        ? "Phần mấy cái vẫn nên chốt theo công suất và nhu cầu sáng thực tế, chứ cùng một tầm tiền nhưng mỗi bộ lệch khá nhiều. "
+        : ""
+    }Anh/chị nói giúp chỗ lắp và mức sáng mong muốn, em sẽ khoanh phương án đúng hơn.`;
+  }
+
+  return `Với tầm ${budgetLabel}, mình đã có dư địa để ưu tiên bộ đèn sáng khỏe hơn, pin lớn hơn hoặc chia ra nhiều điểm sáng tùy mặt bằng thực tế. Nếu anh/chị cho em biết khu vực lắp, cần sáng rộng hay sáng tập trung và muốn trụ bao lâu mỗi đêm, em sẽ gợi ý phương án hợp ngân sách hơn nhiều.`;
+}
+
+function buildQuoteReply(
+  service: ChatbotServiceId,
+  options: {
+    budgetVnd: number | null;
+    lookupMessage: string;
+  }
+) {
+  const budgetLabel = options.budgetVnd ? formatBudgetVnd(options.budgetVnd) : null;
+
+  switch (service) {
+    case "CAMERA":
+      if (budgetLabel) {
+        return `Ngân sách ${budgetLabel} thì em vẫn gợi ý sơ bộ cho anh/chị được, nhưng camera còn lệch khá nhiều theo số mắt, nhu cầu xem ban đêm, loại đầu ghi và cách đi dây. Nếu anh/chị nói giúp sơ mặt bằng hoặc số mắt dự tính, em sẽ gợi ý sát hơn nhiều.`;
+      }
+      return "Em có thể tư vấn sơ bộ trước cho anh/chị được ạ. Với camera, giá còn lệch theo số mắt, nhu cầu xem ban đêm, loại đầu ghi và cách đi dây, nên nếu anh/chị cho em biết sơ mặt bằng hoặc số mắt dự tính thì em sẽ gợi ý sát hơn nhiều.";
+
+    case "DEN_NLMT":
+      if (options.budgetVnd) {
+        return buildSolarBudgetReply(options.budgetVnd, options.lookupMessage);
+      }
+      return "Em có thể gợi ý nhanh cho anh/chị trước nhé. Với đèn NLMT, chi phí thường phụ thuộc công suất đèn, thời gian sáng mong muốn và tình trạng pin cũ nếu mình đang cần thay pin.";
+
+    case "PIN_LUU_TRU":
+      if (budgetLabel) {
+        return `Ngân sách ${budgetLabel} thì em tư vấn sơ bộ được anh/chị nhé, nhưng pin lưu trữ vẫn phải nhìn theo điện áp, dung lượng, dòng xả và mức tải thực tế. Có thêm thông số hoặc ảnh bộ pin cũ thì bên em báo sẽ sát hơn.`;
+      }
+      return "Phần này em tư vấn sơ bộ được ạ. Giá pin lưu trữ sẽ đi theo điện áp, dung lượng, dòng xả và mức tải thực tế, nên có thêm thông số hoặc ảnh bộ pin cũ thì bên em báo sẽ sát hơn.";
+
+    case "CUSTOM":
+      if (budgetLabel) {
+        return `Với tầm ${budgetLabel}, bên em vẫn khoanh sơ bộ được, nhưng bộ pin theo yêu cầu còn phải chốt kích thước, điện áp, dung lượng và mức xả trước thì mới báo sát được. Anh/chị gửi giúp em nhu cầu chi tiết hơn là em đi đúng cấu hình ngay.`;
+      }
+      return "Với bộ pin theo yêu cầu, bên em sẽ cần chốt kích thước, điện áp, dung lượng và mức xả trước thì mới báo sát được. Nếu tiện, anh/chị để lại nhu cầu chi tiết giúp em để bên em đi đúng cấu hình ngay từ đầu.";
+
+    case "DONG_PIN":
+    default:
+      if (budgetLabel) {
+        return `Ngân sách ${budgetLabel} thì em vẫn khoanh sơ bộ cho anh/chị được, nhưng đóng pin còn lệch theo model, điện áp, dung lượng và loại cell mình muốn dùng. Có thêm ảnh pin cũ hoặc tên thiết bị thì bên em sẽ gợi ý sát hơn nhiều.`;
+      }
+      return "Em có thể tư vấn sơ bộ cho anh/chị trước được nhé. Với đóng pin, giá thường lệch theo model, điện áp, dung lượng và loại cell mình muốn dùng, nên có thêm ảnh pin cũ hoặc tên thiết bị thì bên em báo sẽ sát hơn nhiều.";
+  }
 }
 
 function buildServiceSpecificReply(
@@ -466,6 +751,14 @@ function buildServiceSpecificReply(
 ) {
   if (!service) {
     return null;
+  }
+
+  if (service === "DEN_NLMT" && includesAny(lookupMessage, SOLAR_SAVINGS_SIGNALS)) {
+    return buildSolarSavingsReply();
+  }
+
+  if (service === "DEN_NLMT" && includesAny(lookupMessage, SOLAR_USAGE_SIGNALS)) {
+    return buildSolarUsageReply();
   }
 
   if (
@@ -478,7 +771,7 @@ function buildServiceSpecificReply(
   if (
     service === "DEN_NLMT" &&
     (includesAny(lookupMessage, ["chong nuoc", "vao nuoc", "ngoai troi", "tham nuoc"]) ||
-      includesNaturalAny(naturalMessage, ["mưa", "mùa mưa", "trời mưa"]))
+      includesAny(normalizeLookupText(naturalMessage), ["mua", "mua mua"]))
   ) {
     return "Nếu bộ đèn, pin và hộp điều khiển đúng chuẩn ngoài trời thì dùng mùa mưa vẫn ổn anh/chị nhé. Phần hay cần kiểm tra kỹ là độ kín nước của hộp pin, chất lượng cell và thời lượng dự phòng khi trời âm u nhiều ngày liên tiếp.";
   }
@@ -502,38 +795,6 @@ function buildServiceSpecificReply(
 
 function isLikelyOutOfScopeQuestion(text: string) {
   return includesAny(text, OUT_OF_SCOPE_HINTS) && !includesAny(text, DOMAIN_HINTS);
-}
-
-export function normalizeLookupText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-export function normalizeChatbotServiceId(
-  value: string | null | undefined
-): ChatbotServiceId | null {
-  if (!value) return null;
-
-  const normalizedValue = value.trim().toUpperCase();
-
-  if (
-    normalizedValue === "DONG_PIN" ||
-    normalizedValue === "DEN_NLMT" ||
-    normalizedValue === "PIN_LUU_TRU" ||
-    normalizedValue === "CAMERA" ||
-    normalizedValue === "CUSTOM" ||
-    normalizedValue === "KHAC"
-  ) {
-    return normalizedValue;
-  }
-
-  return null;
 }
 
 export function getChatbotServiceLabel(service: ChatbotServiceId | null) {
@@ -565,29 +826,41 @@ export function analyzeChatbotMessage(
 ): ChatbotResponsePlan {
   const lookupMessage = normalizeLookupText(message);
   const naturalMessage = normalizeNaturalText(message);
+  const conversation = resolveConversationContext(options.history, options.serviceContext || null);
 
   if (!lookupMessage) {
     return {
       intent: "general",
       localReply: null,
-      service: options.serviceContext || null,
-      serviceLabel: getChatbotServiceLabel(options.serviceContext || null),
+      service: conversation.activeService,
+      serviceLabel: getChatbotServiceLabel(conversation.activeService),
       shouldOfferLeadForm: false,
       shouldOfferHumanSupport: false,
       shouldSuggestServices: false,
     };
   }
 
-  const service = detectChatbotService(lookupMessage, options.serviceContext || null);
+  const service = detectChatbotService(lookupMessage, conversation.activeService);
   const serviceLabel = getChatbotServiceLabel(service);
   const wordCount = lookupMessage.split(" ").filter(Boolean).length;
+  const mentionedServices = detectMentionedServices(lookupMessage);
+  const budgetVnd =
+    parseBudgetVnd(lookupMessage) ||
+    (shouldReuseServiceContext(lookupMessage) && conversation.lastIntent === "quote"
+      ? conversation.lastBudgetVnd
+      : null);
   const hasGreeting = includesAny(lookupMessage, GREETING_SIGNALS);
-  const hasExplicitBudgetIntent = hasBudgetIntent(naturalMessage, lookupMessage);
+  const hasExplicitBudgetIntent = hasBudgetIntent(lookupMessage, naturalMessage);
   const hasQuoteIntent = includesAny(lookupMessage, QUOTE_SIGNALS) || hasExplicitBudgetIntent;
   const hasHumanSupportIntent = includesAny(lookupMessage, HUMAN_SUPPORT_SIGNALS);
   const hasOpenEndedIntent = includesAny(lookupMessage, OPEN_ENDED_SIGNALS);
   const hasLocationIntent = includesAny(lookupMessage, LOCATION_SIGNALS);
   const hasWarrantyIntent = includesAny(lookupMessage, WARRANTY_SIGNALS);
+  const wantsAlternativeServices = wantsAlternativeServiceSuggestions(
+    lookupMessage,
+    service || conversation.activeService,
+    mentionedServices
+  );
   const isPureGreeting =
     hasGreeting &&
     wordCount <= 4 &&
@@ -665,6 +938,18 @@ export function analyzeChatbotMessage(
     };
   }
 
+  if (wantsAlternativeServices) {
+    return {
+      intent: "general",
+      localReply: buildAlternativeServicesReply(service || mentionedServices[0] || conversation.activeService, budgetVnd),
+      service: null,
+      serviceLabel: null,
+      shouldOfferLeadForm: false,
+      shouldOfferHumanSupport: false,
+      shouldSuggestServices: true,
+    };
+  }
+
   if (!service && (hasQuoteIntent || hasHumanSupportIntent)) {
     return {
       intent: hasHumanSupportIntent ? "contact" : "quote",
@@ -693,7 +978,7 @@ export function analyzeChatbotMessage(
   if (service && hasQuoteIntent) {
     return {
       intent: "quote",
-      localReply: buildQuoteReply(service, { hasBudgetIntent: hasExplicitBudgetIntent }),
+      localReply: buildQuoteReply(service, { budgetVnd, lookupMessage }),
       service,
       serviceLabel,
       shouldOfferLeadForm: true,
@@ -703,7 +988,6 @@ export function analyzeChatbotMessage(
   }
 
   const serviceSpecificReply = buildServiceSpecificReply(lookupMessage, naturalMessage, service);
-
   if (serviceSpecificReply) {
     return {
       intent: "faq",

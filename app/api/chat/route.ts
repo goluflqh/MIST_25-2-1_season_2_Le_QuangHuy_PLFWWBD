@@ -3,6 +3,8 @@ import {
   analyzeChatbotMessage,
   buildChatbotServiceContextNote,
   normalizeChatbotServiceId,
+  type ChatbotIntent,
+  type ChatbotConversationMessage,
   type ChatbotResponsePlan,
 } from "@/lib/chatbot";
 import { recordChatbotEvent, type ChatbotEventType } from "@/lib/chatbot-metrics";
@@ -15,6 +17,10 @@ type AIProvider = "gemini" | "openai" | "9router";
 interface ChatMessage {
   role: string;
   content: string;
+  meta?: {
+    intent?: string | null;
+    service?: string | null;
+  };
 }
 
 interface ChatCompletionOptions {
@@ -51,6 +57,7 @@ Bạn luôn xưng hô thống nhất là "em" với khách và gọi khách là 
 Minh Hồng chuyên đóng pin xe điện, pin máy khoan, pin loa kéo, pin đèn năng lượng mặt trời và lắp camera an ninh.
 Trả lời bằng tiếng Việt tự nhiên, đi thẳng vào ý chính, chỉ 2 đến 4 câu ngắn.
 Giọng điệu mềm, chăm sóc, tạo cảm giác dễ chịu và đáng tin, nhưng không xu nịnh hay lặp khuôn bán hàng.
+Nếu khách hỏi tiếp một câu ngắn, hãy luôn nhìn lịch sử gần nhất để giữ đúng ngữ cảnh thay vì tự đổi sang chủ đề khác.
 Nếu khách chỉ muốn hiểu vấn đề, hãy giải thích ngắn gọn và hữu ích trước, đừng cố ép sang báo giá.
 Chỉ gợi ý gọi điện, nhắn Zalo hoặc để lại nhu cầu khi khách hỏi giá, muốn chốt cấu hình, cần khảo sát thực tế hoặc chủ động xin hỗ trợ thêm.
 Nếu khách đang phân vân, hãy giúp họ thu hẹp lựa chọn trước rồi mới gợi ý bước tiếp theo thật nhẹ nhàng.
@@ -201,7 +208,26 @@ function isMissingAIKey(apiKey: string | undefined): boolean {
   );
 }
 
-function sanitizeHistory(history: unknown): ChatMessage[] {
+function normalizeHistoryIntent(value: string | null | undefined): ChatbotIntent | null {
+  if (
+    value === "greeting" ||
+    value === "faq" ||
+    value === "quote" ||
+    value === "contact" ||
+    value === "open_question" ||
+    value === "general"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+function normalizeHistoryRole(value: string): "user" | "assistant" {
+  return value === "assistant" ? "assistant" : "user";
+}
+
+function sanitizeHistory(history: unknown): ChatbotConversationMessage[] {
   if (!Array.isArray(history)) return [];
 
   return history
@@ -213,8 +239,18 @@ function sanitizeHistory(history: unknown): ChatMessage[] {
         typeof item.content === "string"
     )
     .map((item) => ({
-      role: item.role === "assistant" ? "assistant" : "user",
+      role: normalizeHistoryRole(item.role),
       content: sanitizeText(item.content).slice(0, 800),
+      meta:
+        item.meta && typeof item.meta === "object"
+          ? {
+              intent:
+                typeof item.meta.intent === "string"
+                  ? normalizeHistoryIntent(item.meta.intent)
+                  : null,
+              service: typeof item.meta.service === "string" ? item.meta.service : null,
+            }
+          : undefined,
     }))
     .filter((item) => item.content.length > 0)
     .slice(-MAX_HISTORY_MESSAGES);
@@ -269,7 +305,7 @@ export async function POST(request: Request) {
       );
     }
 
-    plan = analyzeChatbotMessage(message, { serviceContext });
+    plan = analyzeChatbotMessage(message, { history, serviceContext });
 
     if (plan.localReply) {
       if (plan.shouldOfferLeadForm || plan.shouldSuggestServices || plan.shouldOfferHumanSupport) {

@@ -8,6 +8,7 @@ import {
   getChatbotLeadSource,
   getChatbotServiceLabel,
   normalizeChatbotServiceId,
+  type ChatbotConversationMessage,
   type ChatbotIntent,
   type ChatbotResponsePlan,
   type ChatbotServiceId,
@@ -46,7 +47,7 @@ interface Message {
 const DEFAULT_REPLY_FALLBACK =
   "Dạ em đang phản hồi hơi chậm một chút. Anh/chị nói thêm model hoặc nhu cầu sử dụng, em sẽ gợi ý sát hơn cho mình nhé.";
 
-function normalizeChatText(value: string): string {
+function normalizeChatText(value: string) {
   return value
     .replace(/\r\n/g, "\n")
     .replace(/^#{1,6}\s*/gm, "")
@@ -82,6 +83,22 @@ function getLatestServiceContext(messages: Message[]) {
     .find((message) => message.role === "assistant" && message.meta?.service);
 
   return latestAssistantWithService?.meta?.service || null;
+}
+
+function buildConversationHistory(messages: Message[]): ChatbotConversationMessage[] {
+  return messages
+    .filter((message) => message.role !== "system")
+    .slice(-8)
+    .map((message) => ({
+      role: message.role,
+      content: normalizeChatText(message.content),
+      meta: message.meta
+        ? {
+            intent: message.meta.intent,
+            service: message.meta.service,
+          }
+        : undefined,
+    }));
 }
 
 function toAssistantMeta(
@@ -202,6 +219,7 @@ export default function ChatbotWidget() {
 
     const normalizedUserText = normalizeChatText(text);
     const serviceContext = getLatestServiceContext(messages);
+    const conversationHistory = buildConversationHistory(messages);
     const userMsg: Message = {
       id: Date.now().toString(),
       role: "user",
@@ -213,7 +231,10 @@ export default function ChatbotWidget() {
     setInputValue("");
     setIsLoading(true);
 
-    const localPlan = analyzeChatbotMessage(text, { serviceContext });
+    const localPlan = analyzeChatbotMessage(text, {
+      history: conversationHistory,
+      serviceContext,
+    });
 
     if (localPlan.localReply) {
       const localReply = localPlan.localReply;
@@ -230,13 +251,7 @@ export default function ChatbotWidget() {
     }
 
     try {
-      const history = [...messages, userMsg]
-        .filter((message) => message.role !== "system")
-        .slice(-6)
-        .map((message) => ({
-          role: message.role,
-          content: normalizeChatText(message.content),
-        }));
+      const history = [...conversationHistory, { role: "user", content: normalizedUserText }];
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -280,15 +295,12 @@ export default function ChatbotWidget() {
     }
 
     return (
-      <div
-        data-testid="chatbot-message-actions"
-        className="mt-2 flex max-w-[90%] flex-wrap gap-2"
-      >
+      <div data-testid="chatbot-message-actions" className="mt-2 flex max-w-[90%] flex-wrap gap-2">
         {message.actions.map((action) => {
           const baseClass =
             action.tone === "primary"
               ? "inline-flex items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-xs font-body font-semibold text-white transition-colors hover:bg-slate-800"
-              : "inline-flex items-center justify-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:border-slate-300";
+              : "inline-flex items-center justify-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100";
 
           if (action.kind === "prompt") {
             return (
@@ -350,7 +362,7 @@ export default function ChatbotWidget() {
               </div>
               <div>
                 <p className="font-heading text-sm font-bold text-white">Minh Hồng AI</p>
-                <p className="flex items-center gap-1 font-body text-[10px] text-green-400">
+                <p className="flex items-center gap-1 text-[10px] text-green-400 font-body">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span> Trực tuyến
                 </p>
               </div>
@@ -369,10 +381,26 @@ export default function ChatbotWidget() {
 
           <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4">
             {messages.map((message) => (
-              <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={message.role === "user" ? "flex max-w-[80%] flex-col items-end" : "flex max-w-[90%] flex-col items-start"}>
+              <div
+                key={message.id}
+                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={
+                    message.role === "user"
+                      ? "flex max-w-[80%] flex-col items-end"
+                      : "flex max-w-[90%] flex-col items-start"
+                  }
+                >
                   <div
-                    className={`px-4 py-2.5 text-sm font-body leading-relaxed ${
+                    data-testid={
+                      message.role === "assistant"
+                        ? "chatbot-assistant-message"
+                        : message.role === "user"
+                          ? "chatbot-user-message"
+                          : undefined
+                    }
+                    className={`px-4 py-2.5 text-sm leading-relaxed font-body ${
                       message.role === "user"
                         ? "rounded-2xl rounded-br-sm bg-slate-900 text-white"
                         : "rounded-2xl rounded-bl-sm border border-slate-200 bg-white text-slate-700 shadow-sm"
@@ -446,7 +474,7 @@ export default function ChatbotWidget() {
         {!isOpen && (
           <div className="relative mb-2 whitespace-nowrap rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-body font-bold text-white shadow-lg animate-fade-in-up">
             Hỏi AI tư vấn
-            <div className="absolute -right-1.5 bottom-3 h-3 w-3 rotate-45 bg-slate-900"></div>
+            <div className="absolute bottom-3 -right-1.5 h-3 w-3 rotate-45 bg-slate-900"></div>
           </div>
         )}
 

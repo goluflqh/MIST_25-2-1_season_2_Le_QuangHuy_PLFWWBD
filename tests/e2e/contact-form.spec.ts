@@ -27,7 +27,37 @@ test.describe("Contact form", () => {
     await expect(page.getByText(/Vui l.ng ch.n d.ch v. quan t.m/i)).toBeVisible();
   });
 
-  test("submits a quote request successfully", async ({ page }) => {
+  test("keeps the success panel visible until the user decides what to do next", async ({
+    page,
+  }) => {
+    await page.route("**/api/contact", async (route) => {
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          id: "test-contact-id",
+          message: "ok",
+        }),
+      });
+    });
+
+    await openContactForm(page);
+    await fillContactForm(page);
+    await page.getByTestId("contact-submit").click();
+
+    const successPanel = page.getByTestId("contact-success");
+
+    await expect(successPanel).toBeVisible();
+    await page.waitForTimeout(8500);
+    await expect(successPanel).toBeVisible();
+
+    await page.getByTestId("contact-success-back").click();
+    await expect(page.getByTestId("contact-form")).toBeVisible();
+    await expect(page.getByTestId("contact-name")).toHaveValue("Nguyen Van A");
+  });
+
+  test("lets the user start a brand new request from the success panel", async ({ page }) => {
     await page.route("**/api/contact", async (route) => {
       expect(route.request().method()).toBe("POST");
       expect(route.request().postDataJSON()).toMatchObject({
@@ -52,12 +82,12 @@ test.describe("Contact form", () => {
     await fillContactForm(page);
     await page.getByTestId("contact-submit").click();
 
-    const successPanel = page.getByTestId("contact-success");
+    await expect(page.getByTestId("contact-success")).toBeVisible();
+    await page.getByTestId("contact-success-new-request").click();
 
-    await expect(successPanel).toBeVisible();
-    await expect(successPanel).toContainText(/Y.u c.u camera/i);
-    await expect(page.getByRole("link", { name: /G.i .nh qua Zalo/i })).toBeVisible();
-    await expect(successPanel).toContainText(/theo d.i tr.ng th.i y.u c.u/i);
+    await expect(page.getByTestId("contact-form")).toBeVisible();
+    await expect(page.getByTestId("contact-name")).toHaveValue("");
+    await expect(page.getByTestId("contact-phone")).toHaveValue("");
   });
 
   test("shows an API error message when the request fails", async ({ page }) => {
