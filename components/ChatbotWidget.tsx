@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { getLocalChatbotReply } from "@/lib/chatbot";
+import { siteConfig } from "@/lib/site";
 
 interface Message {
   id: string;
@@ -9,16 +11,7 @@ interface Message {
   timestamp: Date;
 }
 
-function toLookupText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+const HOTLINE = siteConfig.hotlineDisplay;
 
 function normalizeChatText(value: string): string {
   return value
@@ -33,112 +26,13 @@ function normalizeChatText(value: string): string {
     .trim();
 }
 
-function includesAny(text: string, keywords: string[]): boolean {
-  return keywords.some((keyword) => text.includes(keyword));
-}
-
-// FAQ: câu hỏi đơn giản, trả lời cố định (tiết kiệm quota)
-const FAQ_DATA = [
-  {
-    answer: "Giá đóng pin tuỳ thuộc vào loại cell, dung lượng và thiết bị. Pin máy khoan từ 350k-800k, pin xe đạp điện từ 2tr-5tr, pin loa kéo từ 200k-500k. Liên hệ 0987.443.258 để được báo giá chính xác!",
-    keywords: ["giá", "bao nhiêu", "chi phí", "tiền"],
-    requiredKeywords: ["pin", "đóng", "giá", "bao nhiêu"],
-  },
-  {
-    answer: "Minh Hồng bảo hành pin 6-12 tháng lỗi 1 đổi 1 tuỳ loại. Camera bảo hành 24 tháng phần cứng. Bảo dưỡng cân bằng cell miễn phí trọn đời!",
-    keywords: ["bảo hành", "warranty", "đổi trả", "lỗi 1 đổi 1"],
-    requiredKeywords: ["bảo hành"],
-  },
-  {
-    answer: "Có! Minh Hồng nhận lắp đặt camera an ninh cho nhà ở, cửa hàng, xưởng sản xuất. Khảo sát miễn phí tận nơi, thi công trong ngày. Gọi 0987.443.258!",
-    keywords: ["camera", "lắp đặt", "an ninh", "giám sát"],
-    requiredKeywords: ["camera", "lắp"],
-  },
-  {
-    answer: "Minh Hồng tại: Xã Đồng Dương, TP. Đà Nẵng. Mở cửa 6h-21h hàng ngày. Hotline: 0987.443.258. Nhận ship toàn quốc!",
-    keywords: ["địa chỉ", "ở đâu", "chỗ nào", "liên hệ", "số điện thoại", "hotline"],
-    requiredKeywords: ["địa chỉ", "ở đâu", "chỗ nào", "liên hệ", "hotline"],
-  },
-  {
-    answer: "Có! Minh Hồng chuyên đóng pin xe đạp điện, xe máy điện. Dùng cell Lithium Samsung/LG chính hãng. Bảo hành 12 tháng. Gọi 0987.443.258 để báo giá theo xe!",
-    keywords: ["xe điện", "xe đạp điện", "xe máy điện"],
-    requiredKeywords: ["xe điện", "xe đạp"],
-  },
-  {
-    answer: "Có! Minh Hồng nhận đóng pin cho đèn năng lượng mặt trời, lắp ráp đèn NLMT tại nhà. Pin lưu trữ năng lượng chất lượng cao, bền bỉ. Gọi 0987.443.258!",
-    keywords: ["đèn năng lượng", "mặt trời", "nlmt", "solar"],
-    requiredKeywords: ["đèn", "năng lượng"],
-  },
-  {
-    answer: "Minh Hồng nhận đóng pin loa kéo tất cả các hãng. Nâng cấp dung lượng, kéo dài thời gian sử dụng. Giá từ 200k-500k tuỳ loại. Gọi 0987.443.258!",
-    keywords: ["loa kéo", "loa bluetooth", "karaoke"],
-    requiredKeywords: ["loa"],
-  },
-  {
-    answer: "Có! Minh Hồng đóng pin kích đề ô tô, xe hơi. Pin lưu trữ, pin dự phòng dung lượng lớn. Đóng theo yêu cầu riêng. Liên hệ 0987.443.258!",
-    keywords: ["kích đề", "ô tô", "xe hơi", "dự phòng"],
-    requiredKeywords: ["kích đề", "ô tô"],
-  },
-  {
-    answer: "Có ạ! Minh Hồng nhận phục hồi và đóng mới pin laptop các hãng Dell, HP, Asus, Lenovo, Macbook. Thay cell chính hãng, bảo hành 6 tháng.",
-    keywords: ["laptop", "máy tính", "dell", "hp", "macbook", "asus", "lenovo"],
-    requiredKeywords: ["laptop", "máy tính"],
-  },
-];
-
-// Dấu hiệu câu hỏi MỞ → cần AI trả lời
-const OPEN_ENDED_SIGNALS = [
-  "là gì", "như thế nào", "tại sao", "vì sao", "giải thích",
-  "so sánh", "khác gì", "tốt hơn", "nên chọn", "tư vấn",
-  "có nên", "lợi ích", "ưu điểm", "nhược điểm", "tác dụng",
-  "hoạt động", "nguyên lý", "cách dùng", "hướng dẫn", "mấy loại",
-  "loại nào", "dùng được bao lâu", "bền không", "có tốt không",
-  "chia sẻ", "cho mình hỏi"
-];
-
-function classifyAndAnswer(userMessage: string): string | null {
-  const lookupMessage = toLookupText(userMessage);
-
-  if (
-    (includesAny(lookupMessage, ["sac nhanh day", "nhanh het", "pin yeu", "tu hao", "bao ao"]) &&
-      includesAny(lookupMessage, ["pin", "binh", "cell", "sac", "dien"])) ||
-    includesAny(lookupMessage, ["phong pin", "pin phong", "khong nhan sac", "sut ap", "chai pin"])
-  ) {
-    return "Dấu hiệu này thường do pin chai cell, lệch cell hoặc mạch pin lỗi. Minh Hồng kiểm tra miễn phí rồi mới báo nên sửa hay đóng lại pin. Anh/chị gửi model hoặc gọi 0987.443.258 là bên em tư vấn nhanh.";
-  }
-
-  // 1. Nếu tin nhắn quá ngắn (≤ 3 từ), FAQ có thể handle
-  // 2. Nếu có dấu hiệu mở → luôn dùng AI
-  const isOpenEnded = OPEN_ENDED_SIGNALS.some((signal) => lookupMessage.includes(toLookupText(signal)));
-
-  if (isOpenEnded) {
-    return null; // → gửi AI
-  }
-
-  // 3. Tìm FAQ match: phải match ít nhất 1 requiredKeyword
-  for (const faq of FAQ_DATA) {
-    const normalizedRequired = faq.requiredKeywords.map((kw) => toLookupText(kw));
-    const normalizedKeywords = faq.keywords.map((kw) => toLookupText(kw));
-    const hasRequired = normalizedRequired.some((kw) => lookupMessage.includes(kw));
-    const keywordHits = normalizedKeywords.filter((kw) => lookupMessage.includes(kw)).length;
-
-    // Match nếu: có required keyword + ít nhất 1 keyword khác, HOẶC 2+ required keywords
-    if (hasRequired && (keywordHits >= 1 || lookupMessage.length < 25)) {
-      return faq.answer;
-    }
-  }
-
-  // 4. Không match FAQ → gửi AI
-  return null;
-}
-
 export default function ChatbotWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
       role: "assistant",
-      content: "Xin chào! 👋 Mình là trợ lý AI của Minh Hồng. Bạn cần tư vấn về đóng pin, đèn năng lượng mặt trời hay lắp camera ạ?",
+      content: "Xin chào anh/chị! Em là trợ lý tư vấn của Minh Hồng. Anh/chị đang cần tư vấn về đóng pin, đèn năng lượng mặt trời hay lắp camera ạ?",
       timestamp: new Date(),
     },
   ]);
@@ -166,7 +60,7 @@ export default function ChatbotWidget() {
     setIsLoading(true);
 
     // Bước 1: Phân loại — FAQ hay AI?
-    const faqAnswer = classifyAndAnswer(text);
+    const faqAnswer = getLocalChatbotReply(text);
 
     if (faqAnswer) {
       // Câu hỏi đơn giản → trả lời tức thì (MIỄN PHÍ, không tốn quota)
@@ -205,7 +99,7 @@ export default function ChatbotWidget() {
           role: "assistant",
           content:
             normalizeChatText(data.reply) ||
-            "Xin lỗi, mình chưa hiểu câu hỏi. Bạn có thể gọi 0987.443.258 để được tư vấn trực tiếp nhé!",
+            `Em chưa hiểu rõ ý anh/chị lắm. Anh/chị có thể hỏi rõ hơn một chút, hoặc gọi ${HOTLINE} nếu muốn bên em tư vấn nhanh nhé!`,
           timestamp: new Date(),
         },
       ]);
@@ -215,7 +109,7 @@ export default function ChatbotWidget() {
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "Rất tiếc, hệ thống đang bận. Vui lòng gọi trực tiếp qua hotline 0987.443.258 để được hỗ trợ ngay ạ!",
+          content: `Dạ, hiện tại hệ thống đang hơi bận. Anh/chị gọi ${HOTLINE} thì bên em hỗ trợ nhanh hơn ngay ạ!`,
           timestamp: new Date(),
         },
       ]);

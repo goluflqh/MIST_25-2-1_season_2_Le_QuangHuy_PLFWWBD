@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { getLocalChatbotReply } from "@/lib/chatbot";
 import { checkRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { sanitizeText } from "@/lib/sanitize";
+import { siteConfig } from "@/lib/site";
 
 type AIProvider = "gemini" | "openai" | "9router";
 
@@ -24,15 +26,22 @@ const DEFAULT_9ROUTER_BASE_URL = "http://127.0.0.1:20128/v1";
 const DEFAULT_9ROUTER_MODEL = "cx/gpt-5.2";
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_HISTORY_MESSAGES = 6;
+const HOTLINE = siteConfig.hotlineDisplay;
+const LOCATION = siteConfig.locationLabel;
 const DEFAULT_FALLBACK_REPLY =
-  "Xin lỗi, hệ thống đang bận. Bạn vui lòng gọi 0987.443.258 để được hỗ trợ nhanh nhất ạ!";
+  `Dạ, hiện tại hệ thống đang hơi bận. Anh/chị gọi ${HOTLINE} thì bên em hỗ trợ nhanh hơn ngay ạ!`;
 
-const SYSTEM_PROMPT = `Bạn là trợ lý tư vấn của Minh Hồng tại Xã Đồng Dương, TP. Đà Nẵng.
+const SYSTEM_PROMPT = `Bạn là trợ lý tư vấn của ${siteConfig.name} tại ${LOCATION}.
+Bạn luôn xưng hô thống nhất là "em" với khách và gọi khách là "anh/chị".
 Minh Hồng chuyên đóng pin xe điện, pin máy khoan, pin loa kéo, pin đèn năng lượng mặt trời và lắp camera an ninh.
 Trả lời bằng tiếng Việt tự nhiên, đi thẳng vào ý chính, chỉ 2 đến 4 câu ngắn.
+Giọng điệu mềm, chăm sóc, tạo cảm giác dễ chịu và đáng tin, nhưng không xu nịnh hay lặp khuôn bán hàng.
 Không dùng markdown, không dùng ký hiệu như **, __, # hoặc danh sách dài.
-Nếu cần báo giá hoặc kiểm tra tình trạng pin thì mời khách gọi 0987.443.258.
-Không bịa giá cụ thể nếu chưa đủ thông tin. Nếu câu hỏi không liên quan đến dịch vụ của Minh Hồng thì từ chối ngắn gọn.`;
+Với câu hỏi kỹ thuật liên quan dịch vụ, hãy trả lời ngắn gọn và hữu ích trước.
+Chỉ mời anh/chị gọi ${HOTLINE} khi cần báo giá, chốt cấu hình, xem model cụ thể hoặc kiểm tra thực tế.
+Không bịa giá cụ thể nếu chưa đủ thông tin.
+Nếu câu hỏi không liên quan đến dịch vụ của ${siteConfig.name}, hãy trả lời lịch sự rằng em chỉ hỗ trợ tư vấn về pin, NLMT và camera của cửa hàng, không trả lời sai chủ đề.
+Không được trả lời nhầm sang báo giá hay dịch vụ khác nếu câu hỏi không khớp ý định của khách.`;
 
 function normalizeProvider(provider: string | undefined): AIProvider {
   const value = provider?.trim().toLowerCase();
@@ -43,17 +52,6 @@ function normalizeProvider(provider: string | undefined): AIProvider {
 
 function removeTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
-}
-
-function normalizeLookupText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function normalizeAssistantReply(value: string): string {
@@ -67,10 +65,6 @@ function normalizeAssistantReply(value: string): string {
     .replace(/^\s*[-*]\s+/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-function includesAny(text: string, keywords: string[]): boolean {
-  return keywords.some((keyword) => text.includes(keyword));
 }
 
 function getAIConfig() {
@@ -134,51 +128,6 @@ function sanitizeHistory(history: unknown): ChatMessage[] {
     .slice(-MAX_HISTORY_MESSAGES);
 }
 
-function getQuickReply(message: string): string | null {
-  const lookup = normalizeLookupText(message);
-
-  if (!lookup) return null;
-
-  if (
-    includesAny(lookup, [
-      "dia chi",
-      "o dau",
-      "lien he",
-      "so dien thoai",
-      "hotline",
-      "may gio",
-      "mo cua",
-      "gio mo cua",
-    ])
-  ) {
-    return "Minh Hồng ở Xã Đồng Dương, TP. Đà Nẵng và mở cửa từ 6h đến 21h mỗi ngày. Anh/chị cần tư vấn hoặc báo giá nhanh thì gọi 0987.443.258 nhé.";
-  }
-
-  if (
-    includesAny(lookup, ["gia", "bao nhieu", "chi phi"]) &&
-    includesAny(lookup, ["pin", "dong pin", "binh", "cell", "xe dien", "loa", "may khoan"])
-  ) {
-    return "Giá còn tùy loại pin, số cell, dung lượng và thiết bị nên bên em cần xem đúng mẫu mới báo chuẩn. Anh/chị gửi model hoặc gọi 0987.443.258 để Minh Hồng báo nhanh cho mình nhé.";
-  }
-
-  if (
-    includesAny(lookup, ["sac nhanh day", "nhanh het", "pin yeu", "tu hao", "bao ao"]) &&
-    includesAny(lookup, ["pin", "binh", "cell", "sac", "dien"])
-  ) {
-    return "Dấu hiệu này thường do cell pin chai, lệch cell hoặc mạch pin lỗi. Minh Hồng kiểm tra miễn phí rồi mới báo nên sửa hay đóng lại pin, anh/chị có thể gửi model hoặc gọi 0987.443.258 để được hướng dẫn nhanh.";
-  }
-
-  if (includesAny(lookup, ["phong pin", "pin phong", "khong nhan sac", "sut ap", "chai pin"])) {
-    return "Pin có dấu hiệu phồng hoặc sụt áp thì nên ngưng dùng sớm để tránh hư thêm và mất an toàn. Minh Hồng có thể kiểm tra tình trạng pin và tư vấn phương án phù hợp, anh/chị gọi 0987.443.258 nhé.";
-  }
-
-  if (includesAny(lookup, ["camera"]) && includesAny(lookup, ["lap", "gan", "thi cong", "an ninh"])) {
-    return "Có, Minh Hồng nhận lắp camera cho nhà ở, cửa hàng và xưởng, có khảo sát miễn phí và hỗ trợ cài xem trên điện thoại. Anh/chị gọi 0987.443.258 để bên em tư vấn cấu hình phù hợp.";
-  }
-
-  return null;
-}
-
 async function fetchWithTimeout(
   input: string | URL,
   init: RequestInit = {},
@@ -201,7 +150,7 @@ export async function POST(request: Request) {
 
     if (!rl.allowed) {
       return NextResponse.json(
-        { success: false, reply: "Bạn gửi quá nhanh. Vui lòng đợi một chút nhé!" },
+        { success: false, reply: "Anh/chị gửi hơi nhanh giúp em rồi ạ. Anh/chị chờ em một chút nhé!" },
         { status: 429 }
       );
     }
@@ -212,12 +161,12 @@ export async function POST(request: Request) {
 
     if (!message) {
       return NextResponse.json(
-        { success: false, reply: "Vui lòng nhập câu hỏi." },
+        { success: false, reply: "Anh/chị nhập giúp em câu hỏi nhé." },
         { status: 400 }
       );
     }
 
-    const quickReply = getQuickReply(message);
+    const quickReply = getLocalChatbotReply(message);
     if (quickReply) {
       return NextResponse.json({ success: true, reply: normalizeAssistantReply(quickReply) });
     }
@@ -228,7 +177,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         reply: normalizeAssistantReply(
-          "Cảm ơn bạn đã quan tâm. Hiện tại hệ thống AI đang cập nhật, bạn vui lòng gọi 0987.443.258 hoặc nhắn Zalo để được tư vấn ngay nhé."
+          `Dạ, hiện tại phần tư vấn AI đang cập nhật. Anh/chị gọi ${HOTLINE} hoặc nhắn Zalo giúp em, bên em hỗ trợ ngay nhé.`
         ),
       });
     }
