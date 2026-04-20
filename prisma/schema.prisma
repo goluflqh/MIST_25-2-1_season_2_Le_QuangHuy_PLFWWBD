@@ -172,3 +172,20 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
 }
+
+model ChatbotEvent {
+  id             String   @id @default(cuid())
+  eventType      String
+  intent         String?
+  service        String?
+  sourcePath     String?
+  messagePreview String?
+  fallbackReason String?
+  createdAt      DateTime @default(now())
+
+  @@index([eventType])
+  @@index([intent])
+  @@index([service])
+  @@index([createdAt])
+  @@index([eventType, createdAt])
+}

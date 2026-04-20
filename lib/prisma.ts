@@ -15,9 +15,11 @@ export function isPrismaDatabaseUnavailable(error: unknown) {
 
   const candidate = error as {
     cause?: { message?: string } | string;
+    code?: string;
     name?: string;
     message?: string;
   };
+  const code = candidate.code || "";
   const name = candidate.name || "";
   const causeMessage =
     typeof candidate.cause === "string"
@@ -31,6 +33,10 @@ export function isPrismaDatabaseUnavailable(error: unknown) {
     return true;
   }
 
+  if (code === "P2021" || code === "P2022") {
+    return true;
+  }
+
   return (
     message.includes("Can't reach database server") ||
     message.includes("Server has closed the connection") ||
@@ -38,7 +44,8 @@ export function isPrismaDatabaseUnavailable(error: unknown) {
     message.includes("the database system is not yet accepting connections") ||
     message.includes("the database system is starting up") ||
     message.includes("Consistent recovery state has not been yet reached") ||
-    message.includes("Error querying the database")
+    message.includes("Error querying the database") ||
+    message.includes("does not exist in the current database")
   );
 }
 

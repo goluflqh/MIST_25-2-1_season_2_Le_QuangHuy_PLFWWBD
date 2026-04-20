@@ -5,6 +5,7 @@ import {
   normalizeChatbotServiceId,
   type ChatbotResponsePlan,
 } from "@/lib/chatbot";
+import { recordChatbotEvent, type ChatbotEventType } from "@/lib/chatbot-metrics";
 import { checkRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { sanitizeText } from "@/lib/sanitize";
 import { siteConfig } from "@/lib/site";
@@ -130,18 +131,32 @@ function buildRuntimeFallbackReply(plan: ChatbotResponsePlan) {
   return DEFAULT_FALLBACK_REPLY;
 }
 
-function logChatbotEvent(
-  event: "lead_signal" | "unmatched" | "fallback",
-  payload: Record<string, unknown>
+async function logChatbotEvent(
+  event: ChatbotEventType,
+  payload: Record<string, unknown> & {
+    fallbackReason?: string;
+    intent?: string | null;
+    messagePreview?: string;
+    service?: string | null;
+    sourcePath?: string | null;
+  }
 ) {
   const serialized = JSON.stringify(payload);
 
   if (event === "fallback") {
     console.warn(`[chatbot:${event}]`, serialized);
-    return;
+  } else {
+    console.info(`[chatbot:${event}]`, serialized);
   }
 
-  console.info(`[chatbot:${event}]`, serialized);
+  await recordChatbotEvent({
+    eventType: event,
+    fallbackReason: payload.fallbackReason,
+    intent: payload.intent,
+    messagePreview: payload.messagePreview,
+    service: payload.service,
+    sourcePath: payload.sourcePath,
+  });
 }
 
 function getAIConfig() {
@@ -258,7 +273,7 @@ export async function POST(request: Request) {
 
     if (plan.localReply) {
       if (plan.shouldOfferLeadForm || plan.shouldSuggestServices || plan.shouldOfferHumanSupport) {
-        logChatbotEvent("lead_signal", {
+        await logChatbotEvent("lead_signal", {
           intent: plan.intent,
           service: plan.service,
           sourcePath,
@@ -280,8 +295,8 @@ export async function POST(request: Request) {
 
     if (isMissingAIKey(aiConfig.apiKey)) {
       const fallbackReply = buildMissingAiReply(plan);
-      logChatbotEvent("fallback", {
-        reason: "missing_ai_key",
+      await logChatbotEvent("fallback", {
+        fallbackReason: "missing_ai_key",
         intent: plan.intent,
         service: plan.service,
         sourcePath,
@@ -295,7 +310,7 @@ export async function POST(request: Request) {
       });
     }
 
-    logChatbotEvent("unmatched", {
+    await logChatbotEvent("unmatched", {
       intent: plan.intent,
       service: plan.service,
       sourcePath,
@@ -337,8 +352,8 @@ export async function POST(request: Request) {
     console.error("Chat API Error:", error);
 
     if (plan) {
-      logChatbotEvent("fallback", {
-        reason: "runtime_error",
+      await logChatbotEvent("fallback", {
+        fallbackReason: "runtime_error",
         intent: plan.intent,
         service: plan.service,
         sourcePath,

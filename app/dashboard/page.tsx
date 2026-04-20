@@ -1,8 +1,19 @@
+import { getChatbotDashboardMetrics } from "@/lib/chatbot-metrics";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 
 export default async function DashboardPage() {
-  const [totalContacts, pendingContacts, contactedContacts, inProgressContacts, completedContacts, cancelledContacts, totalUsers, recentContacts] = await Promise.all([
+  const [
+    totalContacts,
+    pendingContacts,
+    contactedContacts,
+    inProgressContacts,
+    completedContacts,
+    cancelledContacts,
+    totalUsers,
+    recentContacts,
+    chatbotMetrics,
+  ] = await Promise.all([
     prisma.contactRequest.count(),
     prisma.contactRequest.count({ where: { status: "PENDING" } }),
     prisma.contactRequest.count({ where: { status: "CONTACTED" } }),
@@ -11,6 +22,7 @@ export default async function DashboardPage() {
     prisma.contactRequest.count({ where: { status: "CANCELLED" } }),
     prisma.user.count({ where: { role: "CUSTOMER" } }),
     prisma.contactRequest.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
+    getChatbotDashboardMetrics(),
   ]);
 
   const serviceLabels: Record<string, string> = {
@@ -26,6 +38,11 @@ export default async function DashboardPage() {
     COMPLETED: { label: "Hoàn thành", color: "bg-green-100 text-green-700" },
     CANCELLED: { label: "Đã huỷ", color: "bg-red-100 text-red-700" },
   };
+
+  const chatbotFallbackRate =
+    chatbotMetrics.totalChatsMeasured > 0
+      ? Math.round((chatbotMetrics.fallbackCount / chatbotMetrics.totalChatsMeasured) * 100)
+      : 0;
 
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -71,6 +88,89 @@ export default async function DashboardPage() {
               <span className="font-body text-[10px] text-slate-400 leading-tight">{s.label}</span>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h3 className="font-heading font-bold text-slate-900">Sức Khỏe Chatbot</h3>
+            <p className="font-body text-sm text-slate-500">
+              Số liệu 7 ngày gần nhất để xem bot đang kéo lead hay còn hụt ý khách ở đâu.
+            </p>
+          </div>
+          <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-body font-semibold text-slate-500">
+            Fallback: {chatbotFallbackRate}%
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5">
+            <p className="font-body text-xs uppercase tracking-wider text-slate-400 mb-1">
+              Lượt chat đo được
+            </p>
+            <p className="font-heading text-3xl font-extrabold text-slate-900">
+              {chatbotMetrics.totalChatsMeasured}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p className="font-body text-xs uppercase tracking-wider text-emerald-600 mb-1">
+              Lead signal
+            </p>
+            <p className="font-heading text-3xl font-extrabold text-emerald-700">
+              {chatbotMetrics.leadSignalCount}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <p className="font-body text-xs uppercase tracking-wider text-amber-600 mb-1">
+              Câu chưa match
+            </p>
+            <p className="font-heading text-3xl font-extrabold text-amber-700">
+              {chatbotMetrics.unmatchedCount}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
+            <p className="font-body text-xs uppercase tracking-wider text-rose-600 mb-1">
+              Fallback
+            </p>
+            <p className="font-heading text-3xl font-extrabold text-rose-700">
+              {chatbotMetrics.fallbackCount}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-slate-100 overflow-hidden">
+          <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+            <h4 className="font-heading font-bold text-slate-800">Các câu bot còn chưa match tốt</h4>
+          </div>
+          {chatbotMetrics.recentUnmatched.length === 0 ? (
+            <div className="px-4 py-6 text-sm font-body text-slate-400">
+              Chưa có câu unmatched nào trong 7 ngày gần nhất.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {chatbotMetrics.recentUnmatched.map((item, index) => (
+                <div key={`${item.createdAt}-${index}`} className="px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-body text-slate-400 mb-1">
+                    <span>{new Date(item.createdAt).toLocaleString("vi-VN")}</span>
+                    {item.service ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">
+                        {serviceLabels[item.service] || item.service}
+                      </span>
+                    ) : null}
+                    {item.intent ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">
+                        intent: {item.intent}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="font-body text-sm text-slate-700">
+                    {item.messagePreview || "Không có message preview"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
