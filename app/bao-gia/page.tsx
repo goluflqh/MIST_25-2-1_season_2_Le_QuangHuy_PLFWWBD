@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { unstable_noStore as noStore } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { getPublicActivePricingItems } from "@/lib/public-data";
+import { siteConfig } from "@/lib/site";
 
 interface PricingItem {
   id: string;
@@ -92,22 +92,8 @@ function formatPricingItem(item: PricingItem): DisplayPricingItem {
   };
 }
 
-async function getActivePricingItems() {
-  noStore();
-
-  try {
-    return await prisma.pricingItem.findMany({
-      where: { active: true },
-      orderBy: [{ category: "asc" }, { sortOrder: "asc" }],
-    });
-  } catch (error) {
-    console.error("Pricing page query error:", error);
-    return [];
-  }
-}
-
 export default async function PricingPage() {
-  const dbItems = await getActivePricingItems();
+  const dbItems = await getPublicActivePricingItems();
 
   const displayData = pricingCategories.map((category) => {
     const fromDb = dbItems.filter((item) => item.category === category);
@@ -132,7 +118,7 @@ export default async function PricingPage() {
         </h1>
         <p className="font-body text-slate-600 text-lg">
           Giá tham khảo dưới đây có thể thay đổi tuỳ vào thiết bị và yêu cầu riêng. Liên hệ hotline{" "}
-          <strong className="text-slate-900">0987.443.258</strong> để nhận báo giá chính xác nhất!
+          <strong className="text-slate-900">{siteConfig.hotlineDisplay}</strong> để nhận báo giá chính xác nhất!
         </p>
       </div>
 
@@ -200,10 +186,10 @@ export default async function PricingPage() {
         </div>
         <div className="flex flex-wrap gap-4">
           <a
-            href="tel:0987443258"
+            href={siteConfig.hotlineHref}
             className="inline-flex items-center gap-2 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-heading font-bold py-3 px-6 rounded-xl transition-colors shadow-md"
           >
-            📞 Gọi 0987.443.258
+            📞 Gọi {siteConfig.hotlineDisplay}
           </a>
           <Link
             href="/?source=pricing-page#quote"

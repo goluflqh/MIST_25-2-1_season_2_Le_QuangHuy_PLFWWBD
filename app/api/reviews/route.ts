@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getPublicApprovedReviews } from "@/lib/public-data";
 import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
 
 // GET /api/reviews — Public: get approved reviews
 export async function GET() {
   try {
-    const reviews = await prisma.review.findMany({
-      where: { approved: true },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: { user: { select: { name: true } } },
-    });
+    const reviews = await getPublicApprovedReviews();
     return NextResponse.json({ success: true, reviews });
   } catch (error) {
     console.error("Reviews GET error:", error);

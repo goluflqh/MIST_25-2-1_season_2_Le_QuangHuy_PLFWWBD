@@ -1,5 +1,7 @@
+import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { PUBLIC_REVIEWS_TAG } from "@/lib/public-data";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
 // GET /api/admin/reviews — Admin: get all reviews (approved + pending)
@@ -27,6 +29,7 @@ export async function PATCH(request: Request) {
 
     const { id, approved } = await request.json();
     const review = await prisma.review.update({ where: { id }, data: { approved } });
+    revalidateTag(PUBLIC_REVIEWS_TAG, "max");
     return NextResponse.json({ success: true, review });
   } catch (error) {
     console.error("Admin review PATCH error:", error);
@@ -42,6 +45,7 @@ export async function DELETE(request: Request) {
 
     const { id } = await request.json();
     await prisma.review.delete({ where: { id } });
+    revalidateTag(PUBLIC_REVIEWS_TAG, "max");
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Admin review DELETE error:", error);

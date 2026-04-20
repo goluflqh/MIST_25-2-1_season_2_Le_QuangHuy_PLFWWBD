@@ -1,13 +1,4 @@
-import { unstable_noStore as noStore } from "next/cache";
-import { prisma } from "@/lib/prisma";
-
-interface ReviewData {
-  id: string;
-  rating: number;
-  comment: string;
-  service: string;
-  user: { name: string };
-}
+import { getPublicApprovedReviews } from "@/lib/public-data";
 
 const serviceLabels: Record<string, string> = {
   DONG_PIN: "Đóng Pin",
@@ -89,24 +80,8 @@ function ReviewCard({
   );
 }
 
-async function getApprovedReviews(): Promise<ReviewData[]> {
-  noStore();
-
-  try {
-    return await prisma.review.findMany({
-      where: { approved: true },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: { user: { select: { name: true } } },
-    });
-  } catch (error) {
-    console.error("Testimonials query error:", error);
-    return [];
-  }
-}
-
 export default async function Testimonials() {
-  const realReviews = await getApprovedReviews();
+  const realReviews = await getPublicApprovedReviews();
 
   return (
     <section id="testimonials" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 mb-12 relative z-10">
