@@ -4,7 +4,9 @@ import { AuthProvider } from "@/components/AuthProvider";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import ChatbotWidget from "@/components/ChatbotWidget";
+import { getNotificationCountForUser } from "@/lib/notifications";
 import { getCurrentSessionUser } from "@/lib/session";
+import { siteConfig, siteUrl } from "@/lib/site";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -20,27 +22,30 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
-    default: "Minh Hồng - Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
-    template: "%s | Minh Hồng",
+    default: `${siteConfig.name} - ${siteConfig.tagline}`,
+    template: `%s | ${siteConfig.name}`,
   },
-  description:
-    "Trung tâm đóng pin Lithium, pin lưu trữ, đèn năng lượng mặt trời và lắp đặt camera an ninh uy tín tại Đà Nẵng.",
+  description: siteConfig.description,
   keywords: [
     "đóng pin lithium",
     "lắp camera",
     "đèn năng lượng mặt trời",
     "pin lưu trữ",
-    "Minh Hồng",
+    siteConfig.name,
     "điện máy",
   ],
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
-    title: "Minh Hồng - Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
-    description:
-      "Chuyên đóng pin Lithium, pin lưu trữ, đèn năng lượng và lắp camera an ninh tại Đà Nẵng.",
+    title: `${siteConfig.name} - ${siteConfig.tagline}`,
+    description: siteConfig.ogDescription,
+    url: "/",
     type: "website",
-    locale: "vi_VN",
-    siteName: "Minh Hồng",
+    locale: siteConfig.locale,
+    siteName: siteConfig.name,
   },
   robots: { index: true, follow: true },
 };
@@ -51,6 +56,9 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const currentUser = await getCurrentSessionUser();
+  const initialNotificationCount = currentUser
+    ? await getNotificationCountForUser(currentUser)
+    : 0;
 
   return (
     <html lang="vi" className="scroll-smooth scroll-pt-32" data-scroll-behavior="smooth">
@@ -72,7 +80,10 @@ export default async function RootLayout({
 
           <div className="fixed bg-orange-300 w-80 h-80 bottom-[20%] left-[20%] animate-blob animate-delay-[4000ms] rounded-[40%_60%_70%_30%/40%_50%_60%_50%] opacity-20 blur-3xl pointer-events-none z-[-1]"></div>
 
-          <Header />
+          <Header
+            initialNotificationCount={initialNotificationCount}
+            initialNotificationUserId={currentUser?.id ?? null}
+          />
           <main className="flex-grow pt-[100px]">{children}</main>
           <Footer />
           <ChatbotWidget />

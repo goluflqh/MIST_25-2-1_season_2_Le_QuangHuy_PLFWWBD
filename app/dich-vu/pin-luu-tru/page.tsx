@@ -1,10 +1,12 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { buildMarketingMetadata, siteConfig } from "@/lib/site";
 
-export const metadata: Metadata = {
-  title: "Pin Lưu Trữ & Kích Đề | Minh Hồng",
-  description: "Đóng pin lưu trữ năng lượng, pin kích đề ô tô, pin dự phòng dung lượng lớn. Đóng theo yêu cầu riêng.",
-};
+export const metadata = buildMarketingMetadata({
+  title: "Pin Lưu Trữ & Kích Đề",
+  description:
+    "Đóng pin lưu trữ năng lượng, pin kích đề ô tô, pin dự phòng dung lượng lớn. Đóng theo yêu cầu riêng.",
+  path: "/dich-vu/pin-luu-tru",
+});
 
 const products = [
   {
@@ -83,8 +85,8 @@ export default function StorageBatteryPage() {
         <h2 className="font-heading font-extrabold text-2xl text-white mb-3">Cần đóng pin theo yêu cầu riêng?</h2>
         <p className="font-body text-slate-300 mb-6">Gửi thông số kỹ thuật hoặc gọi hotline để được tư vấn miễn phí</p>
         <div className="flex flex-wrap justify-center gap-4">
-          <a href="tel:0987443258" className="inline-flex items-center gap-2 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-heading font-bold py-3 px-6 rounded-xl transition-colors">
-            📞 Gọi 0987.443.258
+          <a href={siteConfig.hotlineHref} className="inline-flex items-center gap-2 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-heading font-bold py-3 px-6 rounded-xl transition-colors">
+            📞 Gọi {siteConfig.hotlineDisplay}
           </a>
           <Link href="/?service=PIN_LUU_TRU&source=service-pin-luu-tru#quote" className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-heading font-bold py-3 px-6 rounded-xl transition-colors">
             📋 Gửi Yêu Cầu Báo Giá

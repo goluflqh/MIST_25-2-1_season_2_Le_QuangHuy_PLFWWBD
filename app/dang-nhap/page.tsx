@@ -4,6 +4,7 @@ import { startTransition, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { siteConfig } from "@/lib/site";
 
 function formatRetryAfter(totalSeconds: number) {
   const seconds = Math.max(totalSeconds, 0);
@@ -178,16 +179,16 @@ export default function LoginPage() {
               Liên hệ trực tiếp cửa hàng để được hỗ trợ đặt lại mật khẩu:
             </p>
             <div className="space-y-2">
-              <a href="tel:0987443258" className="flex items-center gap-2 text-sm font-body font-bold text-red-600 hover:text-red-700">
-                📞 Gọi: 0987.443.258
+              <a href={siteConfig.hotlineHref} className="flex items-center gap-2 text-sm font-body font-bold text-red-600 hover:text-red-700">
+                📞 Gọi: {siteConfig.hotlineDisplay}
               </a>
               <a
-                href="https://zalo.me/0987443258"
+                href={siteConfig.zaloUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-sm font-body font-bold text-blue-600 hover:text-blue-700"
               >
-                💬 Nhắn Zalo: 0987.443.258
+                💬 Nhắn Zalo: {siteConfig.hotlineDisplay}
               </a>
             </div>
             <p className="font-body text-[10px] text-slate-400 mt-2">

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { siteConfig } from "@/lib/site";
 
 
 const slidesData = [
@@ -65,10 +66,10 @@ export default function Hero() {
             Dịch Vụ Nổi Bật
           </Link>
           <a
-            href="tel:0987443258"
+            href={siteConfig.hotlineHref}
             className="btn-hover-fx bg-white text-textMain border-2 border-slate-200 hover:border-primary font-body font-bold px-6 py-3 sm:px-8 sm:py-4 rounded-xl text-sm sm:text-base md:text-lg flex justify-center items-center gap-2 shadow-sm"
           >
-            📞 0987.443.258
+            📞 {siteConfig.hotlineDisplay}
           </a>
         </div>
       </div>

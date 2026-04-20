@@ -1,10 +1,12 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { buildMarketingMetadata, siteConfig } from "@/lib/site";
 
-export const metadata: Metadata = {
-  title: "Đèn Năng Lượng Mặt Trời | Minh Hồng",
-  description: "Đóng pin, lắp ráp đèn năng lượng mặt trời tại nhà. Pin lưu trữ NLMT chất lượng cao, bền bỉ.",
-};
+export const metadata = buildMarketingMetadata({
+  title: "Đèn Năng Lượng Mặt Trời",
+  description:
+    "Đóng pin, lắp ráp đèn năng lượng mặt trời tại nhà. Pin lưu trữ NLMT chất lượng cao, bền bỉ.",
+  path: "/dich-vu/den-nang-luong",
+});
 
 const features = [
   { icon: "☀️", title: "Pin Đèn NLMT", desc: "Đóng mới & thay cell pin đèn năng lượng mặt trời mọi loại" },
@@ -73,8 +75,8 @@ export default function SolarLightPage() {
           ))}
         </ul>
         <div className="mt-8 flex flex-wrap gap-4">
-          <a href="tel:0987443258" className="inline-flex items-center gap-2 bg-slate-900 text-white font-body font-bold py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors">
-            📞 Gọi 0987.443.258
+          <a href={siteConfig.hotlineHref} className="inline-flex items-center gap-2 bg-slate-900 text-white font-body font-bold py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors">
+            📞 Gọi {siteConfig.hotlineDisplay}
           </a>
           <Link href="/?service=DEN_NLMT&source=service-den-nlmt#quote" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
             📋 Yêu Cầu Báo Giá

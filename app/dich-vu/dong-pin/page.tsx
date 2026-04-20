@@ -1,10 +1,12 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { buildMarketingMetadata, siteConfig } from "@/lib/site";
 
-export const metadata: Metadata = {
-  title: "Đóng Pin Lithium Chuyên Nghiệp | Minh Hồng",
-  description: "Dịch vụ đóng ráp, phục hồi pin Lithium cho xe điện, máy công cụ, loa kéo. Cell chính hãng, bảo hành dài hạn.",
-};
+export const metadata = buildMarketingMetadata({
+  title: "Đóng Pin Lithium Chuyên Nghiệp",
+  description:
+    "Dịch vụ đóng ráp, phục hồi pin Lithium cho xe điện, máy công cụ, loa kéo. Cell chính hãng, bảo hành dài hạn.",
+  path: "/dich-vu/dong-pin",
+});
 
 const products = [
   { icon: "🛵", title: "Pin Xe Điện", desc: "Xe đạp điện, xe máy điện. Cell Samsung/LG chính hãng, dung lượng cao." },
@@ -73,8 +75,8 @@ export default function BatteryServicePage() {
           ))}
         </ul>
         <div className="mt-8 flex flex-wrap gap-4">
-          <a href="tel:0987443258" className="inline-flex items-center gap-2 bg-slate-900 text-white font-body font-bold py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors">
-            📞 Gọi 0987.443.258
+          <a href={siteConfig.hotlineHref} className="inline-flex items-center gap-2 bg-slate-900 text-white font-body font-bold py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors">
+            📞 Gọi {siteConfig.hotlineDisplay}
           </a>
           <Link href="/?service=DONG_PIN&source=service-dong-pin#quote" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
             📋 Yêu Cầu Báo Giá
