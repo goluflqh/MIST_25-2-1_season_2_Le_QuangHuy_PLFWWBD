@@ -270,24 +270,6 @@ const FOLLOW_UP_CONTEXT_SIGNALS = [
   "tam do",
 ];
 
-const SOLAR_SAVINGS_SIGNALS = [
-  "tiet kiem",
-  "giam tien dien",
-  "co loi khong",
-  "co tiet kiem khong",
-  "dang tien khong",
-];
-
-const SOLAR_USAGE_SIGNALS = [
-  "dung nhu the nao",
-  "cach dung",
-  "huong dan",
-  "nguyen ly",
-  "van hanh",
-  "lap sao",
-  "su dung sao",
-];
-
 const ALTERNATIVE_SERVICE_SIGNALS = ["ngoai", "ngoai ra", "con gi nua", "con gi khac", "khac nua"];
 
 const OUT_OF_SCOPE_HINTS = [
@@ -332,26 +314,6 @@ const DOMAIN_HINTS = [
 ];
 
 const FAQ_RULES: FaqRule[] = [
-  {
-    answer:
-      "Giá đóng pin phụ thuộc vào loại cell, dung lượng, dòng xả và thiết bị cụ thể. Anh/chị gửi model hoặc nhu cầu sử dụng, bên em mới báo đúng cấu hình và chi phí được.",
-    requiredGroups: [
-      ["gia", "bao gia", "chi phi", "ton bao nhieu", "mat bao nhieu", "bao nhieu tien"],
-      [
-        "dong pin",
-        "cell",
-        "xe dien",
-        "xe dap dien",
-        "xe may dien",
-        "loa keo",
-        "may khoan",
-        "laptop",
-        "pin luu tru",
-        "kich de",
-      ],
-    ],
-    service: "DONG_PIN",
-  },
   {
     answer:
       "Dạ có anh/chị nhé. Bên em nhận lắp camera cho nhà ở, cửa hàng và xưởng, có khảo sát tận nơi, thi công gọn dây và hỗ trợ cài xem trên điện thoại.",
@@ -688,137 +650,6 @@ function buildAlternativeServicesReply(
   return `Ngoài ${excludedLabel}, bên em còn làm ${serviceList}. Anh/chị muốn em nghiêng sang nhóm nào để em gợi ý nhanh đúng hướng hơn?`;
 }
 
-function buildSolarSavingsReply() {
-  return "Đèn năng lượng mặt trời có thể tiết kiệm điện thật nếu chỗ lắp có nắng tốt và mình chọn đúng nhu cầu sáng. Hợp nhất là các vị trí như cổng, sân, lối đi hoặc chỗ khó kéo điện; còn nếu nắng yếu, bật quá lâu hoặc chọn công suất không phù hợp thì hiệu quả sẽ giảm. Nếu anh/chị nói giúp khu vực lắp và số giờ nắng mỗi ngày, em sẽ gợi ý thực tế hơn cho chỗ nhà mình.";
-}
-
-function buildSolarUsageReply() {
-  return "Nguyên lý dùng khá đơn giản anh/chị nhé: ban ngày tấm pin hứng nắng để sạc vào pin, tối đèn lấy điện từ pin để sáng. Mình nên đặt tấm pin ở chỗ có nắng trực tiếp khoảng 5-6 tiếng trở lên, tránh bị che bóng và chọn chế độ sáng vừa nhu cầu để pin trụ ổn qua đêm. Nếu anh/chị nói giúp vị trí lắp với thời lượng sáng mong muốn, em sẽ gợi ý cách dùng sát hơn.";
-}
-
-function buildSolarBudgetReply(budgetVnd: number, lookupMessage: string) {
-  const budgetLabel = formatBudgetVnd(budgetVnd);
-  const wantsCount = includesAny(lookupMessage, ["may cai", "bao nhieu cai", "mua duoc may"]);
-
-  if (budgetVnd < 700_000) {
-    return `Tầm ${budgetLabel} thì mình nên nghiêng về đèn tường, lối đi hoặc nhu cầu sáng điểm nhỏ là hợp hơn. Nếu muốn sáng rộng sân hoặc cổng và trụ lâu cả đêm thì mức này sẽ hơi chật. ${
-      wantsCount
-        ? "Phần số lượng khó chốt chính xác chỉ theo ngân sách, vì còn lệch khá nhiều ở pin và công suất từng bộ. "
-        : ""
-    }Anh/chị nói giúp chỗ lắp với thời lượng sáng mong muốn, em sẽ gợi ý sát hơn.`;
-  }
-
-  if (budgetVnd < 1_500_000) {
-    return `Tầm ${budgetLabel} thì đã có thể lên một bộ đèn NLMT dân dụng khá ổn cho cổng, sân nhỏ hoặc lối đi rồi anh/chị nhé. ${
-      wantsCount
-        ? "Nếu hỏi mấy cái thì thường vẫn phải nhìn theo công suất và pin đi kèm hơn là đếm theo giá cứng. "
-        : ""
-    }Anh/chị cho em biết khu vực cần sáng và muốn sáng trong bao lâu mỗi đêm, em sẽ gợi ý cấu hình sát hơn.`;
-  }
-
-  if (budgetVnd < 3_000_000) {
-    return `Ngân sách ${budgetLabel} thì dễ chọn hơn nhiều rồi anh/chị ạ. Mình có thể nghiêng sang bộ sáng khỏe hơn cho sân hoặc cổng, hoặc chia thành vài điểm sáng vừa tùy cách lắp và thời lượng sáng mong muốn. ${
-      wantsCount
-        ? "Phần mấy cái vẫn nên chốt theo công suất và nhu cầu sáng thực tế, chứ cùng một tầm tiền nhưng mỗi bộ lệch khá nhiều. "
-        : ""
-    }Anh/chị nói giúp chỗ lắp và mức sáng mong muốn, em sẽ khoanh phương án đúng hơn.`;
-  }
-
-  return `Với tầm ${budgetLabel}, mình đã có dư địa để ưu tiên bộ đèn sáng khỏe hơn, pin lớn hơn hoặc chia ra nhiều điểm sáng tùy mặt bằng thực tế. Nếu anh/chị cho em biết khu vực lắp, cần sáng rộng hay sáng tập trung và muốn trụ bao lâu mỗi đêm, em sẽ gợi ý phương án hợp ngân sách hơn nhiều.`;
-}
-
-function buildQuoteReply(
-  service: ChatbotServiceId,
-  options: {
-    budgetVnd: number | null;
-    lookupMessage: string;
-  }
-) {
-  const budgetLabel = options.budgetVnd ? formatBudgetVnd(options.budgetVnd) : null;
-
-  switch (service) {
-    case "CAMERA":
-      if (budgetLabel) {
-        return `Ngân sách ${budgetLabel} thì em vẫn gợi ý sơ bộ cho anh/chị được, nhưng camera còn lệch khá nhiều theo số mắt, nhu cầu xem ban đêm, loại đầu ghi và cách đi dây. Nếu anh/chị nói giúp sơ mặt bằng hoặc số mắt dự tính, em sẽ gợi ý sát hơn nhiều.`;
-      }
-      return "Em có thể tư vấn sơ bộ trước cho anh/chị được ạ. Với camera, giá còn lệch theo số mắt, nhu cầu xem ban đêm, loại đầu ghi và cách đi dây, nên nếu anh/chị cho em biết sơ mặt bằng hoặc số mắt dự tính thì em sẽ gợi ý sát hơn nhiều.";
-
-    case "DEN_NLMT":
-      if (options.budgetVnd) {
-        return buildSolarBudgetReply(options.budgetVnd, options.lookupMessage);
-      }
-      return "Em có thể gợi ý nhanh cho anh/chị trước nhé. Với đèn NLMT, chi phí thường phụ thuộc công suất đèn, thời gian sáng mong muốn và tình trạng pin cũ nếu mình đang cần thay pin.";
-
-    case "PIN_LUU_TRU":
-      if (budgetLabel) {
-        return `Ngân sách ${budgetLabel} thì em tư vấn sơ bộ được anh/chị nhé, nhưng pin lưu trữ vẫn phải nhìn theo điện áp, dung lượng, dòng xả và mức tải thực tế. Có thêm thông số hoặc ảnh bộ pin cũ thì bên em báo sẽ sát hơn.`;
-      }
-      return "Phần này em tư vấn sơ bộ được ạ. Giá pin lưu trữ sẽ đi theo điện áp, dung lượng, dòng xả và mức tải thực tế, nên có thêm thông số hoặc ảnh bộ pin cũ thì bên em báo sẽ sát hơn.";
-
-    case "CUSTOM":
-      if (budgetLabel) {
-        return `Với tầm ${budgetLabel}, bên em vẫn khoanh sơ bộ được, nhưng bộ pin theo yêu cầu còn phải chốt kích thước, điện áp, dung lượng và mức xả trước thì mới báo sát được. Anh/chị gửi giúp em nhu cầu chi tiết hơn là em đi đúng cấu hình ngay.`;
-      }
-      return "Với bộ pin theo yêu cầu, bên em sẽ cần chốt kích thước, điện áp, dung lượng và mức xả trước thì mới báo sát được. Nếu tiện, anh/chị để lại nhu cầu chi tiết giúp em để bên em đi đúng cấu hình ngay từ đầu.";
-
-    case "DONG_PIN":
-    default:
-      if (budgetLabel) {
-        return `Ngân sách ${budgetLabel} thì em vẫn khoanh sơ bộ cho anh/chị được, nhưng đóng pin còn lệch theo model, điện áp, dung lượng và loại cell mình muốn dùng. Có thêm ảnh pin cũ hoặc tên thiết bị thì bên em sẽ gợi ý sát hơn nhiều.`;
-      }
-      return "Em có thể tư vấn sơ bộ cho anh/chị trước được nhé. Với đóng pin, giá thường lệch theo model, điện áp, dung lượng và loại cell mình muốn dùng, nên có thêm ảnh pin cũ hoặc tên thiết bị thì bên em báo sẽ sát hơn nhiều.";
-  }
-}
-
-function buildServiceSpecificReply(
-  lookupMessage: string,
-  naturalMessage: string,
-  service: ChatbotServiceId | null
-) {
-  if (!service) {
-    return null;
-  }
-
-  if (service === "DEN_NLMT" && includesAny(lookupMessage, SOLAR_SAVINGS_SIGNALS)) {
-    return buildSolarSavingsReply();
-  }
-
-  if (service === "DEN_NLMT" && includesAny(lookupMessage, SOLAR_USAGE_SIGNALS)) {
-    return buildSolarUsageReply();
-  }
-
-  if (
-    service === "CAMERA" &&
-    includesAny(lookupMessage, ["cua hang", "tap hoa", "shop", "nha", "xuong", "van phong"])
-  ) {
-    return "Dạ bên em có lắp camera cho cửa hàng anh/chị nhé. Thường với cửa hàng mình sẽ ưu tiên góc nhìn quầy thu ngân, cửa ra vào và khu trưng bày để dễ theo dõi hơn, rồi mới chốt số mắt và loại camera cho vừa nhu cầu.";
-  }
-
-  if (
-    service === "DEN_NLMT" &&
-    (includesAny(lookupMessage, ["chong nuoc", "vao nuoc", "ngoai troi", "tham nuoc"]) ||
-      includesAny(normalizeLookupText(naturalMessage), ["mua", "mua mua"]))
-  ) {
-    return "Nếu bộ đèn, pin và hộp điều khiển đúng chuẩn ngoài trời thì dùng mùa mưa vẫn ổn anh/chị nhé. Phần hay cần kiểm tra kỹ là độ kín nước của hộp pin, chất lượng cell và thời lượng dự phòng khi trời âm u nhiều ngày liên tiếp.";
-  }
-
-  if (
-    service === "DONG_PIN" &&
-    includesAny(lookupMessage, ["loai nao", "loai gi", "cell nao", "nen chon", "chon loai", "ok"])
-  ) {
-    return "Không có một loại pin nào hợp cho mọi máy đâu anh/chị. Bên em thường chọn theo thiết bị, điện áp, dòng xả, nhu cầu dùng mạnh hay bền, rồi mới cân giữa cell mới, cell chính hãng và mức chi phí để ra cấu hình ổn nhất.";
-  }
-
-  if (
-    service === "PIN_LUU_TRU" &&
-    includesAny(lookupMessage, ["loai nao", "loai gi", "nen chon", "cell nao"])
-  ) {
-    return "Với pin lưu trữ thì loại nào ổn còn phụ thuộc điện áp hệ thống, tải dùng thực tế và việc anh/chị ưu tiên bền, xả khỏe hay tối ưu chi phí. Có thêm thông số inverter hoặc bộ tải đang dùng thì em sẽ gợi ý sát hơn nhiều.";
-  }
-
-  return null;
-}
-
 function isLikelyOutOfScopeQuestion(text: string) {
   return includesAny(text, OUT_OF_SCOPE_HINTS) && !includesAny(text, DOMAIN_HINTS);
 }
@@ -842,7 +673,6 @@ export function buildChatbotServiceContextNote(service: ChatbotServiceId | null)
   if (!serviceLabel || !service || service === "KHAC") {
     return "";
   }
-
   const factNote = getChatbotServiceFact(service);
 
   return [
@@ -1032,23 +862,10 @@ export function analyzeChatbotMessage(
   if (service && hasQuoteIntent) {
     return {
       intent: "quote",
-      localReply: buildQuoteReply(service, { budgetVnd, lookupMessage }),
+      localReply: null,
       service,
       serviceLabel,
       shouldOfferLeadForm: true,
-      shouldOfferHumanSupport: false,
-      shouldSuggestServices: false,
-    };
-  }
-
-  const serviceSpecificReply = buildServiceSpecificReply(lookupMessage, naturalMessage, service);
-  if (serviceSpecificReply) {
-    return {
-      intent: "faq",
-      localReply: serviceSpecificReply,
-      service,
-      serviceLabel,
-      shouldOfferLeadForm: false,
       shouldOfferHumanSupport: false,
       shouldSuggestServices: false,
     };
