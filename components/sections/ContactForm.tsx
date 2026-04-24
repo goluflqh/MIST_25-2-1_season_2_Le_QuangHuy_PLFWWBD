@@ -207,64 +207,64 @@ export default function ContactForm() {
 
   return (
     <section id="quote" className="relative z-20 mx-auto mb-8 max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="relative overflow-hidden rounded-[2.5rem] bg-[linear-gradient(135deg,#991b1b,#dc2626_45%,#f97316)] p-8 shadow-[0_40px_120px_-52px_rgba(127,29,29,0.65)] md:p-12">
-        <div className="absolute right-0 top-0 h-64 w-64 translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-10 blur-3xl"></div>
-        <div className="absolute bottom-0 left-0 h-48 w-48 -translate-x-1/4 translate-y-1/2 rounded-full bg-yellow-300 opacity-20 blur-2xl"></div>
-
-        <div className="relative z-10 grid gap-10 md:grid-cols-[1fr_0.95fr] md:items-start">
-          <div className="text-center text-white md:text-left">
-            <div className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-red-50 backdrop-blur">
+      <div className="relative overflow-hidden rounded-[2rem] border border-orange-100 bg-[linear-gradient(160deg,#fff7ed,#ffffff_48%,#fffaf5)] p-6 shadow-[0_30px_100px_-56px_rgba(15,23,42,0.35)] md:p-10">
+        <div className="relative z-10 grid gap-8 md:grid-cols-[0.95fr_1fr] md:items-start">
+          <div className="text-left">
+            <div className="inline-flex rounded-full border border-red-100 bg-red-50 px-3 py-1 text-sm font-semibold text-primary">
               Tư vấn theo từng trường hợp
             </div>
-            <h2 className="mt-4 font-heading text-3xl font-extrabold leading-tight md:text-4xl">
+            <h2 className="mt-4 text-pretty font-heading text-3xl font-extrabold leading-tight text-slate-900 md:text-4xl">
               Nhận phương án phù hợp và báo giá nhanh, không cần chốt vội.
             </h2>
-            <p className="mt-4 font-body text-lg leading-8 text-red-50/90">
-              Để lại thông tin, anh Hồng cùng đội ngũ kỹ thuật sẽ gọi lại để hỏi rõ nhu cầu, kiểm
-              tra trường hợp thực tế và tư vấn phương án phù hợp nhất trước khi bàn tới giá cuối.
+            <p className="mt-4 font-body text-base leading-8 text-slate-600 md:text-lg">
+              Để lại thông tin, Minh Hồng sẽ gọi lại để hỏi rõ nhu cầu, kiểm tra trường hợp
+              thực tế và đề xuất phương án hợp lý trước khi bàn tới giá cuối.
             </p>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4 backdrop-blur">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-100">
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-[1.45rem] border border-white bg-white/92 p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                   Hotline trực tiếp
                 </p>
-                <p className="mt-2 font-heading text-2xl font-bold text-white">
+                <p className="mt-2 font-heading text-2xl font-bold text-slate-900">
                   {siteConfig.hotlineDisplay}
                 </p>
               </div>
-              <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4 backdrop-blur">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-100">
+              <div className="rounded-[1.45rem] border border-white bg-white/92 p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                   Khung giờ tiếp nhận
                 </p>
-                <p className="mt-2 font-body text-sm font-semibold leading-6 text-white">
+                <p className="mt-2 font-body text-sm font-semibold leading-6 text-slate-800">
                   {siteConfig.businessHoursLabel}
                 </p>
               </div>
-              <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4 backdrop-blur">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-100">
+              <div className="rounded-[1.45rem] border border-white bg-white/92 p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                   Khu vực hỗ trợ
                 </p>
-                <p className="mt-2 font-body text-sm font-semibold leading-6 text-white">
+                <p className="mt-2 font-body text-sm font-semibold leading-6 text-slate-800">
                   {siteConfig.locationLabel}
                 </p>
               </div>
-              <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4 backdrop-blur">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-100">
-                  Cách làm việc
-                </p>
-                <p className="mt-2 font-body text-sm font-semibold leading-6 text-white">
-                  Kiểm tra trước, tư vấn rõ, rồi mới đề xuất phương án phù hợp.
-                </p>
-              </div>
+            </div>
+
+            <div className="mt-5 rounded-[1.6rem] border border-slate-200 bg-slate-900 p-5 text-white shadow-[0_24px_70px_-40px_rgba(15,23,42,0.48)]">
+              <p className="text-sm font-semibold text-red-200">
+                Cách Minh Hồng xử lý yêu cầu
+              </p>
+              <ul className="mt-3 space-y-2 font-body text-sm leading-6 text-slate-200">
+                <li>1. Hỏi rõ thiết bị, tình trạng hoặc vị trí cần lắp.</li>
+                <li>2. Nói trước phần cần làm, phần có thể chờ và mức chi phí dự kiến.</li>
+                <li>3. Chỉ chốt phương án khi khách đã hiểu rõ.</li>
+              </ul>
             </div>
           </div>
 
-          <div className="relative mx-auto w-full max-w-md md:w-full">
+          <div className="relative mx-auto w-full max-w-lg md:w-full">
             {isSuccess ? (
               <div
                 data-testid="contact-success"
-                className="animate-fade-in rounded-[2rem] border border-white/70 bg-white/95 p-8 text-center shadow-xl backdrop-blur"
+                className="animate-fade-in rounded-[2rem] border border-white bg-white/96 p-8 text-center shadow-xl backdrop-blur"
               >
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
@@ -398,15 +398,15 @@ export default function ContactForm() {
               <form
                 data-testid="contact-form"
                 onSubmit={handleSubmit(onSubmit)}
-                className="flex flex-col gap-4 rounded-[2rem] border border-white/70 bg-white/95 p-6 shadow-xl backdrop-blur"
+                className="flex flex-col gap-4 rounded-[2rem] border border-white bg-white/96 p-6 shadow-[0_26px_80px_-46px_rgba(15,23,42,0.35)] backdrop-blur"
                 noValidate
               >
                 <div
                   data-testid="contact-source-card"
                   className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
                 >
-                  <p className="font-body text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Nguồn lead
+                  <p className="font-body text-xs font-semibold text-slate-500">
+                    Nguồn liên hệ
                   </p>
                   <p data-testid="contact-source-label" className="font-body text-sm font-bold text-slate-700">
                     {selectedSourceLabel}
@@ -424,7 +424,7 @@ export default function ContactForm() {
                 </div>
 
                 <div>
-                  <label htmlFor="contact-name" className="sr-only">
+                  <label htmlFor="contact-name" className="mb-2 block font-body text-sm font-semibold text-slate-700">
                     Họ và tên
                   </label>
                   <input
@@ -432,7 +432,7 @@ export default function ContactForm() {
                     id="contact-name"
                     {...register("name")}
                     type="text"
-                    placeholder="Họ tên của bạn..."
+                    placeholder="Ví dụ: Nguyễn Văn A"
                     aria-label="Họ và tên"
                     aria-invalid={Boolean(errors.name)}
                     className={`w-full rounded-xl border px-4 py-4 font-body text-slate-800 transition-shadow focus:border-transparent focus:outline-none focus:ring-2 ${
@@ -447,7 +447,7 @@ export default function ContactForm() {
                 </div>
 
                 <div>
-                  <label htmlFor="contact-phone" className="sr-only">
+                  <label htmlFor="contact-phone" className="mb-2 block font-body text-sm font-semibold text-slate-700">
                     Số điện thoại
                   </label>
                   <div className="relative">
@@ -456,7 +456,7 @@ export default function ContactForm() {
                       id="contact-phone"
                       {...register("phone")}
                       type="tel"
-                      placeholder="Số điện thoại của bạn..."
+                      placeholder="Ví dụ: 0987 443 258"
                       aria-label="Số điện thoại"
                       aria-invalid={Boolean(errors.phone)}
                       className={`w-full rounded-xl border px-4 py-4 font-body text-slate-800 transition-shadow focus:border-transparent focus:outline-none focus:ring-2 ${
@@ -486,7 +486,7 @@ export default function ContactForm() {
                 </div>
 
                 <div>
-                  <label htmlFor="contact-service" className="sr-only">
+                  <label htmlFor="contact-service" className="mb-2 block font-body text-sm font-semibold text-slate-700">
                     Dịch vụ quan tâm
                   </label>
                   <select
@@ -516,15 +516,15 @@ export default function ContactForm() {
                 </div>
 
                 <div>
-                  <label htmlFor="contact-message" className="sr-only">
+                  <label htmlFor="contact-message" className="mb-2 block font-body text-sm font-semibold text-slate-700">
                     Ghi chú thêm
                   </label>
                   <textarea
                     data-testid="contact-message"
                     id="contact-message"
                     {...register("message")}
-                    placeholder="Ghi chú thêm (tuỳ chọn)..."
-                    rows={2}
+                    placeholder="Ví dụ: thiết bị đang gặp lỗi gì, cần lắp ở đâu, muốn dùng trong bao lâu..."
+                    rows={3}
                     aria-label="Ghi chú thêm"
                     className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-body text-slate-800 transition-shadow focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                   />
@@ -544,7 +544,7 @@ export default function ContactForm() {
                   data-testid="contact-submit"
                   type="submit"
                   disabled={isSubmitting}
-                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-4 font-heading text-lg font-bold text-white shadow-md transition-colors hover:bg-primary hover:shadow-glow-primary disabled:opacity-70"
+                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-4 font-heading text-lg font-bold text-white shadow-md transition-colors hover:bg-primary disabled:opacity-70"
                 >
                   {isSubmitting ? (
                     <>

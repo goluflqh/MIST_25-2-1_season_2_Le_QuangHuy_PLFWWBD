@@ -1,81 +1,82 @@
 export default function SpecialOffer() {
+  const points = [
+    {
+      label: "Test 0đ",
+      text: "Kiểm tra sơ bộ pin miễn phí trước khi báo hướng xử lý.",
+    },
+    {
+      label: "Không ép sửa",
+      text: "Khách nghe rõ tình trạng rồi tự quyết định làm hay chưa.",
+    },
+    {
+      label: "Báo rõ chi phí",
+      text: "Tách phần cần làm ngay và phần có thể chờ.",
+    },
+  ] as const;
+
   return (
-    <section id="special" className="relative z-20 mx-auto mt-8 max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="rounded-[2rem] bg-linear-to-r from-red-700 via-primary to-orange-600 p-[1px] shadow-glow-primary">
-        <div className="relative overflow-hidden rounded-[calc(2rem-1px)] bg-[linear-gradient(135deg,#111827,#1f2937)] px-6 py-8 md:px-10">
-          <div className="absolute right-0 top-0 opacity-10 blur-xl">
-            <svg width="220" height="220" fill="white" viewBox="0 0 100 100" aria-hidden="true">
-              <circle cx="50" cy="50" r="50" />
-            </svg>
-          </div>
+    <section id="special" className="relative z-20 mx-auto max-w-7xl px-4 py-9 sm:px-6 sm:py-10 lg:px-8">
+      <div className="overflow-hidden rounded-[1.45rem] border border-red-500/20 bg-[linear-gradient(135deg,#7f1d1d,#dc2626_48%,#f97316)] p-1 shadow-[0_30px_100px_-42px_rgba(127,29,29,0.55)] sm:rounded-[1.75rem]">
+        <div className="rounded-[1.25rem] bg-slate-950/84 p-5 text-white backdrop-blur sm:rounded-[1.55rem] sm:p-6 md:p-8">
+        <div className="grid gap-7 lg:grid-cols-[1.08fr_0.78fr] lg:items-center">
+          <div>
+            <span className="inline-flex rounded-full border border-yellow-300/40 bg-yellow-300 px-3 py-1 text-sm font-black text-slate-950 shadow-[0_12px_40px_-24px_rgba(253,224,71,0.8)]">
+              Miễn phí kiểm tra pin
+            </span>
+            <h2 className="mt-4 text-pretty font-heading text-[2rem] font-extrabold leading-tight text-white md:text-4xl">
+              Kiểm tra pin 0đ, rồi mới quyết định sửa.
+            </h2>
+            <p className="mt-3 max-w-2xl font-body text-sm leading-6 text-red-50 sm:text-base sm:leading-7">
+              Phù hợp khi pin ngắt, chai nhanh hoặc sạc không vào. Kỹ thuật test sơ bộ miễn phí,
+              nói rõ tình trạng và hướng xử lý trước khi khách chốt sửa, thay cell hoặc đóng bộ mới.
+            </p>
 
-          <div className="relative z-10 grid gap-8 lg:grid-cols-[1.3fr_0.85fr] lg:items-center">
-            <div>
-              <span className="inline-flex rounded-full border border-red-300/30 bg-red-500/15 px-3 py-1 text-xs font-black uppercase tracking-[0.22em] text-red-100">
-                Ưu tiên kiểm tra trước
-              </span>
-              <h2 className="mt-4 font-heading text-2xl font-bold text-white md:text-3xl">
-                Hỗ trợ test và kiểm tra pin miễn phí cho khách cần làm rõ trước khi quyết định.
-              </h2>
-              <p className="mt-3 max-w-2xl font-body text-base leading-7 text-slate-300 md:text-lg">
-                Phù hợp cho thợ, chủ thiết bị và khách đang gặp pin ngắt, chai hoặc không rõ tình
-                trạng thực tế. Minh Hồng ưu tiên kiểm tra, đo nội trở, test dòng xả rồi mới tư vấn
-                phương án phù hợp.
-              </p>
-
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-100">
-                    Không thu phí
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-white">Kiểm tra ban đầu và tư vấn tại chỗ.</p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              {points.map((point) => (
+                <div
+                  key={point.label}
+                  className="flex items-start gap-3 rounded-[1.15rem] border border-white/12 bg-white/9 px-3.5 py-3.5"
+                >
+                  <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-yellow-300 text-xs font-black text-slate-950 sm:mt-0.5">
+                    ✓
+                  </span>
+                  <div>
+                    <p className="font-heading text-sm font-extrabold leading-5 text-white sm:text-base">
+                      {point.label}
+                    </p>
+                    <p className="mt-1 text-xs font-medium leading-5 text-red-50 sm:text-sm sm:leading-6">
+                      {point.text}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-100">
-                    Nói rõ tình trạng
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-white">
-                    Phân tích khả năng phục hồi hoặc thay mới trước khi làm.
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-100">
-                    Phù hợp nhiều thiết bị
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-white">
-                    Xe điện, loa kéo, pin lưu trữ và dụng cụ cầm tay.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-[1.75rem] border border-white/10 bg-white/6 p-6 backdrop-blur">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-red-100">
-                Tư vấn trực tiếp tại xưởng
-              </p>
-              <div className="mt-4 space-y-4">
-                <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-white">
-                  <p className="text-xs uppercase tracking-wide text-red-100">Điểm tiếp nhận</p>
-                  <p className="mt-2 font-heading text-xl font-bold">Xã Đồng Dương, TP. Đà Nẵng</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-white">
-                  <p className="text-xs uppercase tracking-wide text-red-100">Phù hợp nếu bạn cần</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-200">
-                    Mang thiết bị tới để nghe tư vấn ngay, kiểm tra nhanh rồi mới quyết định sửa hay
-                    thay.
-                  </p>
-                </div>
-              </div>
-              <a
-                href="https://maps.app.goo.gl/gCtACM49w2sPEc5dA"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-yellow-400 px-6 py-4 text-center font-heading text-lg font-black text-slate-900 shadow-glow-secondary transition-colors hover:bg-yellow-300"
-              >
-                Chỉ đường tới nơi
-              </a>
+              ))}
             </div>
           </div>
+
+          <div className="rounded-[1.35rem] border border-white/15 bg-white/10 p-4 backdrop-blur sm:p-5">
+            <div className="grid gap-3 sm:grid-cols-[0.45fr_1fr] lg:grid-cols-1">
+              <div className="rounded-2xl border border-yellow-300/40 bg-yellow-300 p-4 text-slate-950">
+                <p className="font-heading text-5xl font-black leading-none sm:text-4xl">0đ</p>
+                <p className="mt-1 text-sm font-black">kiểm tra pin sơ bộ</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/32 p-4 text-white">
+                <p className="text-sm font-semibold text-red-100">Quyền lợi rõ ràng</p>
+                <p className="mt-1.5 font-heading text-lg font-bold">Test miễn phí, báo thật tình trạng</p>
+                <p className="mt-2 text-xs leading-5 text-slate-200 sm:text-sm sm:leading-6">
+                  Mang pin hoặc thiết bị tới Minh Hồng ở Xã Đồng Dương, TP. Đà Nẵng để kiểm tra nhanh trước khi sửa.
+                </p>
+              </div>
+            </div>
+            <a
+              href="https://maps.app.goo.gl/gCtACM49w2sPEc5dA"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-yellow-400 px-6 py-3.5 text-center font-heading text-base font-black text-slate-900 transition-colors hover:bg-yellow-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yellow-200"
+            >
+              Đến kiểm tra miễn phí
+            </a>
+          </div>
+        </div>
         </div>
       </div>
     </section>

@@ -59,7 +59,7 @@ function ReviewCard({
       </div>
 
       <div className="mt-6 flex items-center justify-between gap-3">
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
           {serviceLabels[testimonial.service] || testimonial.service}
         </span>
         <div className="flex gap-0.5">
@@ -97,11 +97,11 @@ export default async function Testimonials() {
   return (
     <section id="testimonials" className="relative z-10 mx-auto mb-12 max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
       <div className="mb-16 text-center">
-        <span className="inline-flex rounded-full border border-red-100 bg-red-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-primary">
+        <span className="inline-flex rounded-full border border-red-100 bg-red-50 px-3 py-1 text-sm font-semibold text-primary">
           Chứng thực từ khách
         </span>
-        <h2 className="mb-4 mt-4 font-heading text-3xl font-extrabold text-textMain sm:text-4xl">
-          Niềm Tin Của Khách Trải Nghiệm
+        <h2 className="mb-4 mt-4 text-pretty font-heading text-3xl font-extrabold text-textMain sm:text-4xl">
+          Niềm tin của khách trải nghiệm
         </h2>
         <div className="mx-auto h-1 w-16 bg-gradient-to-r from-yellow-400 to-orange-500"></div>
         <p className="mx-auto mt-6 max-w-3xl font-body text-lg leading-8 text-slate-600">

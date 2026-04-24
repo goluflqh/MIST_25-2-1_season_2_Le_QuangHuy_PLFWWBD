@@ -69,10 +69,10 @@ export default function Footer() {
                   </span>
                 </div>
               </div>
-              <p className="text-slate-400 font-body leading-relaxed mb-6 max-w-md">
-                Trung tâm gia công Pin Lithium chuyên nghiệp hàng đầu, bảo hành
-                dài hạn. Thi công và lắp đặt thiết bị Camera công nghệ cao chuẩn
-                quốc tế.
+              <p className="mb-6 max-w-md font-body leading-relaxed text-slate-400">
+                Xưởng tư vấn và thi công pin Lithium, pin lưu trữ, đèn năng lượng mặt trời
+                và camera tại Đà Nẵng. Ưu tiên kiểm tra trước, báo giá rõ và hỗ trợ sau
+                bàn giao.
               </p>
               <div className="flex gap-3">
                 <a

@@ -353,7 +353,7 @@ export default function ChatbotWidget() {
       {isOpen && (
         <div
           data-testid="chatbot-panel"
-          className="fixed bottom-24 right-4 z-50 flex h-[500px] w-[340px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-fade-in-up sm:right-6 sm:w-[380px]"
+          className="animate-fade-in-up fixed bottom-20 right-3 z-50 flex h-[min(70vh,32rem)] w-[calc(100vw-1.5rem)] max-w-[360px] flex-col overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-2xl sm:bottom-24 sm:right-6 sm:h-[500px] sm:max-w-[380px]"
         >
           <div className="flex shrink-0 items-center justify-between bg-slate-900 px-5 py-4">
             <div className="flex items-center gap-3">
@@ -470,9 +470,9 @@ export default function ChatbotWidget() {
         </div>
       )}
 
-      <div className="fixed bottom-6 right-4 z-50 flex items-end gap-3 sm:right-6">
+      <div className="fixed bottom-4 right-3 z-50 flex items-end gap-3 sm:bottom-6 sm:right-6">
         {!isOpen && (
-          <div className="relative mb-2 whitespace-nowrap rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-body font-bold text-white shadow-lg animate-fade-in-up">
+          <div className="animate-fade-in-up relative mb-2 hidden whitespace-nowrap rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-body font-bold text-white shadow-lg sm:block">
             Hỏi AI tư vấn
             <div className="absolute bottom-3 -right-1.5 h-3 w-3 rotate-45 bg-slate-900"></div>
           </div>
@@ -481,26 +481,19 @@ export default function ChatbotWidget() {
         <button
           data-testid="chatbot-toggle"
           onClick={() => setIsOpen((current) => !current)}
-          className="group relative flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all hover:scale-110 hover:shadow-2xl sm:h-16 sm:w-16"
+          className="group relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 hover:shadow-2xl sm:h-16 sm:w-16"
           aria-label="Mở chatbot tư vấn AI"
           style={{
             background: "linear-gradient(135deg, #dc2626 0%, #ea580c 50%, #f59e0b 100%)",
           }}
           type="button"
         >
-          {!isOpen && (
-            <span
-              className="absolute inset-0 rounded-full animate-ping opacity-20"
-              style={{ background: "linear-gradient(135deg, #dc2626, #f59e0b)" }}
-            ></span>
-          )}
-
           {isOpen ? (
             <svg className="h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
           ) : (
-            <svg className="h-8 w-8 text-white drop-shadow-sm" viewBox="0 0 24 24" fill="none">
+            <svg className="h-7 w-7 text-white drop-shadow-sm sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none">
               <rect x="4" y="6" width="16" height="14" rx="3" fill="white" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" />
               <line x1="12" y1="6" x2="12" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               <circle cx="12" cy="2.5" r="1.5" fill="currentColor" />
@@ -514,7 +507,6 @@ export default function ChatbotWidget() {
 
           {!isOpen && (
             <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-60"></span>
               <span className="relative inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-green-500 text-[8px] font-black text-white">
                 AI
               </span>

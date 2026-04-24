@@ -9,11 +9,11 @@ import TrustHighlights from "@/components/sections/TrustHighlights";
 
 export default function Home() {
   return (
-    <div className="pb-12">
+    <div className="overflow-x-hidden pb-12">
       <Hero />
-      <TrustHighlights />
       <SpecialOffer />
       <Services />
+      <TrustHighlights />
       <Process />
       <Testimonials />
       <Partners />

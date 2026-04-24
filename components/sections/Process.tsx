@@ -40,27 +40,27 @@ export default function Process() {
   return (
     <section
       id="process"
-      className="relative z-10 mx-auto mb-12 max-w-7xl rounded-[3rem] border border-slate-100 bg-white px-4 py-16 shadow-sm sm:px-6 lg:px-8"
+      className="relative z-10 mx-auto my-8 max-w-7xl rounded-[2rem] border border-slate-100 bg-white px-5 py-12 shadow-sm sm:mb-14 sm:mt-10 sm:px-6 sm:py-16 lg:px-8"
     >
-      <div className="mx-auto mb-16 max-w-3xl text-center">
-        <span className="block text-sm font-bold uppercase tracking-[0.22em] text-primary">
-          Minh bạch và rõ ràng
+      <div className="mx-auto mb-10 max-w-3xl text-center sm:mb-16">
+        <span className="block text-sm font-semibold text-primary">
+          Từ kiểm tra tới bàn giao
         </span>
-        <h2 className="mb-6 mt-3 font-heading text-4xl font-extrabold text-textMain">
-          Quy Trình Sửa Chữa & Lắp Đặt
+        <h2 className="mb-5 mt-3 text-pretty font-heading text-[1.75rem] font-extrabold leading-tight text-textMain sm:mb-6 sm:text-4xl">
+          Một quy trình ngắn để tránh sửa sai nhu cầu
         </h2>
         <div className="mx-auto h-1 w-16 rounded-full bg-gradient-to-r from-primary to-orange-500"></div>
-        <p className="mt-6 font-body text-lg leading-8 text-slate-600">
-          Cùng một quy trình cho cả pin lẫn camera: khảo sát trước, nói rõ phương án, thi công đúng
-          bài toán và bàn giao có trách nhiệm.
+        <p className="mt-5 font-body text-base leading-7 text-slate-600 sm:mt-6 sm:text-lg sm:leading-8">
+          Không chốt theo ảnh quảng cáo. Minh Hồng kiểm tra thiết bị hoặc vị trí lắp, nói rõ
+          hướng làm, thi công gọn rồi hướng dẫn khách dùng và theo dõi sau bàn giao.
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-4">
         {steps.map((step) => (
           <div
             key={step.step}
-            className="rounded-[2rem] border border-slate-100 bg-slate-50/75 p-6 shadow-[0_16px_48px_-40px_rgba(15,23,42,0.5)]"
+            className="rounded-[1.35rem] border border-slate-100 bg-slate-50/75 p-5 shadow-[0_16px_48px_-40px_rgba(15,23,42,0.5)] sm:rounded-[2rem] sm:p-6"
           >
             <div className="flex items-start justify-between gap-3">
               <div
@@ -80,7 +80,7 @@ export default function Process() {
               </span>
             </div>
 
-            <h3 className="mt-6 font-heading text-xl font-bold text-textMain">{step.title}</h3>
+            <h3 className="mt-6 font-body text-lg font-semibold text-textMain">{step.title}</h3>
             <p className="mt-3 font-body text-sm leading-7 text-slate-600">{step.description}</p>
           </div>
         ))}

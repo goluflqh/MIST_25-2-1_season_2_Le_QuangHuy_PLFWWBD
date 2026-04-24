@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -20,6 +20,7 @@ export default function Header({
   const [servicesMenuState, setServicesMenuState] = useState({ open: false, pathname });
   const [notifCount, setNotifCount] = useState(initialNotificationCount);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const servicesCloseTimerRef = useRef<number | null>(null);
 
   const isMobileMenuOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
   const isServicesOpen = servicesMenuState.pathname === pathname && servicesMenuState.open;
@@ -100,12 +101,49 @@ export default function Header({
     };
   }, [currentUserId, enableBackgroundPolling, initialNotificationUserId]);
 
+  useEffect(() => {
+    return () => {
+      if (servicesCloseTimerRef.current !== null) {
+        window.clearTimeout(servicesCloseTimerRef.current);
+      }
+    };
+  }, []);
+
   const dismissNotifications = () => {
     localStorage.setItem("mh_notif_seen", new Date().toISOString());
     setNotifCount(0);
   };
 
+  const clearServicesCloseTimer = () => {
+    if (servicesCloseTimerRef.current !== null) {
+      window.clearTimeout(servicesCloseTimerRef.current);
+      servicesCloseTimerRef.current = null;
+    }
+  };
+
+  const openServicesMenu = () => {
+    clearServicesCloseTimer();
+    setServicesMenuState({ open: true, pathname });
+  };
+
+  const scheduleServicesClose = () => {
+    clearServicesCloseTimer();
+    servicesCloseTimerRef.current = window.setTimeout(() => {
+      setServicesMenuState({ open: false, pathname });
+      servicesCloseTimerRef.current = null;
+    }, 220);
+  };
+
+  const toggleServicesMenu = () => {
+    clearServicesCloseTimer();
+    setServicesMenuState((prev) => ({
+      open: !(prev.pathname === pathname && prev.open),
+      pathname,
+    }));
+  };
+
   const closeMenus = () => {
+    clearServicesCloseTimer();
     setMobileMenuState({ open: false, pathname });
     setServicesMenuState({ open: false, pathname });
   };
@@ -154,8 +192,17 @@ export default function Header({
   const isActive = (href: string) => pathname === href;
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 glass-panel border-b border-slate-200/50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+    <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-6">
+      {isMobileMenuOpen ? (
+        <button
+          type="button"
+          aria-label="Đóng menu"
+          onClick={closeMenus}
+          className="fixed inset-0 z-0 cursor-default bg-transparent lg:hidden"
+        />
+      ) : null}
+      <div className="relative z-10 mx-auto max-w-7xl">
+        <div className="glass-panel flex items-center justify-between rounded-[1.6rem] border border-white/80 px-4 py-3 shadow-[0_24px_60px_-42px_rgba(15,23,42,0.45)] sm:px-5">
         <button
           onClick={() => {
             closeMenus();
@@ -165,14 +212,14 @@ export default function Header({
               router.push("/");
             }
           }}
-          className="flex items-center gap-2.5 group shrink-0 cursor-pointer"
+          className="group flex min-w-0 shrink-0 cursor-pointer items-center gap-2.5"
         >
           <svg
-            width="40"
-            height="40"
+            width="34"
+            height="34"
             viewBox="0 0 200 200"
             xmlns="http://www.w3.org/2000/svg"
-            className="transform transition-transform group-hover:scale-105 duration-300"
+            className="shrink-0 transition-transform duration-300 group-hover:scale-105"
           >
             <defs>
               <linearGradient id="gradRed" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -198,17 +245,17 @@ export default function Header({
               <path d="M118 114.6 L151 95.4 L151 115.4 L118 134.6 Z" fill="url(#gradYellow)" />
             </g>
           </svg>
-          <div className="flex flex-col">
-            <span className="font-heading font-extrabold text-xl lg:text-2xl tracking-tight text-primary leading-none">
+          <div className="min-w-0">
+            <span className="block font-heading text-lg font-extrabold leading-none tracking-tight text-primary sm:text-xl lg:text-2xl">
               MINH HỒNG
             </span>
-            <span className="font-body text-[9px] lg:text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
-              Điện Máy - Đóng Pin
+            <span className="mt-0.5 block font-body text-[8px] font-bold uppercase tracking-[0.24em] text-slate-500 sm:text-[9px]">
+              Điện máy - Đóng pin
             </span>
           </div>
         </button>
 
-        <nav className="hidden lg:flex items-center gap-1">
+        <nav className="hidden items-center gap-1 lg:flex">
           <Link
             href="/"
             className={`font-body font-semibold text-sm px-3 py-2 rounded-lg transition-colors ${isActive("/") ? "text-primary bg-red-50" : "text-slate-600 hover:text-primary hover:bg-slate-50"}`}
@@ -218,10 +265,22 @@ export default function Header({
 
           <div
             className="relative"
-            onMouseEnter={() => setServicesMenuState({ open: true, pathname })}
-            onMouseLeave={() => setServicesMenuState({ open: false, pathname })}
+            onBlur={(event) => {
+              const nextFocus = event.relatedTarget;
+
+              if (!(nextFocus instanceof Node) || !event.currentTarget.contains(nextFocus)) {
+                scheduleServicesClose();
+              }
+            }}
+            onFocus={openServicesMenu}
+            onMouseEnter={openServicesMenu}
+            onMouseLeave={scheduleServicesClose}
           >
             <button
+              type="button"
+              aria-expanded={isServicesOpen}
+              aria-haspopup="menu"
+              onClick={toggleServicesMenu}
               className={`font-body font-semibold text-sm px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${pathname.startsWith("/dich-vu") ? "text-primary bg-red-50" : "text-slate-600 hover:text-primary hover:bg-slate-50"}`}
             >
               Dịch Vụ
@@ -235,16 +294,23 @@ export default function Header({
               </svg>
             </button>
             {isServicesOpen ? (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-xl shadow-xl border border-slate-100 py-2 animate-fade-in">
-                {serviceLinks.map((link) => (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className={`block px-4 py-2.5 font-body text-sm transition-colors ${isActive(link.href) ? "text-primary bg-red-50 font-bold" : "text-slate-700 hover:bg-slate-50 hover:text-primary"}`}
-                  >
-                    {link.name}
-                  </Link>
-                ))}
+              <div className="absolute left-0 top-full w-64 pt-2">
+                <div
+                  role="menu"
+                  className="animate-fade-in rounded-xl border border-slate-100 bg-white py-2 shadow-xl"
+                >
+                  {serviceLinks.map((link) => (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      role="menuitem"
+                      onClick={closeMenus}
+                      className={`block px-4 py-2.5 font-body text-sm transition-colors ${isActive(link.href) ? "text-primary bg-red-50 font-bold" : "text-slate-700 hover:bg-slate-50 hover:text-primary"}`}
+                    >
+                      {link.name}
+                    </Link>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>
@@ -257,7 +323,7 @@ export default function Header({
           </Link>
         </nav>
 
-        <div className="hidden lg:flex items-center gap-3">
+        <div className="hidden items-center gap-3 lg:flex">
           {visibleUser ? (
             <>
               <Link
@@ -309,7 +375,7 @@ export default function Header({
         <button
           aria-label="Toggle Mobile Menu"
           onClick={toggleMobileMenu}
-          className="lg:hidden text-slate-700 hover:text-primary p-2 -mr-2"
+          className="rounded-full p-2 text-slate-700 transition-colors hover:bg-slate-100 hover:text-primary lg:hidden"
         >
           {isMobileMenuOpen ? (
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -324,7 +390,7 @@ export default function Header({
       </div>
 
       {isMobileMenuOpen ? (
-        <div className="lg:hidden bg-white border-t border-slate-100 shadow-xl animate-fade-in">
+        <div className="animate-fade-in mt-2 overflow-hidden rounded-[1.4rem] border border-white/80 bg-white/95 shadow-[0_18px_48px_-36px_rgba(15,23,42,0.45)] backdrop-blur lg:hidden">
           <nav className="px-4 py-4 space-y-1">
             <Link
               href="/"
@@ -414,6 +480,7 @@ export default function Header({
           </nav>
         </div>
       ) : null}
+      </div>
     </header>
   );
 }

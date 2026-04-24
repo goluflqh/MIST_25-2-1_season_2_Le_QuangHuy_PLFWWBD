@@ -63,7 +63,7 @@ export default async function RootLayout({
   return (
     <html lang="vi" className="scroll-smooth scroll-pt-32" data-scroll-behavior="smooth">
       <body
-        className={`${spaceGrotesk.variable} ${dmSans.variable} antialiased bg-slate-50 font-body text-slate-800 flex flex-col min-h-screen`}
+        className={`${spaceGrotesk.variable} ${dmSans.variable} flex min-h-screen flex-col bg-[#fffdfa] font-body text-slate-800 antialiased`}
       >
         <AuthProvider
           key={currentUser ? `${currentUser.id}:${currentUser.role}:${currentUser.name}` : "guest"}
@@ -73,18 +73,13 @@ export default async function RootLayout({
               : null
           }
         >
-          <div className="fixed inset-0 overflow-hidden pointer-events-none z-[-1]">
-            <div className="absolute top-0 right-0 -mr-32 -mt-32 w-96 h-96 rounded-full bg-red-100 blur-3xl opacity-50 mix-blend-multiply"></div>
-            <div className="absolute top-[20%] left-0 -ml-32 w-80 h-80 rounded-full bg-yellow-100 blur-3xl opacity-50 mix-blend-multiply"></div>
-          </div>
-
-          <div className="fixed bg-orange-300 w-80 h-80 bottom-[20%] left-[20%] animate-blob animate-delay-[4000ms] rounded-[40%_60%_70%_30%/40%_50%_60%_50%] opacity-20 blur-3xl pointer-events-none z-[-1]"></div>
+          <div className="pointer-events-none fixed inset-0 z-[-1] bg-[linear-gradient(180deg,#fff7ed_0%,#fffdfa_36%,#f8fafc_100%)]" />
 
           <Header
             initialNotificationCount={initialNotificationCount}
             initialNotificationUserId={currentUser?.id ?? null}
           />
-          <main className="flex-grow pt-[100px]">{children}</main>
+          <main className="flex-grow pt-[96px] sm:pt-[108px]">{children}</main>
           <Footer />
           <ChatbotWidget />
         </AuthProvider>
