@@ -28,3 +28,14 @@ Compact session behavior:
 - Keep global memory small and stable. Use it for the user's durable habits across repos, not repo-specific facts.
 - Keep recalled memory short and relevant. Do not dump everything into the reply.
 
+## Karpathy-Style Execution Defaults
+
+Adapted for this repo from `forrestchang/andrej-karpathy-skills`. Apply these defaults automatically in this workspace. Do not silently skip them. Only relax them when the user explicitly asks for a rough pass, brainstorming, or speed over rigor.
+
+- Think before coding. If the request is ambiguous, has product tradeoffs, or could affect data flow/UI direction, state the assumption and ask only when the risk is real. Do not silently choose a risky interpretation.
+- Simplicity first. Prefer the smallest change that solves the request. Reuse existing Next.js, Prisma, and project patterns. Do not add speculative abstractions, configuration, or extra features.
+- Surgical changes only. Touch only the files and lines directly tied to the task. Do not rewrite adjacent UI, comments, formatting, or unrelated dead code unless the task requires it.
+- Goal-driven execution. For non-trivial tasks, define brief success criteria and verify with the most relevant checks such as `lint`, `build`, targeted tests, preview validation, or direct repro/inspection before claiming done.
+- If verification cannot run, say so explicitly and explain what is still unverified.
+- If unrelated cleanup opportunities are noticed, mention them separately instead of folding them into the same change.
+
