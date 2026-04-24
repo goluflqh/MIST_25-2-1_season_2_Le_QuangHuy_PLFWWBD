@@ -1,6 +1,6 @@
-# Minh Hồng Next
+# Minh Hong Next
 
-Website full-stack cho Minh Hồng, xây bằng Next.js App Router, TypeScript và Prisma.
+Website full-stack cho Minh Hong, xây bằng Next.js App Router, TypeScript và Prisma.
 
 ## Stack chính
 
@@ -8,125 +8,143 @@ Website full-stack cho Minh Hồng, xây bằng Next.js App Router, TypeScript v
 - React 19
 - Prisma ORM
 - PostgreSQL cho local/dev và production
+- Playwright cho smoke E2E
 
-## Trạng thái database hiện tại
+## Trạng thái hiện tại
 
-Repo này đang được chuẩn hóa sang PostgreSQL ở Phase 2.5.
+Nhánh app-upgrades hiện đã đi qua các lát cắt chính của roadmap Phase 1-5:
 
-- Schema chuẩn nằm ở `prisma/schema.prisma`
-- Local/dev nên dùng PostgreSQL chạy trong Docker bên WSL2
-- `SQLite` cũ chỉ là di sản local, không còn là target nên tiếp tục dùng
+- tối ưu public-site và lead flow
+- harden auth/account/admin smoke
+- refactor chatbot sang AI-assisted hybrid
+- thêm chatbot pricing guidance, context retention và basic metrics model
+- thêm GitHub Actions CI cho pull request và push nhánh nâng cấp
 
-## Vì sao local dùng PostgreSQL qua WSL2 Docker
+Phase tiếp theo đang tập trung vào release readiness:
 
-Máy hiện tại có:
-
-- WSL2 Ubuntu đang chạy
-- Docker Engine nằm trong WSL2
-- PostgreSQL 12 cài trực tiếp trên Windows đang chiếm cổng `5432`
-
-Để tránh đụng service cũ trên Windows và giữ môi trường dev dễ lặp lại, project này dùng:
-
-- PostgreSQL 16 container
-- cổng `5433`
-- volume riêng của Docker
+- dọn docs/env cho deploy
+- checklist build local an toàn
+- checklist apply migration `ChatbotEvent`
 
 ## Local setup
 
 ### 1. Chuẩn bị env
 
-Repo có file mẫu:
+Copy từ `.env.example` sang `.env`, rồi chỉnh lại các giá trị thật nếu cần.
 
-- `.env.example`
-
-Local dev nên dùng các biến chính sau:
+Local dev hiện mặc định dùng PostgreSQL:
 
 ```env
 DATABASE_URL="postgresql://minhhong:minhhong_local_dev@localhost:5433/minhhong_next?schema=public"
 DIRECT_URL="postgresql://minhhong:minhhong_local_dev@localhost:5433/minhhong_next?schema=public"
 ```
 
-`DATABASE_URL` dùng cho app runtime.
-
-`DIRECT_URL` dùng cho Prisma migrate/generate an toàn hơn khi sau này chuyển sang pooler hoặc managed Postgres.
-
 ### 2. Bật PostgreSQL local
-
-Từ PowerShell của project:
 
 ```bash
 npm run db:local:up
 ```
 
-Xem trạng thái:
+Các lệnh hỗ trợ:
 
 ```bash
 npm run db:local:ps
-```
-
-Xem log:
-
-```bash
 npm run db:local:logs
-```
-
-Tắt database:
-
-```bash
 npm run db:local:down
-```
-
-Reset sạch volume local nếu cần tạo migration lại từ đầu:
-
-```bash
 npm run db:local:reset
 ```
 
-### 3. Tạo schema và Prisma Client
+### 3. Generate, migrate, seed
 
 ```bash
 npm run db:generate
 npm run db:migrate:dev -- --name init_postgres
-```
-
-### 4. Seed dữ liệu mẫu
-
-```bash
 npm run db:seed
 ```
 
-### 5. Chạy app
+### 4. Chạy app
 
 ```bash
 npm run dev
 ```
 
-## Các lệnh database hay dùng
+Hoặc nếu muốn dùng dev server ổn định ở cổng `3001` để chạy Playwright local:
 
 ```bash
-npm run db:format
-npm run db:validate
-npm run db:status
-npm run db:studio
-npm run db:migrate:deploy
+npm run dev:3001:start
 ```
 
-## Gợi ý target production
+## Các lệnh verify chính
+
+```bash
+npm run lint
+npm run build
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001 npm run test:e2e
+```
+
+CI trên GitHub hiện chạy các bước chính với PostgreSQL service: `npm ci`, Prisma generate/validate/migrate deploy, lint và build.
+
+## AI provider cho chatbot
+
+Code hiện hỗ trợ 3 provider qua biến `AI_PROVIDER`:
+
+- `gemini`
+- `openai`
+- `9router`
+
+`.env.example` đã có sẵn các biến tương ứng cho từng provider.
+
+Lưu ý:
+
+- `AI_PROVIDER` quyết định nhánh runtime của `/api/chat`
+- `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` chỉ là fallback override chung
+- nên chốt rõ một provider chính trên từng môi trường để tránh nhầm cấu hình
+
+## Lưu ý về build local
+
+Nếu `npm run build` bị thiếu RAM trên máy Windows, có thể tăng heap tạm thời:
+
+```powershell
+$env:NODE_OPTIONS="--max-old-space-size=4096"
+npm run build
+```
+
+Xong thì xoá biến:
+
+```powershell
+Remove-Item Env:NODE_OPTIONS
+```
+
+## Lưu ý về `ChatbotEvent`
+
+Repo đã có model và migration cho chatbot metrics:
+
+- `prisma/schema.prisma`
+- `prisma/migrations/20260420161054_add_chatbot_event_metrics/migration.sql`
+
+Nếu môi trường hiện tại chưa apply migration này, app vẫn chạy và build được nhưng dashboard sẽ log fail-soft kiểu:
+
+- thiếu bảng `public.ChatbotEvent`
+
+Khi đó chatbot metrics chưa có số thật. Đây là hành vi đã biết, không phải build blocker.
+
+## Tài liệu release readiness
+
+Xem thêm checklist rollout, env và migration ở:
+
+- `docs/release-readiness.md`
+
+## Gợi ý production target
 
 Khuyến nghị hiện tại:
 
-- local/dev: PostgreSQL 16 trong Docker trên WSL2
-- production/staging: managed PostgreSQL, ưu tiên Supabase
+- local/dev: PostgreSQL 16 trong Docker
+- staging/production: managed PostgreSQL
 
-Lý do:
+Với production workflow, ưu tiên:
 
-- ít lệch môi trường giữa dev và production
-- dễ làm migration với Prisma
-- không phụ thuộc SQLite file-based
-- dễ mở rộng cho auth, contact lead, dashboard admin và logging sau này
+```bash
+npm run db:migrate:deploy
+```
 
-## Lưu ý
-
-- Không dùng `prisma db push` cho production workflow trừ khi có chủ đích rõ ràng.
-- Với production nên dùng `prisma migrate deploy`.
-- Nếu cần đổi cổng local DB vì trùng, sửa `POSTGRES_PORT` trong `.env`.
+Không nên dùng `prisma db push` cho release workflow nếu không có chủ đích rất rõ.

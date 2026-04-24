@@ -22,6 +22,11 @@ const fallbackData = [
   {
     category: "PIN",
     items: [
+      {
+        name: "Kiểm tra tình trạng pin",
+        price: "Miễn phí",
+        note: "Quyền lợi trước khi chốt sửa hoặc đóng lại",
+      },
       { name: "Pin máy khoan / bắn vít", price: "350.000 - 800.000đ", note: "Tuỳ dung lượng & hãng" },
       { name: "Pin máy cắt / máy mài", price: "500.000 - 1.200.000đ", note: "Tuỳ số cell" },
       { name: "Pin xe đạp điện", price: "2.000.000 - 5.000.000đ", note: "Tuỳ Ah & loại xe" },
@@ -50,7 +55,7 @@ const fallbackData = [
       { name: "Trọn bộ 2 camera", price: "2.500.000 - 4.000.000đ", note: "Bao lắp đặt" },
       { name: "Trọn bộ 4 camera", price: "4.000.000 - 7.000.000đ", note: "Bao lắp đặt" },
       { name: "Camera PTZ xoay 360°", price: "1.500.000 - 3.000.000đ/cam", note: "Tuỳ hãng" },
-      { name: "Khảo sát tận nơi", price: "MIỄN PHÍ", note: "Đà Nẵng & lân cận" },
+      { name: "Khảo sát tận nơi", price: "Miễn phí", note: "Đà Nẵng & lân cận" },
     ],
   },
 ] as const;
@@ -85,11 +90,17 @@ const categoryConfig: Record<string, { label: string; bg: string; border: string
 const pricingCategories = ["PIN", "NLMT", "LUU_TRU", "CAMERA"] as const;
 
 function formatPricingItem(item: PricingItem): DisplayPricingItem {
+  const shouldAppendUnit = item.unit && !isFreePrice(item.price) && item.price !== "Liên hệ";
+
   return {
     name: item.name,
     note: item.note || item.description || "",
-    price: `${item.price}${item.unit ? ` ${item.unit}` : ""}`,
+    price: `${item.price}${shouldAppendUnit ? ` ${item.unit}` : ""}`,
   };
+}
+
+function isFreePrice(price: string) {
+  return price.toLowerCase().includes("miễn phí");
 }
 
 export default async function PricingPage() {
@@ -184,7 +195,7 @@ export default async function PricingPage() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <span
-                            className={`font-heading text-sm font-bold ${item.price === "MIỄN PHÍ" ? "text-emerald-600" : item.price === "Liên hệ" ? "text-red-600" : "text-slate-900"}`}
+                            className={`font-heading text-sm font-bold ${isFreePrice(item.price) ? "text-emerald-600" : item.price === "Liên hệ" ? "text-red-600" : "text-slate-900"}`}
                           >
                             {item.price}
                           </span>

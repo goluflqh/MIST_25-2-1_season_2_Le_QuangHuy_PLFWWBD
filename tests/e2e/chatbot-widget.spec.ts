@@ -28,7 +28,8 @@ test.describe("Chatbot widget", () => {
     await sendChatMessage(page, "Bảo hành pin bao lâu vậy em?");
 
     await expect(lastAssistantMessage(page)).toContainText(/bảo hành pin theo từng dòng và cấu hình/i);
-    await expect(page.getByRole("link", { name: /Gửi nhu cầu để em báo sát hơn/i })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /Nhận gợi ý cấu hình sát nhu cầu/i })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /Giữ nhu cầu này để em tư vấn tiếp/i })).toHaveCount(0);
   });
 
   test("carries chatbot context into the quote form when the user asks for pricing", async ({
@@ -41,7 +42,7 @@ test.describe("Chatbot widget", () => {
     await openChatbot(page);
     await sendChatMessage(page, "Mình muốn báo giá lắp camera cho cửa hàng tạp hóa.");
 
-    const leadLink = page.getByRole("link", { name: /Gửi nhu cầu để em báo sát hơn/i });
+    const leadLink = page.getByRole("link", { name: /Nhận gợi ý cấu hình sát nhu cầu/i });
     await expect(leadLink).toBeVisible();
     await leadLink.click();
 

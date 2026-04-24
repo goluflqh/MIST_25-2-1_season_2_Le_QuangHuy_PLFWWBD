@@ -1,3 +1,4 @@
+import { getChatbotServiceFact } from "@/lib/chatbot-content";
 import { siteConfig } from "@/lib/site";
 
 const HOTLINE = siteConfig.hotlineDisplay;
@@ -165,6 +166,21 @@ const LOCATION_SIGNALS = [
 const WARRANTY_SIGNALS = ["bao hanh", "warranty", "doi tra", "loi 1 doi 1"];
 
 const GREETING_SIGNALS = ["xin chao", "chao em", "hello", "hi", "alo", "shop oi"];
+
+const ACKNOWLEDGEMENT_SIGNALS = [
+  "ok",
+  "ok nha",
+  "ok em",
+  "oke",
+  "oke nha",
+  "cam on",
+  "thanks",
+  "thank you",
+  "duoc roi",
+  "vay nha",
+  "tam duoc",
+  "on roi",
+];
 
 const QUOTE_SIGNALS = [
   "bao gia",
@@ -630,6 +646,16 @@ function buildLocationReply() {
   return `Bên em ở ${LOCATION}, mở cửa ${BUSINESS_HOURS}. Anh/chị cần chỉ đường, Zalo hay gọi nhanh thì liên hệ ${HOTLINE} nhé.`;
 }
 
+function buildAcknowledgementReply(service: ChatbotServiceId | null) {
+  const serviceLabel = getChatbotServiceLabel(service);
+
+  if (!serviceLabel) {
+    return "Dạ vâng anh/chị nhé. Khi nào cần thêm thông tin hoặc muốn em gợi ý nhanh theo nhu cầu thực tế thì cứ nhắn em bất cứ lúc nào ạ.";
+  }
+
+  return `Dạ vâng anh/chị nhé. Khi nào cần em tư vấn tiếp về ${serviceLabel} hoặc muốn em gợi ý nhanh theo nhu cầu thực tế thì cứ nhắn em, em hỗ trợ tiếp ngay ạ.`;
+}
+
 function buildWarrantyReply(lookupMessage: string, service: ChatbotServiceId | null) {
   if (service === "CAMERA" || includesAny(lookupMessage, ["camera", "dau ghi"])) {
     return "Với camera thì thời gian bảo hành sẽ theo cấu hình lắp đặt và từng thiết bị cụ thể như mắt camera, đầu ghi hay ổ cứng. Bên em vẫn hỗ trợ kiểm tra lại hệ thống nếu có lỗi phát sinh trong quá trình sử dụng.";
@@ -813,11 +839,19 @@ export function getChatbotLeadSource(service: ChatbotServiceId | null) {
 export function buildChatbotServiceContextNote(service: ChatbotServiceId | null) {
   const serviceLabel = getChatbotServiceLabel(service);
 
-  if (!serviceLabel) {
+  if (!serviceLabel || !service || service === "KHAC") {
     return "";
   }
 
-  return `Ngữ cảnh gần nhất: khách đang quan tâm ${serviceLabel}. Khi trả lời, hãy bám đúng nhóm dịch vụ này trừ khi khách đổi chủ đề thật rõ.`;
+  const factNote = getChatbotServiceFact(service);
+
+  return [
+    `Ngữ cảnh gần nhất: khách đang quan tâm ${serviceLabel}. Khi trả lời, hãy bám đúng nhóm dịch vụ này trừ khi khách đổi chủ đề thật rõ.`,
+    factNote,
+    "Chỉ xem các dữ kiện trên là chắc chắn. Nếu thiếu model, mặt bằng, tải, ngân sách hoặc thông số kỹ thuật thì hãy nói rõ cần hỏi thêm thay vì khẳng định chắc hoặc bịa giá.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function analyzeChatbotMessage(
@@ -861,6 +895,14 @@ export function analyzeChatbotMessage(
     service || conversation.activeService,
     mentionedServices
   );
+  const isAcknowledgement =
+    wordCount <= 6 &&
+    includesAny(lookupMessage, ACKNOWLEDGEMENT_SIGNALS) &&
+    !hasQuoteIntent &&
+    !hasHumanSupportIntent &&
+    !hasOpenEndedIntent &&
+    !hasLocationIntent &&
+    !hasWarrantyIntent;
   const isPureGreeting =
     hasGreeting &&
     wordCount <= 4 &&
@@ -878,6 +920,18 @@ export function analyzeChatbotMessage(
         "Em chào anh/chị ạ. Anh/chị cứ nói sơ nhu cầu, em sẽ cố gắng tư vấn ngắn gọn và đi đúng ý hơn cho mình.",
       service,
       serviceLabel,
+      shouldOfferLeadForm: false,
+      shouldOfferHumanSupport: false,
+      shouldSuggestServices: false,
+    };
+  }
+
+  if (isAcknowledgement) {
+    return {
+      intent: "general",
+      localReply: buildAcknowledgementReply(service || conversation.activeService),
+      service: service || conversation.activeService,
+      serviceLabel: getChatbotServiceLabel(service || conversation.activeService),
       shouldOfferLeadForm: false,
       shouldOfferHumanSupport: false,
       shouldSuggestServices: false,

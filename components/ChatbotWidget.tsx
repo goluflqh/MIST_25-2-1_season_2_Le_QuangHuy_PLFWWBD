@@ -13,6 +13,14 @@ import {
   type ChatbotResponsePlan,
   type ChatbotServiceId,
 } from "@/lib/chatbot";
+import {
+  buildChatbotRuntimeFallbackReply,
+  CHATBOT_WIDGET_COPY,
+  CHATBOT_WIDGET_QUICK_PROMPTS,
+  getChatbotLeadActionLabel,
+  getChatbotLoadingCopy,
+  getChatbotZaloActionLabel,
+} from "@/lib/chatbot-content";
 import { siteConfig } from "@/lib/site";
 
 interface AssistantMeta {
@@ -43,9 +51,6 @@ interface Message {
   role: "user" | "assistant" | "system";
   timestamp: Date;
 }
-
-const DEFAULT_REPLY_FALLBACK =
-  "Dạ em đang phản hồi hơi chậm một chút. Anh/chị nói thêm model hoặc nhu cầu sử dụng, em sẽ gợi ý sát hơn cho mình nhé.";
 
 function normalizeChatText(value: string) {
   return value
@@ -101,6 +106,38 @@ function buildConversationHistory(messages: Message[]): ChatbotConversationMessa
     }));
 }
 
+function countRecentServiceAssistantMessages(messages: Message[], service: ChatbotServiceId | null) {
+  if (!service) {
+    return 0;
+  }
+
+  return messages
+    .filter((message) => message.role === "assistant" && message.meta?.service === service)
+    .slice(-3).length;
+}
+
+function enhanceAssistantMeta(
+  meta: AssistantMeta | undefined,
+  options: {
+    serviceMomentum: number;
+  }
+): AssistantMeta | undefined {
+  if (!meta) {
+    return undefined;
+  }
+
+  const shouldSoftOfferLeadForm =
+    Boolean(meta.service) &&
+    !meta.shouldOfferLeadForm &&
+    (meta.intent === "open_question" || Boolean(meta.usedFallback)) &&
+    options.serviceMomentum >= 1;
+
+  return {
+    ...meta,
+    shouldOfferLeadForm: meta.shouldOfferLeadForm || shouldSoftOfferLeadForm,
+  };
+}
+
 function toAssistantMeta(
   value:
     | (Partial<AssistantMeta> & { usedFallback?: boolean })
@@ -151,19 +188,19 @@ function buildAssistantActions(meta: AssistantMeta | undefined, userMessage: str
     actions.push({
       id: "lead-form",
       kind: "link",
-      label: meta.intent === "quote" ? "Gửi nhu cầu để em báo sát hơn" : "Để lại nhu cầu",
+      label: getChatbotLeadActionLabel(meta.intent, meta.usedFallback),
       href: buildLeadHref(meta.service, userMessage),
       tone: "primary",
     });
   }
 
-  if (meta.shouldOfferHumanSupport) {
+  if (meta.shouldOfferHumanSupport || (meta.shouldOfferLeadForm && Boolean(meta.service))) {
     actions.push({
       id: "zalo",
       external: true,
       href: siteConfig.zaloUrl,
       kind: "link",
-      label: "Nhắn Zalo",
+      label: getChatbotZaloActionLabel(meta.shouldOfferHumanSupport),
       tone: "secondary",
     });
   }
@@ -200,14 +237,15 @@ export default function ChatbotWidget() {
     {
       id: "welcome",
       role: "assistant",
-      content:
-        "Xin chào anh/chị! Em là trợ lý tư vấn của Minh Hồng. Anh/chị cứ nói sơ nhu cầu, em sẽ hỗ trợ ngắn gọn và đi đúng ý hơn cho mình nhé.",
+      content: CHATBOT_WIDGET_COPY.welcomeMessage,
       timestamp: new Date(),
     },
   ]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingMeta, setPendingMeta] = useState<AssistantMeta | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const loadingCopy = getChatbotLoadingCopy(pendingMeta?.intent, pendingMeta?.serviceLabel);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -229,7 +267,6 @@ export default function ChatbotWidget() {
 
     setMessages((prev) => [...prev, userMsg]);
     setInputValue("");
-    setIsLoading(true);
 
     const localPlan = analyzeChatbotMessage(text, {
       history: conversationHistory,
@@ -246,9 +283,23 @@ export default function ChatbotWidget() {
           normalizedUserText
         ),
       ]);
+      setPendingMeta(undefined);
       setIsLoading(false);
       return;
     }
+
+    const responseMeta = enhanceAssistantMeta(
+      toAssistantMeta(localPlan, localPlan.service || serviceContext),
+      {
+        serviceMomentum: countRecentServiceAssistantMessages(
+          messages,
+          localPlan.service || serviceContext
+        ),
+      }
+    );
+
+    setPendingMeta(responseMeta);
+    setIsLoading(true);
 
     try {
       const history = [...conversationHistory, { role: "user", content: normalizedUserText }];
@@ -265,19 +316,35 @@ export default function ChatbotWidget() {
       });
 
       const data = await res.json();
-      const assistantMeta = toAssistantMeta(data?.meta, localPlan.service || serviceContext);
+      const assistantMeta = enhanceAssistantMeta(
+        toAssistantMeta(data?.meta, localPlan.service || serviceContext),
+        {
+          serviceMomentum: countRecentServiceAssistantMessages(
+            messages,
+            localPlan.service || serviceContext
+          ),
+        }
+      );
 
       setMessages((prev) => [
         ...prev,
         createAssistantMessage(
-          typeof data?.reply === "string" ? data.reply : DEFAULT_REPLY_FALLBACK,
+          typeof data?.reply === "string"
+            ? data.reply
+            : buildChatbotRuntimeFallbackReply(localPlan.intent, localPlan.serviceLabel),
           assistantMeta,
           normalizedUserText
         ),
       ]);
     } catch {
-      setMessages((prev) => [...prev, createAssistantMessage(DEFAULT_REPLY_FALLBACK)]);
+      setMessages((prev) => [
+        ...prev,
+        createAssistantMessage(
+          buildChatbotRuntimeFallbackReply(localPlan.intent, localPlan.serviceLabel)
+        ),
+      ]);
     } finally {
+      setPendingMeta(undefined);
       setIsLoading(false);
     }
   };
@@ -361,9 +428,10 @@ export default function ChatbotWidget() {
                 MH
               </div>
               <div>
-                <p className="font-heading text-sm font-bold text-white">Minh Hồng AI</p>
+                <p className="font-heading text-sm font-bold text-white">{CHATBOT_WIDGET_COPY.title}</p>
                 <p className="flex items-center gap-1 text-[10px] text-green-400 font-body">
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span> Trực tuyến
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span>{" "}
+                  {CHATBOT_WIDGET_COPY.onlineStatus}
                 </p>
               </div>
             </div>
@@ -414,8 +482,15 @@ export default function ChatbotWidget() {
             ))}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  <div className="flex gap-1.5">
+                <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                  <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-body font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"></span>
+                    {loadingCopy.headline}
+                  </div>
+                  <p className="text-sm leading-relaxed text-slate-600">
+                    {loadingCopy.detail}
+                  </p>
+                  <div className="mt-3 flex gap-1.5">
                     <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300"></span>
                     <span className="animation-delay-150 h-2 w-2 animate-bounce rounded-full bg-slate-300"></span>
                     <span className="animation-delay-300 h-2 w-2 animate-bounce rounded-full bg-slate-300"></span>
@@ -427,15 +502,14 @@ export default function ChatbotWidget() {
           </div>
 
           <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-slate-100 bg-white px-3 py-2">
-            {["Bảo hành pin ra sao?", "Camera cửa hàng", "Đèn NLMT dùng mưa ổn không?", "Địa chỉ shop"].map(
-              (question) => (
+            {CHATBOT_WIDGET_QUICK_PROMPTS.map((item) => (
                 <button
-                  key={question}
-                  onClick={() => sendMessage(question)}
+                  key={item.label}
+                  onClick={() => sendMessage(item.prompt)}
                   className="shrink-0 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
                   type="button"
                 >
-                  {question}
+                  {item.label}
                 </button>
               )
             )}
@@ -449,7 +523,7 @@ export default function ChatbotWidget() {
                 value={inputValue}
                 onChange={(event) => setInputValue(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Anh/chị đang cần em hỗ trợ gì?"
+                placeholder={CHATBOT_WIDGET_COPY.inputPlaceholder}
                 className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-body outline-none transition-all focus:border-red-500 focus:ring-2 focus:ring-red-500"
                 disabled={isLoading}
               />
@@ -473,7 +547,7 @@ export default function ChatbotWidget() {
       <div className="fixed bottom-4 right-3 z-50 flex items-end gap-3 sm:bottom-6 sm:right-6">
         {!isOpen && (
           <div className="animate-fade-in-up relative mb-2 hidden whitespace-nowrap rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-body font-bold text-white shadow-lg sm:block">
-            Hỏi AI tư vấn
+            {CHATBOT_WIDGET_COPY.floatingBadge}
             <div className="absolute bottom-3 -right-1.5 h-3 w-3 rotate-45 bg-slate-900"></div>
           </div>
         )}
