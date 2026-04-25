@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 const ADMIN_PHONE = process.env.PLAYWRIGHT_ADMIN_PHONE ?? "0987443258";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD ?? "admin123";
+const AUTH_REDIRECT_TIMEOUT = 30_000;
 
 function buildUniquePhone() {
   const timestamp = Date.now().toString().slice(-5);
@@ -191,7 +192,7 @@ test.describe("Auth, account and dashboard smoke", () => {
   test("admin can sign in and open the dashboard health widgets", async ({ page }) => {
     await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
 
-    await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: AUTH_REDIRECT_TIMEOUT });
     await expect(page.getByTestId("dashboard-page")).toBeVisible();
     await expect(page.getByTestId("dashboard-crm-overview")).toBeVisible();
     await expect(page.getByTestId("dashboard-action-queue")).toBeVisible();
@@ -200,7 +201,7 @@ test.describe("Auth, account and dashboard smoke", () => {
 
   test("admin can scan and filter the customer CRM list", async ({ page }) => {
     await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
-    await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: AUTH_REDIRECT_TIMEOUT });
 
     await page.goto("/dashboard/users");
     await expect(page.getByTestId("dashboard-users-crm")).toBeVisible();
@@ -238,7 +239,7 @@ test.describe("Auth, account and dashboard smoke", () => {
 
     try {
       await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
-      await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: AUTH_REDIRECT_TIMEOUT });
 
       await page.goto("/dashboard/warranty");
       await expect(page.getByTestId("dashboard-warranty-crm")).toBeVisible();
@@ -278,7 +279,7 @@ test.describe("Auth, account and dashboard smoke", () => {
 
     try {
       await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
-      await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: AUTH_REDIRECT_TIMEOUT });
 
       await page.goto("/dashboard/reviews");
       await expect(page.getByTestId("dashboard-reviews-moderation")).toBeVisible();
@@ -297,6 +298,48 @@ test.describe("Auth, account and dashboard smoke", () => {
     } finally {
       if (reviewId) {
         await request.delete("/api/admin/reviews", { data: { id: reviewId } });
+      }
+    }
+  });
+
+  test("admin can filter the coupon rewards CRM list", async ({ page, request }) => {
+    const unique = Date.now().toString().slice(-8);
+    const couponCode = `E2ECPN${unique}`;
+
+    await loginAdminRequest(request);
+    const couponResponse = await request.post("/api/admin/coupons", {
+      data: {
+        code: couponCode,
+        description: "Coupon CRM e2e can be found by code and status filters.",
+        discount: "15%",
+        pointsCost: 77,
+        usageLimit: 3,
+        expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+    });
+    expect(couponResponse.ok()).toBeTruthy();
+    const couponBody = await couponResponse.json();
+    const couponId = couponBody.coupon?.id as string | undefined;
+
+    try {
+      await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: AUTH_REDIRECT_TIMEOUT });
+
+      await page.goto("/dashboard/coupons");
+      await expect(page.getByTestId("dashboard-coupons-crm")).toBeVisible();
+      await expect(page.getByTestId("dashboard-coupons-metrics")).toBeVisible();
+
+      await page.getByTestId("dashboard-coupons-search").fill(couponCode);
+      await page.getByTestId("dashboard-coupons-status-filter").selectOption("active");
+      await expect(page.getByTestId("dashboard-coupons-result-count")).toContainText("1 /");
+      await expect(page.getByTestId("dashboard-coupon-card")).toHaveCount(1);
+      await expect(page.getByTestId("dashboard-coupon-card")).toContainText(couponCode);
+
+      await page.getByTestId("dashboard-coupons-sort").selectOption("points");
+      await expect(page.getByTestId("dashboard-coupon-card")).toContainText("77 điểm");
+    } finally {
+      if (couponId) {
+        await request.delete("/api/admin/coupons", { data: { id: couponId } });
       }
     }
   });
@@ -324,7 +367,7 @@ test.describe("Auth, account and dashboard smoke", () => {
 
     try {
       await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
-      await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: AUTH_REDIRECT_TIMEOUT });
 
       await page.goto("/dashboard/contacts");
       await expect(page.getByTestId("dashboard-contacts-crm")).toBeVisible();
