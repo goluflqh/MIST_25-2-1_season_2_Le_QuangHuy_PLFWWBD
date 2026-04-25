@@ -47,7 +47,14 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page).toHaveURL(/\/tai-khoan/, { timeout: 15_000 });
     await expect(page.getByTestId("account-page")).toBeVisible();
     await expect(page.getByTestId("account-name")).toContainText(name);
+    await expect(page.getByText("Hồ sơ khách hàng")).toBeVisible();
+    await expect(page.getByText("Yêu cầu đã gửi")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Phiếu Bảo Hành" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Điểm Thưởng & Giới Thiệu" })).toBeVisible();
     await expect(page.getByTestId("account-request-history")).toBeVisible();
+
+    await page.getByRole("button", { name: /Bảo mật đăng nhập/ }).click();
+    await expect(page.getByText("Kiểm tra trước khi đổi")).toBeVisible();
 
     await page.getByTestId("account-logout").click();
     await expect(page).toHaveURL(/\/dang-nhap/, { timeout: 15_000 });
