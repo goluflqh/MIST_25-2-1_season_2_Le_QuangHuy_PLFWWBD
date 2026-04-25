@@ -1,13 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
+import JsonLd from "@/components/seo/JsonLd";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { storagePreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
+import { buildBreadcrumbJsonLd, buildServiceJsonLd } from "@/lib/structured-data";
 
 export const metadata = buildMarketingMetadata({
-  title: "Pin Lưu Trữ & Kích Đề",
+  title: "Pin Lưu Trữ & Kích Đề Đà Nẵng",
   description:
-    "Thiết kế pin lưu trữ, pin kích đề và bộ nguồn dự phòng theo tải xả, dung lượng và mức an toàn cần thiết.",
+    "Thiết kế pin lưu trữ, pin kích đề và nguồn dự phòng tại Đà Nẵng theo tải xả, dung lượng và mức an toàn cần thiết.",
   path: "/dich-vu/pin-luu-tru",
 });
 
@@ -53,7 +55,18 @@ const benefits = [
 
 export default function StorageBatteryPage() {
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
+    <>
+      <JsonLd
+        data={[
+          buildServiceJsonLd("storage"),
+          buildBreadcrumbJsonLd([
+            { name: "Trang chủ", path: "/" },
+            { name: "Dịch vụ", path: "/dich-vu" },
+            { name: "Pin lưu trữ & kích đề", path: "/dich-vu/pin-luu-tru" },
+          ]),
+        ]}
+      />
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
       <section className="relative mb-14 overflow-hidden rounded-[1.75rem] border border-emerald-100 bg-[linear-gradient(135deg,#ecfdf5,#ffffff_54%,#fff7ed)] p-6 shadow-[0_30px_90px_-48px_rgba(15,23,42,0.42)] md:p-10">
         <div className="relative z-10 grid gap-8 lg:grid-cols-[1fr_0.82fr] lg:items-center">
           <div>
@@ -191,6 +204,7 @@ export default function StorageBatteryPage() {
           </ul>
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }

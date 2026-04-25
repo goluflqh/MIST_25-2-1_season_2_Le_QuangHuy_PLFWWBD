@@ -1,13 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
+import JsonLd from "@/components/seo/JsonLd";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { solarPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
+import { buildBreadcrumbJsonLd, buildServiceJsonLd } from "@/lib/structured-data";
 
 export const metadata = buildMarketingMetadata({
-  title: "Đèn Năng Lượng Mặt Trời",
+  title: "Đèn Năng Lượng Mặt Trời Đà Nẵng",
   description:
-    "Tư vấn thay pin và lắp đặt đèn năng lượng mặt trời cho sân vườn, lối đi, cổng nhà và các khu vực khó kéo điện.",
+    "Tư vấn, lắp đặt và thay pin đèn năng lượng mặt trời tại Đà Nẵng cho sân, cổng, lối đi và khu vực cần chiếu sáng tự động.",
   path: "/dich-vu/den-nang-luong",
 });
 
@@ -53,7 +55,18 @@ const benefits = [
 
 export default function SolarLightPage() {
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
+    <>
+      <JsonLd
+        data={[
+          buildServiceJsonLd("solar"),
+          buildBreadcrumbJsonLd([
+            { name: "Trang chủ", path: "/" },
+            { name: "Dịch vụ", path: "/dich-vu" },
+            { name: "Đèn năng lượng mặt trời", path: "/dich-vu/den-nang-luong" },
+          ]),
+        ]}
+      />
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
       <section className="relative mb-14 overflow-hidden rounded-[1.75rem] border border-amber-100 bg-[linear-gradient(135deg,#fffbeb,#ffffff_54%,#fff7ed)] p-6 shadow-[0_30px_90px_-48px_rgba(15,23,42,0.42)] md:p-10">
         <div className="relative z-10 grid gap-8 lg:grid-cols-[1fr_0.82fr] lg:items-center">
           <div>
@@ -190,6 +203,7 @@ export default function SolarLightPage() {
           </ul>
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }

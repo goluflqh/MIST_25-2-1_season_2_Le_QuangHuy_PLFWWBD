@@ -1,13 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
+import JsonLd from "@/components/seo/JsonLd";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { batteryPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
+import { buildBreadcrumbJsonLd, buildServiceJsonLd } from "@/lib/structured-data";
 
 export const metadata = buildMarketingMetadata({
-  title: "Đóng Pin Lithium",
+  title: "Đóng Pin Lithium Đà Nẵng",
   description:
-    "Đóng pin Lithium theo tải thực tế cho xe điện, máy công cụ, loa kéo và bộ pin theo thông số riêng.",
+    "Đóng pin Lithium tại Đà Nẵng theo tải thực tế cho xe điện, máy công cụ, loa kéo và bộ pin theo thông số riêng, có kiểm tra cell và BMS.",
   path: "/dich-vu/dong-pin",
 });
 
@@ -53,7 +55,18 @@ const benefits = [
 
 export default function BatteryServicePage() {
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
+    <>
+      <JsonLd
+        data={[
+          buildServiceJsonLd("battery"),
+          buildBreadcrumbJsonLd([
+            { name: "Trang chủ", path: "/" },
+            { name: "Dịch vụ", path: "/dich-vu" },
+            { name: "Đóng pin Lithium", path: "/dich-vu/dong-pin" },
+          ]),
+        ]}
+      />
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
       <section className="relative mb-14 overflow-hidden rounded-[1.75rem] border border-red-100 bg-[linear-gradient(135deg,#fff7ed,#ffffff_54%,#fff1f2)] p-6 shadow-[0_30px_90px_-48px_rgba(15,23,42,0.42)] md:p-10">
         <div className="relative z-10 grid gap-8 lg:grid-cols-[1fr_0.82fr] lg:items-center">
           <div>
@@ -191,6 +204,7 @@ export default function BatteryServicePage() {
           </ul>
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }

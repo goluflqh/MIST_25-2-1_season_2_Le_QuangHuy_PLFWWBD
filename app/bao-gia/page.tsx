@@ -1,6 +1,8 @@
 import Link from "next/link";
+import JsonLd from "@/components/seo/JsonLd";
 import { getPublicActivePricingItems } from "@/lib/public-data";
 import { siteConfig } from "@/lib/site";
+import { buildBreadcrumbJsonLd, buildPricingFaqJsonLd } from "@/lib/structured-data";
 
 interface PricingItem {
   id: string;
@@ -119,8 +121,18 @@ export default async function PricingPage() {
   });
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-      <div className="mx-auto mb-16 max-w-3xl text-center">
+    <>
+      <JsonLd
+        data={[
+          buildBreadcrumbJsonLd([
+            { name: "Trang chủ", path: "/" },
+            { name: "Bảng giá", path: "/bao-gia" },
+          ]),
+          buildPricingFaqJsonLd(),
+        ]}
+      />
+      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto mb-16 max-w-3xl text-center">
         <span className="inline-block rounded-full border border-red-100 bg-red-50 px-3 py-1 text-sm font-semibold text-red-600">
           Bảng giá tham khảo
         </span>
@@ -241,6 +253,7 @@ export default async function PricingPage() {
           </Link>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

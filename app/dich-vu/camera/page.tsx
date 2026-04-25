@@ -1,13 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
+import JsonLd from "@/components/seo/JsonLd";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { cameraPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
+import { buildBreadcrumbJsonLd, buildServiceJsonLd } from "@/lib/structured-data";
 
 export const metadata = buildMarketingMetadata({
-  title: "Lắp Đặt Camera An Ninh",
+  title: "Lắp Đặt Camera An Ninh Đà Nẵng",
   description:
-    "Khảo sát, lắp đặt camera an ninh cho gia đình và cửa hàng với cấu hình đủ dùng, đi dây gọn và bàn giao dễ theo dõi.",
+    "Khảo sát, lắp đặt camera an ninh tại Đà Nẵng cho gia đình, cửa hàng, kho và xưởng với cấu hình đủ dùng, đi dây gọn và bàn giao dễ theo dõi.",
   path: "/dich-vu/camera",
 });
 
@@ -53,7 +55,18 @@ const benefits = [
 
 export default function CameraServicePage() {
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
+    <>
+      <JsonLd
+        data={[
+          buildServiceJsonLd("camera"),
+          buildBreadcrumbJsonLd([
+            { name: "Trang chủ", path: "/" },
+            { name: "Dịch vụ", path: "/dich-vu" },
+            { name: "Camera an ninh", path: "/dich-vu/camera" },
+          ]),
+        ]}
+      />
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
       <section className="relative mb-14 overflow-hidden rounded-[1.75rem] border border-sky-100 bg-[linear-gradient(135deg,#eff6ff,#ffffff_54%,#fff7ed)] p-6 shadow-[0_30px_90px_-48px_rgba(15,23,42,0.42)] md:p-10">
         <div className="relative z-10 grid gap-8 lg:grid-cols-[1fr_0.82fr] lg:items-center">
           <div>
@@ -190,6 +203,7 @@ export default function CameraServicePage() {
           </ul>
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }
