@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Routes that require authentication
 const PROTECTED_ROUTES = ["/dashboard", "/tai-khoan"];
-// Routes only for guests (redirect to account if already logged in)
-const GUEST_ONLY_ROUTES = ["/dang-nhap", "/dang-ky"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -17,15 +15,9 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Check guest-only routes (already logged in → redirect)
-  const isGuestOnly = GUEST_ONLY_ROUTES.some((route) => pathname.startsWith(route));
-  if (isGuestOnly && sessionToken) {
-    return NextResponse.redirect(new URL("/tai-khoan", request.url));
-  }
-
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/tai-khoan/:path*", "/dang-nhap", "/dang-ky"],
+  matcher: ["/dashboard/:path*", "/tai-khoan/:path*"],
 };

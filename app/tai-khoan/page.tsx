@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import AccountAuthRedirect from "@/components/account/AccountAuthRedirect";
 import AccountPageClient from "@/components/account/AccountPageClient";
 import {
   isPrismaDatabaseUnavailable,
@@ -88,7 +88,7 @@ export default async function AccountPage() {
   const user = await getCurrentSessionUser();
 
   if (!user) {
-    redirect("/dang-nhap");
+    return <AccountAuthRedirect />;
   }
 
   const { requests, warranties, dataWarning } = await loadAccountCollections(user.id, user.phone);

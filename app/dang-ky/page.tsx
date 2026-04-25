@@ -17,7 +17,7 @@ function validatePhone(phone: string): string | null {
 function RegisterPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setUser } = useAuth();
+  const { user, setUser } = useAuth();
   const refCode = searchParams.get("ref");
 
   const [name, setName] = useState("");
@@ -27,6 +27,16 @@ function RegisterPageContent() {
   const [phoneError, setPhoneError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [referrerName, setReferrerName] = useState("");
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    startTransition(() => {
+      router.replace("/tai-khoan");
+    });
+  }, [router, user]);
 
   useEffect(() => {
     if (refCode) {

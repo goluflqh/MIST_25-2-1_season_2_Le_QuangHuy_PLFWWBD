@@ -32,6 +32,28 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("login-page")).toBeVisible();
   });
 
+  test("stale session cookie does not trap guests in an auth redirect loop", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await context.addCookies([
+      {
+        name: "session_token",
+        value: "stale-e2e-session-token",
+        url: baseURL ?? "http://127.0.0.1:3001",
+      },
+    ]);
+
+    await page.goto("/dang-ky");
+    await expect(page).toHaveURL(/\/dang-ky/);
+    await expect(page.getByTestId("register-page")).toBeVisible();
+
+    await page.goto("/tai-khoan");
+    await expect(page).toHaveURL(/\/dang-nhap/, { timeout: 15_000 });
+    await expect(page.getByTestId("login-page")).toBeVisible();
+  });
+
   test("guest can register a new account, land on account page and log out", async ({ page }) => {
     const name = "Khach Test Phase 5";
     const phone = buildUniquePhone();

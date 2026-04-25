@@ -20,7 +20,7 @@ function formatRetryAfter(totalSeconds: number) {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { setUser } = useAuth();
+  const { user, setUser } = useAuth();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -28,6 +28,17 @@ export default function LoginPage() {
   const [retryAfterSec, setRetryAfterSec] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    const targetPath = user.role === "ADMIN" ? "/dashboard" : "/tai-khoan";
+    startTransition(() => {
+      router.replace(targetPath);
+    });
+  }, [router, user]);
 
   useEffect(() => {
     if (retryAfterSec <= 0) {
