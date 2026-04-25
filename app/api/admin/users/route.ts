@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
@@ -35,12 +36,35 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, message: "Không thể xoá chính mình." }, { status: 400 });
     }
 
+    const targetUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        role: true,
+        loyaltyPoints: true,
+        referralCode: true,
+        referredBy: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
     // Cascade delete related data
     await prisma.session.deleteMany({ where: { userId } });
     await prisma.review.deleteMany({ where: { userId } });
     await prisma.warranty.deleteMany({ where: { userId } });
     await prisma.contactRequest.deleteMany({ where: { userId } });
     await prisma.user.delete({ where: { id: userId } });
+    await recordAuditLog({
+      action: "USER_DELETE",
+      actor: admin,
+      entity: "User",
+      entityId: userId,
+      oldData: toAuditJson(targetUser || { id: userId }),
+      request,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -64,14 +88,52 @@ export async function PATCH(request: Request) {
     }
 
     const hashed = await hashPassword(newPassword);
+    const targetUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        role: true,
+        loyaltyPoints: true,
+        referralCode: true,
+        referredBy: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
-    await prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: { password: hashed },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        role: true,
+        loyaltyPoints: true,
+        referralCode: true,
+        referredBy: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     // Xoá tất cả session cũ → buộc đăng nhập lại
-    await prisma.session.deleteMany({ where: { userId } });
+    const deletedSessions = await prisma.session.deleteMany({ where: { userId } });
+    await recordAuditLog({
+      action: "USER_PASSWORD_RESET",
+      actor: admin,
+      entity: "User",
+      entityId: userId,
+      oldData: toAuditJson(targetUser || { id: userId }),
+      newData: toAuditJson({
+        ...updatedUser,
+        passwordReset: true,
+        revokedSessionCount: deletedSessions.count,
+      }),
+      request,
+    });
 
     return NextResponse.json({ success: true, message: "Đã đặt lại mật khẩu." });
   } catch (error) {

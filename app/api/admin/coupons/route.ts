@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
@@ -25,6 +26,14 @@ export async function POST(request: Request) {
     if (!admin) return forbiddenResponse();
     const body = await request.json();
     const coupon = await prisma.coupon.create({ data: body });
+    await recordAuditLog({
+      action: "COUPON_CREATE",
+      actor: admin,
+      entity: "Coupon",
+      entityId: coupon.id,
+      newData: toAuditJson(coupon),
+      request,
+    });
     return NextResponse.json({ success: true, coupon });
   } catch (error) {
     console.error("Coupons POST error:", error);
@@ -38,7 +47,15 @@ export async function DELETE(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const { id } = await request.json();
-    await prisma.coupon.delete({ where: { id } });
+    const deletedCoupon = await prisma.coupon.delete({ where: { id } });
+    await recordAuditLog({
+      action: "COUPON_DELETE",
+      actor: admin,
+      entity: "Coupon",
+      entityId: deletedCoupon.id,
+      oldData: toAuditJson(deletedCoupon),
+      request,
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Coupons DELETE error:", error);

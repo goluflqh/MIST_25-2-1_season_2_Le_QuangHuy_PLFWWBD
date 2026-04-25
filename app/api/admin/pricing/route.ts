@@ -1,5 +1,6 @@
 import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
+import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { getPublicActivePricingItems, PUBLIC_PRICING_TAG } from "@/lib/public-data";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
@@ -22,6 +23,14 @@ export async function POST(request: Request) {
     if (!admin) return forbiddenResponse();
     const body = await request.json();
     const item = await prisma.pricingItem.create({ data: body });
+    await recordAuditLog({
+      action: "PRICING_CREATE",
+      actor: admin,
+      entity: "PricingItem",
+      entityId: item.id,
+      newData: toAuditJson(item),
+      request,
+    });
     revalidateTag(PUBLIC_PRICING_TAG, "max");
     return NextResponse.json({ success: true, item });
   } catch (error) {
@@ -36,7 +45,17 @@ export async function PATCH(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const { id, ...data } = await request.json();
+    const previousItem = await prisma.pricingItem.findUnique({ where: { id } });
     const item = await prisma.pricingItem.update({ where: { id }, data });
+    await recordAuditLog({
+      action: "PRICING_UPDATE",
+      actor: admin,
+      entity: "PricingItem",
+      entityId: item.id,
+      newData: toAuditJson(item),
+      oldData: toAuditJson(previousItem),
+      request,
+    });
     revalidateTag(PUBLIC_PRICING_TAG, "max");
     return NextResponse.json({ success: true, item });
   } catch (error) {
@@ -51,7 +70,15 @@ export async function DELETE(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const { id } = await request.json();
-    await prisma.pricingItem.delete({ where: { id } });
+    const deletedItem = await prisma.pricingItem.delete({ where: { id } });
+    await recordAuditLog({
+      action: "PRICING_DELETE",
+      actor: admin,
+      entity: "PricingItem",
+      entityId: deletedItem.id,
+      oldData: toAuditJson(deletedItem),
+      request,
+    });
     revalidateTag(PUBLIC_PRICING_TAG, "max");
     return NextResponse.json({ success: true });
   } catch (error) {

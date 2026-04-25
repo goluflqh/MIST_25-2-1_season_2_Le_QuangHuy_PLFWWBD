@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
@@ -22,9 +23,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     if (notes !== undefined) updateData.notes = notes;
 
+    const previousContact = await prisma.contactRequest.findUnique({ where: { id } });
     const updated = await prisma.contactRequest.update({
       where: { id },
       data: updateData,
+    });
+    await recordAuditLog({
+      action: "CONTACT_UPDATE",
+      actor: admin,
+      entity: "ContactRequest",
+      entityId: updated.id,
+      oldData: toAuditJson(previousContact),
+      newData: toAuditJson(updated),
+      request,
     });
 
     return NextResponse.json({ success: true, contact: updated });
@@ -41,7 +52,15 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (!admin) return forbiddenResponse("Không có quyền.");
 
     const { id } = await params;
-    await prisma.contactRequest.delete({ where: { id } });
+    const deletedContact = await prisma.contactRequest.delete({ where: { id } });
+    await recordAuditLog({
+      action: "CONTACT_DELETE",
+      actor: admin,
+      entity: "ContactRequest",
+      entityId: deletedContact.id,
+      oldData: toAuditJson(deletedContact),
+      request,
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Contact delete error:", error);

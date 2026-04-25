@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
@@ -48,6 +49,14 @@ export async function POST(request: Request) {
         userId: customer.id,
       },
     });
+    await recordAuditLog({
+      action: "WARRANTY_CREATE",
+      actor: admin,
+      entity: "Warranty",
+      entityId: warranty.id,
+      newData: toAuditJson(warranty),
+      request,
+    });
 
     return NextResponse.json({ success: true, warranty });
   } catch (error) {
@@ -62,7 +71,15 @@ export async function DELETE(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const { id } = await request.json();
-    await prisma.warranty.delete({ where: { id } });
+    const deletedWarranty = await prisma.warranty.delete({ where: { id } });
+    await recordAuditLog({
+      action: "WARRANTY_DELETE",
+      actor: admin,
+      entity: "Warranty",
+      entityId: deletedWarranty.id,
+      oldData: toAuditJson(deletedWarranty),
+      request,
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Warranty DELETE error:", error);

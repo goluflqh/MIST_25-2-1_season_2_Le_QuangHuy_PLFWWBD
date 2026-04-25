@@ -13,7 +13,7 @@ const store = new Map<string, RateLimitEntry>();
 
 // Auto-cleanup expired entries every 5 minutes.
 if (typeof setInterval !== "undefined") {
-  setInterval(() => {
+  const cleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of store) {
       if (now > entry.resetAt) {
@@ -21,6 +21,10 @@ if (typeof setInterval !== "undefined") {
       }
     }
   }, 5 * 60 * 1000);
+
+  if (typeof cleanupInterval === "object" && typeof cleanupInterval.unref === "function") {
+    cleanupInterval.unref();
+  }
 }
 
 interface RateLimitConfig {
