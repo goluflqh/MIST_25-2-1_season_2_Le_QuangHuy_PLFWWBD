@@ -12,6 +12,7 @@ export async function GET() {
     if (!admin) return forbiddenResponse();
 
     const reviews = await prisma.review.findMany({
+      where: { deletedAt: null },
       orderBy: { createdAt: "desc" },
       include: { user: { select: { name: true, phone: true } } },
     });

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 
 export default async function DashboardPage() {
+  const activeContactWhere = { deletedAt: null };
+
   const [
     totalContacts,
     pendingContacts,
@@ -14,14 +16,14 @@ export default async function DashboardPage() {
     recentContacts,
     chatbotMetrics,
   ] = await Promise.all([
-    prisma.contactRequest.count(),
-    prisma.contactRequest.count({ where: { status: "PENDING" } }),
-    prisma.contactRequest.count({ where: { status: "CONTACTED" } }),
-    prisma.contactRequest.count({ where: { status: "IN_PROGRESS" } }),
-    prisma.contactRequest.count({ where: { status: "COMPLETED" } }),
-    prisma.contactRequest.count({ where: { status: "CANCELLED" } }),
-    prisma.user.count({ where: { role: "CUSTOMER" } }),
-    prisma.contactRequest.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
+    prisma.contactRequest.count({ where: activeContactWhere }),
+    prisma.contactRequest.count({ where: { ...activeContactWhere, status: "PENDING" } }),
+    prisma.contactRequest.count({ where: { ...activeContactWhere, status: "CONTACTED" } }),
+    prisma.contactRequest.count({ where: { ...activeContactWhere, status: "IN_PROGRESS" } }),
+    prisma.contactRequest.count({ where: { ...activeContactWhere, status: "COMPLETED" } }),
+    prisma.contactRequest.count({ where: { ...activeContactWhere, status: "CANCELLED" } }),
+    prisma.user.count({ where: { role: "CUSTOMER", deletedAt: null } }),
+    prisma.contactRequest.findMany({ where: activeContactWhere, orderBy: { createdAt: "desc" }, take: 5 }),
     getChatbotDashboardMetrics(),
   ]);
 

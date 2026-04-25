@@ -37,7 +37,9 @@ export async function GET(request: Request) {
       );
     }
 
-    const referrer = await prisma.user.findUnique({ where: { referralCode: code } });
+    const referrer = await prisma.user.findFirst({
+      where: { referralCode: code, deletedAt: null },
+    });
     if (!referrer) return NextResponse.json({ success: false, message: "Mã giới thiệu không hợp lệ." }, { status: 404 });
 
     return NextResponse.json({ success: true, referrerName: referrer.name });

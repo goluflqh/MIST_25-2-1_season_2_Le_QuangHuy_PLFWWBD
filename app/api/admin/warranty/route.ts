@@ -9,6 +9,7 @@ export async function GET() {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const warranties = await prisma.warranty.findMany({
+      where: { deletedAt: null },
       orderBy: { createdAt: "desc" },
       include: { user: { select: { name: true, phone: true } } },
     });
@@ -32,7 +33,9 @@ export async function POST(request: Request) {
     const { serialNo, productName, customerPhone, service, endDate, notes } = body;
 
     // Verify customer phone exists in User table
-    const customer = await prisma.user.findUnique({ where: { phone: customerPhone } });
+    const customer = await prisma.user.findFirst({
+      where: { phone: customerPhone, deletedAt: null },
+    });
     if (!customer) {
       return NextResponse.json({
         success: false,

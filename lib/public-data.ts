@@ -26,7 +26,7 @@ const readActivePricingItems = unstable_cache(
 const readApprovedReviews = unstable_cache(
   async () =>
     prisma.review.findMany({
-      where: { approved: true },
+      where: { approved: true, deletedAt: null },
       orderBy: { createdAt: "desc" },
       take: 20,
       include: { user: { select: { name: true } } },

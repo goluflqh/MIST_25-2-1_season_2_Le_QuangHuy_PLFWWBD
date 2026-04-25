@@ -10,6 +10,7 @@ export async function GET() {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const users = await prisma.user.findMany({
+      where: { deletedAt: null },
       orderBy: { createdAt: "desc" },
       select: {
         id: true, name: true, phone: true, role: true,

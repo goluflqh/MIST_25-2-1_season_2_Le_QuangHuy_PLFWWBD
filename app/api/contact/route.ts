@@ -122,6 +122,7 @@ export async function GET() {
     if (!admin) return forbiddenResponse();
 
     const contacts = await prisma.contactRequest.findMany({
+      where: { deletedAt: null },
       orderBy: { createdAt: "desc" },
     });
 

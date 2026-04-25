@@ -36,12 +36,13 @@ async function loadAccountCollections(userId: string, phone: string) {
     const [requests, warranties] = await Promise.all([
       prisma.contactRequest.findMany({
         where: {
+          deletedAt: null,
           OR: [{ userId }, { phone }],
         },
         orderBy: { createdAt: "desc" },
       }),
       prisma.warranty.findMany({
-        where: { userId },
+        where: { userId, deletedAt: null },
         orderBy: { createdAt: "desc" },
       }),
     ]);

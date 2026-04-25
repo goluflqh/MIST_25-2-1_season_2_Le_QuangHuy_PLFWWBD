@@ -8,7 +8,9 @@ export async function GET(request: Request) {
     const serial = searchParams.get("serial");
     if (!serial) return NextResponse.json({ success: false, message: "Vui lòng nhập số serial." }, { status: 400 });
 
-    const warranty = await prisma.warranty.findUnique({ where: { serialNo: serial } });
+    const warranty = await prisma.warranty.findFirst({
+      where: { serialNo: serial, deletedAt: null },
+    });
     if (!warranty) return NextResponse.json({ success: false, message: "Không tìm thấy thông tin bảo hành." }, { status: 404 });
 
     const isValid = new Date() < new Date(warranty.endDate);

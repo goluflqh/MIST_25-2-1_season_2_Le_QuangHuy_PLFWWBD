@@ -17,12 +17,14 @@ export async function getAdminNotificationCounts(options?: {
   const [pendingContacts, pendingReviews] = await Promise.all([
     prisma.contactRequest.count({
       where: {
+        deletedAt: null,
         status: "PENDING",
         ...(createdAtFilter ? { createdAt: createdAtFilter } : {}),
       },
     }),
     prisma.review.count({
       where: {
+        deletedAt: null,
         approved: false,
         ...(createdAtFilter ? { createdAt: createdAtFilter } : {}),
       },
@@ -58,6 +60,7 @@ export async function getNotificationCountForUser(
 
     return prisma.contactRequest.count({
       where: {
+        deletedAt: null,
         OR: [{ userId: user.id }, { phone: user.phone }],
         status: { not: "PENDING" },
         updatedAt: { gt: lastSeenDate },
