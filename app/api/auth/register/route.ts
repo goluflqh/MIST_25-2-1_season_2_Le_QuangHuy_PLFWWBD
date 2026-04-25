@@ -9,10 +9,10 @@ import {
 import { prisma } from "@/lib/prisma";
 import { generateSessionToken, hashPassword } from "@/lib/auth";
 import {
-  consumeRateLimit,
+  consumeRateLimitForRequest,
   formatDurationVi,
   getClientIP,
-  getRateLimitStatus,
+  getRateLimitStatusForRequest,
   RATE_LIMITS,
   type RateLimitResult,
 } from "@/lib/rate-limit";
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   try {
     const ip = getClientIP(request);
     const identifier = `register:${ip}`;
-    const currentLimit = getRateLimitStatus(identifier, RATE_LIMITS.register);
+    const currentLimit = await getRateLimitStatusForRequest(identifier, RATE_LIMITS.register);
 
     if (!currentLimit.allowed) {
       return createRateLimitedResponse(getBlockedMessage(currentLimit.retryAfterSec), currentLimit);
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const attempt = consumeRateLimit(identifier, RATE_LIMITS.register);
+    const attempt = await consumeRateLimitForRequest(identifier, RATE_LIMITS.register);
     if (!attempt.allowed) {
       return createRateLimitedResponse(getBlockedMessage(attempt.retryAfterSec), attempt);
     }

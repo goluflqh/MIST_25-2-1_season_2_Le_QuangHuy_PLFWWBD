@@ -16,7 +16,7 @@ import {
 import { recordChatbotEvent, type ChatbotEventType } from "@/lib/chatbot-metrics";
 import { buildChatbotPricingContext } from "@/lib/chatbot-pricing";
 import { getPublicActivePricingItems } from "@/lib/public-data";
-import { checkRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import { checkRateLimitForRequest, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { sanitizeText } from "@/lib/sanitize";
 import { siteConfig } from "@/lib/site";
 
@@ -479,7 +479,7 @@ export async function POST(request: Request) {
 
   try {
     const ip = getClientIP(request);
-    const rl = checkRateLimit(`chat:${ip}`, RATE_LIMITS.chat);
+    const rl = await checkRateLimitForRequest(`chat:${ip}`, RATE_LIMITS.chat);
 
     if (!rl.allowed) {
       return NextResponse.json(

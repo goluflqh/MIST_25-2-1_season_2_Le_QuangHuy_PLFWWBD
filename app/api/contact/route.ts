@@ -7,7 +7,7 @@ import {
   readJsonBody,
 } from "@/lib/api-route";
 import { prisma } from "@/lib/prisma";
-import { checkRateLimit, formatDurationVi, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import { checkRateLimitForRequest, formatDurationVi, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { forbiddenResponse, getCurrentAdminUser, getCurrentSession } from "@/lib/session";
 import { isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
 
@@ -23,7 +23,7 @@ function optionalText(value: unknown, maxLength: number) {
 export async function POST(request: Request) {
   try {
     const ip = getClientIP(request);
-    const rateLimit = checkRateLimit(`contact:${ip}`, RATE_LIMITS.contact);
+    const rateLimit = await checkRateLimitForRequest(`contact:${ip}`, RATE_LIMITS.contact);
 
     if (!rateLimit.allowed) {
       return createRateLimitResponse(

@@ -9,12 +9,12 @@ import {
 import { prisma } from "@/lib/prisma";
 import { generateSessionToken, verifyPassword } from "@/lib/auth";
 import {
-  consumeRateLimit,
+  consumeRateLimitForRequest,
   formatDurationVi,
   getClientIP,
-  getRateLimitStatus,
+  getRateLimitStatusForRequest,
   RATE_LIMITS,
-  resetRateLimit,
+  resetRateLimitForRequest,
   type RateLimitResult,
 } from "@/lib/rate-limit";
 import { isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
   try {
     const ip = getClientIP(request);
     const identifier = `login:${ip}`;
-    const currentLimit = getRateLimitStatus(identifier, RATE_LIMITS.login);
+    const currentLimit = await getRateLimitStatusForRequest(identifier, RATE_LIMITS.login);
 
     if (!currentLimit.allowed) {
       return createRateLimitedResponse(getBlockedMessage(currentLimit.retryAfterSec), currentLimit);
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     const isValid = user ? await verifyPassword(password, user.password) : false;
 
     if (!user || !isValid) {
-      const failedAttempt = consumeRateLimit(identifier, RATE_LIMITS.login);
+      const failedAttempt = await consumeRateLimitForRequest(identifier, RATE_LIMITS.login);
 
       if (!failedAttempt.allowed) {
         return createRateLimitedResponse(getBlockedMessage(failedAttempt.retryAfterSec), failedAttempt);
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       });
     }
 
-    resetRateLimit(identifier);
+    await resetRateLimitForRequest(identifier);
 
     const oldSessions = await prisma.session.findMany({
       where: { userId: user.id },

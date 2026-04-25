@@ -173,6 +173,16 @@ model AuditLog {
   @@index([createdAt])
 }
 
+model RateLimitBucket {
+  identifier String   @id
+  count      Int      @default(0)
+  resetAt    DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([resetAt])
+}
+
 model ChatbotEvent {
   id             String   @id @default(cuid())
   eventType      String
