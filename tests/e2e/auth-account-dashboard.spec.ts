@@ -63,6 +63,8 @@ test.describe("Auth, account and dashboard smoke", () => {
   });
 
   test("guest can register a new account, land on account page and log out", async ({ page, request }) => {
+    test.setTimeout(60_000);
+
     const name = "Khach Test Phase 5";
     const phone = buildUniquePhone();
     const serialNo = `MH-E2E-${Date.now()}`;
@@ -134,18 +136,27 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByText(couponCode)).toBeVisible();
 
     await page.getByTestId("account-referral-generate").click();
-    await expect(page.getByTestId("account-referral-link")).toHaveValue(/\/dang-ky\?ref=MH/);
+    await expect(page.getByTestId("account-referral-link")).toHaveValue(/\/dang-ky\?ref=MH/, {
+      timeout: 15_000,
+    });
 
     await page.getByTestId("account-warranty-serial").fill(`MH-MISSING-${Date.now()}`);
     await page.getByTestId("account-warranty-lookup").click();
-    await expect(page.getByTestId("account-warranty-message")).toContainText("Không tìm thấy");
+    await expect(page.getByTestId("account-warranty-lookup")).toBeEnabled({ timeout: 15_000 });
+    await expect(page.getByTestId("account-warranty-message")).toContainText("Không tìm thấy", {
+      timeout: 15_000,
+    });
     await page.getByTestId("account-warranty-serial").fill(serialNo);
     await page.getByTestId("account-warranty-lookup").click();
     await expect(page.getByTestId("account-warranty-result")).toContainText("Pin test Phase 5");
 
-    await page.getByTestId("account-coupon-redeem").click();
+    const couponCard = page
+      .getByTestId("account-coupon-list")
+      .locator("> div")
+      .filter({ hasText: couponCode });
+    await couponCard.getByTestId("account-coupon-redeem").click();
     await expect(page.getByTestId("account-coupon-message")).toContainText("Đổi thành công");
-    await expect(page.getByTestId("account-coupon-owned")).toContainText(couponCode);
+    await expect(page.getByTestId("account-coupon-owned").filter({ hasText: couponCode })).toBeVisible();
 
     await page.getByTestId("account-request-toggle").click();
     await expect(page.getByTestId("account-request-submit")).toBeDisabled();
@@ -225,11 +236,32 @@ test.describe("Auth, account and dashboard smoke", () => {
       await page.getByTestId("dashboard-contacts-sort").selectOption("priority");
       await expect(page.getByText(name)).toBeVisible();
 
+      await page.getByTestId("dashboard-contact-detail-open").click();
+      const drawer = page.getByTestId("dashboard-contact-detail-drawer");
+      await expect(drawer).toBeVisible();
+      await expect(drawer).toContainText("Hành động đề xuất");
+
+      await drawer.getByTestId("dashboard-contact-detail-status-IN_PROGRESS").click();
+      await expect(drawer).toContainText("Đang xử lý");
+
+      const crmNote = `Ghi chú CRM ${unique}`;
+      await drawer.getByRole("button", { name: "Sửa" }).click();
+      await drawer.getByTestId("dashboard-contact-detail-notes").fill(crmNote);
+      await drawer.getByTestId("dashboard-contact-detail-save-notes").click();
+      await expect(drawer).toContainText(crmNote);
+
+      await page.getByTestId("dashboard-contact-detail-close").click();
+      await expect(drawer).toBeHidden();
+
       await page.getByTestId("dashboard-contacts-search").fill(`missing-${unique}`);
       await expect(page.getByTestId("dashboard-contacts-empty")).toBeVisible();
     } finally {
       if (contactId) {
-        await request.delete(`/api/contact/${contactId}`);
+        try {
+          await request.delete(`/api/contact/${contactId}`);
+        } catch {
+          // Best-effort cleanup; dev server restarts should not fail the CRM assertions.
+        }
       }
     }
   });

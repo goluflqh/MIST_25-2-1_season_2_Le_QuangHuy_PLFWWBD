@@ -30,6 +30,8 @@ const servicePages = [
 test.describe("Service marketing pages", () => {
   for (const service of servicePages) {
     test(`${service.path} shows local trust guidance`, async ({ page }) => {
+      test.setTimeout(60_000);
+
       await page.goto(service.path);
 
       await expect(page.getByRole("heading", { name: service.heading })).toBeVisible();

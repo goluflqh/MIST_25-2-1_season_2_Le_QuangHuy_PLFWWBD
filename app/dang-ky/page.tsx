@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, startTransition, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -33,9 +33,7 @@ function RegisterPageContent() {
       return;
     }
 
-    startTransition(() => {
-      router.replace("/tai-khoan");
-    });
+    router.replace("/tai-khoan");
   }, [router, user]);
 
   useEffect(() => {
@@ -105,9 +103,7 @@ function RegisterPageContent() {
         return;
       }
       setUser(data.user ?? null);
-      startTransition(() => {
-        router.replace("/tai-khoan");
-      });
+      router.replace("/tai-khoan");
     } catch {
       setError("Lỗi kết nối. Vui lòng thử lại.");
     } finally {
