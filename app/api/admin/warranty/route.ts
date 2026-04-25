@@ -15,7 +15,10 @@ export async function GET() {
     return NextResponse.json({ success: true, warranties });
   } catch (error) {
     console.error("Warranty GET error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không tải được danh sách bảo hành lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -83,6 +86,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Warranty DELETE error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không xoá được phiếu bảo hành lúc này." },
+      { status: 500 }
+    );
   }
 }

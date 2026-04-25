@@ -20,7 +20,10 @@ export async function GET() {
     return NextResponse.json({ success: true, users });
   } catch (error) {
     console.error("Admin users GET error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không tải được danh sách khách hàng lúc này." },
+      { status: 500 }
+    );
   }
 }
 

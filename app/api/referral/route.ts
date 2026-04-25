@@ -18,7 +18,10 @@ export async function POST() {
     return NextResponse.json({ success: true, code: session.user.referralCode });
   } catch (error) {
     console.error("Referral error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Chưa tạo được mã giới thiệu lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -27,7 +30,12 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get("code");
-    if (!code) return NextResponse.json({ success: false }, { status: 400 });
+    if (!code) {
+      return NextResponse.json(
+        { success: false, message: "Thiếu mã giới thiệu." },
+        { status: 400 }
+      );
+    }
 
     const referrer = await prisma.user.findUnique({ where: { referralCode: code } });
     if (!referrer) return NextResponse.json({ success: false, message: "Mã giới thiệu không hợp lệ." }, { status: 404 });
@@ -35,6 +43,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: true, referrerName: referrer.name });
   } catch (error) {
     console.error("Referral lookup error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Chưa kiểm tra được mã giới thiệu lúc này." },
+      { status: 500 }
+    );
   }
 }

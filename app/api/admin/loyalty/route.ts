@@ -44,6 +44,9 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, user });
   } catch (error) {
     console.error("Loyalty update error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không cập nhật được điểm khách hàng lúc này." },
+      { status: 500 }
+    );
   }
 }
