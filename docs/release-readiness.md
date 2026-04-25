@@ -109,7 +109,7 @@ docker compose up -d app
 
 Checklist trước khi chạy production:
 
-- Đặt `NEXT_PUBLIC_SITE_URL` về domain thật để sitemap, robots và canonical không dùng localhost.
+- Đặt `NEXT_PUBLIC_SITE_URL` về domain thật trước khi `docker build` để sitemap, robots và canonical không dùng localhost.
 - Đổi `AUTH_SECRET` khỏi placeholder.
 - Kiểm tra `DATABASE_URL` / `DIRECT_URL` theo môi trường thật. Compose mặc định dùng service `postgres`; nếu dùng managed DB thì chỉnh secret/runtime tương ứng.
 - Backup DB trước khi chạy migrate.

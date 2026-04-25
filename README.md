@@ -159,6 +159,8 @@ docker compose up -d app
 
 Trước khi dùng thật, đặt lại `AUTH_SECRET`, `NEXT_PUBLIC_SITE_URL`, thông tin DB và provider AI trong môi trường deploy. Nếu dùng managed PostgreSQL, có thể giữ Dockerfile cho app và đổi compose theo secret/runtime của hạ tầng đó.
 
+Lưu ý: `NEXT_PUBLIC_SITE_URL` cũng được truyền vào bước `docker build` để đóng đúng canonical, robots và sitemap trong image. Đặt biến này trước khi build production.
+
 ## Gợi ý production target
 
 Khuyến nghị hiện tại:

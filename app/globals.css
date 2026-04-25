@@ -9,6 +9,8 @@
   --color-primary: #dc2626;
   --color-secondary: #fbbf24;
   --color-text-main: #0b132b;
+  --font-space-grotesk: "Space Grotesk";
+  --font-dm-sans: "DM Sans";
   --font-family-heading: var(--font-space-grotesk), sans-serif;
   --font-family-body: var(--font-dm-sans), sans-serif;
 

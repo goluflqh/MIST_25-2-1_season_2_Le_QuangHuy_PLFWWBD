@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, DM_Sans } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
@@ -7,19 +6,23 @@ import ChatbotWidget from "@/components/ChatbotWidget";
 import { getNotificationCountForUser } from "@/lib/notifications";
 import { getCurrentSessionUser } from "@/lib/session";
 import { defaultOpenGraphImage, siteConfig, siteUrl } from "@/lib/site";
+import "@fontsource/space-grotesk/latin-400.css";
+import "@fontsource/space-grotesk/latin-500.css";
+import "@fontsource/space-grotesk/latin-600.css";
+import "@fontsource/space-grotesk/latin-700.css";
+import "@fontsource/space-grotesk/vietnamese-400.css";
+import "@fontsource/space-grotesk/vietnamese-500.css";
+import "@fontsource/space-grotesk/vietnamese-600.css";
+import "@fontsource/space-grotesk/vietnamese-700.css";
+import "@fontsource/dm-sans/latin-400.css";
+import "@fontsource/dm-sans/latin-500.css";
+import "@fontsource/dm-sans/latin-600.css";
+import "@fontsource/dm-sans/latin-700.css";
+import "@fontsource/dm-sans/latin-ext-400.css";
+import "@fontsource/dm-sans/latin-ext-500.css";
+import "@fontsource/dm-sans/latin-ext-600.css";
+import "@fontsource/dm-sans/latin-ext-700.css";
 import "./globals.css";
-
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space-grotesk",
-  subsets: ["vietnamese", "latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin", "latin-ext"],
-  weight: ["400", "500", "700"],
-});
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -80,7 +83,7 @@ export default async function RootLayout({
   return (
     <html lang="vi" className="scroll-smooth scroll-pt-32" data-scroll-behavior="smooth">
       <body
-        className={`${spaceGrotesk.variable} ${dmSans.variable} flex min-h-screen flex-col bg-[#fffdfa] font-body text-slate-800 antialiased`}
+        className="flex min-h-screen flex-col bg-[#fffdfa] font-body text-slate-800 antialiased"
       >
         <AuthProvider
           key={currentUser ? `${currentUser.id}:${currentUser.role}:${currentUser.name}` : "guest"}

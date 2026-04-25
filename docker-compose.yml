@@ -33,6 +33,11 @@ services:
   app:
     build:
       context: .
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        AUTH_SECRET: ${AUTH_SECRET:-change-this-before-production}
+        DATABASE_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
+        DIRECT_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
     container_name: minhhong-next-app
     restart: unless-stopped
     ports:
