@@ -75,6 +75,24 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByRole("heading", { name: "Điểm Thưởng & Giới Thiệu" })).toBeVisible();
     await expect(page.getByTestId("account-request-history")).toBeVisible();
 
+    await page.getByTestId("account-referral-generate").click();
+    await expect(page.getByTestId("account-referral-link")).toHaveValue(/\/dang-ky\?ref=MH/);
+
+    await page.getByTestId("account-warranty-serial").fill(`MH-MISSING-${Date.now()}`);
+    await page.getByTestId("account-warranty-lookup").click();
+    await expect(page.getByTestId("account-warranty-message")).toContainText("Không tìm thấy");
+
+    await page.getByTestId("account-request-toggle").click();
+    await expect(page.getByTestId("account-request-submit")).toBeDisabled();
+    await page.getByTestId("account-request-service").selectOption("DONG_PIN");
+    await expect(page.getByTestId("account-request-submit")).toBeEnabled();
+
+    await page.getByTestId("account-review-toggle").click();
+    await expect(page.getByTestId("account-review-submit")).toBeDisabled();
+    await page.getByTestId("account-review-service").selectOption("DONG_PIN");
+    await page.getByTestId("account-review-comment").fill("Dịch vụ tư vấn rõ ràng, phản hồi nhanh.");
+    await expect(page.getByTestId("account-review-submit")).toBeEnabled();
+
     await page.getByRole("button", { name: /Bảo mật đăng nhập/ }).click();
     await expect(page.getByText("Kiểm tra trước khi đổi")).toBeVisible();
 

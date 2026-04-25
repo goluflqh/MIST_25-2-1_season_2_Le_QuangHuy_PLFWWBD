@@ -251,12 +251,14 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
         </label>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
+            data-testid="account-warranty-serial"
             value={lookupSerial}
             onChange={(event) => setLookupSerial(event.target.value)}
             placeholder="Ví dụ: MH-BH-001"
             className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body outline-none focus:ring-2 focus:ring-red-500"
           />
           <button
+            data-testid="account-warranty-lookup"
             type="submit"
             disabled={isLookingUp}
             className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white transition-colors disabled:bg-slate-300"
@@ -266,6 +268,8 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
         </div>
         {lookupMessage ? (
           <div
+            data-testid="account-warranty-message"
+            aria-live="polite"
             className={`mt-3 rounded-lg border px-3 py-2 text-xs font-body font-semibold ${
               lookupMessage.type === "success"
                 ? "border-green-200 bg-green-50 text-green-700"
@@ -276,7 +280,7 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
           </div>
         ) : null}
         {lookupResult ? (
-          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+          <div data-testid="account-warranty-result" className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="font-body text-sm font-bold text-slate-800">{lookupResult.productName}</p>
@@ -381,6 +385,7 @@ function ReferralSection({ loyaltyPoints }: { loyaltyPoints: number }) {
       ) : null}
       {!referralCode ? (
         <button
+          data-testid="account-referral-generate"
           onClick={generateCode}
           disabled={isGenerating}
           className="px-5 py-2.5 bg-yellow-500 text-slate-900 rounded-xl font-body font-bold text-sm hover:bg-yellow-600 disabled:bg-slate-200 disabled:text-slate-500 transition-colors"
@@ -391,12 +396,14 @@ function ReferralSection({ loyaltyPoints }: { loyaltyPoints: number }) {
         <div className="space-y-2">
           <div className="flex gap-2">
             <input
+              data-testid="account-referral-link"
               readOnly
               value={referralLink}
               aria-label="Link giới thiệu"
               className="flex-1 px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono text-slate-600 select-all"
             />
             <button
+              data-testid="account-referral-copy"
               onClick={copyLink}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${copied ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}
             >
@@ -637,6 +644,8 @@ export default function AccountPageClient({
   const [reviewFeedback, setReviewFeedback] = useState<FeedbackMessage | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const loyaltyTier = getLoyaltyTier(initialUser.loyaltyPoints);
+  const canSubmitRequest = formData.service.length > 0;
+  const canSubmitReview = reviewData.service.length > 0 && reviewData.comment.trim().length > 0;
 
   const handleLogout = async () => {
     if (isLoggingOut) return;
@@ -819,6 +828,7 @@ export default function AccountPageClient({
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
         <button
           data-testid="account-request-toggle"
+          aria-expanded={showForm}
           onClick={() => setShowForm(!showForm)}
           className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
         >
@@ -861,6 +871,7 @@ export default function AccountPageClient({
                     Dịch vụ cần tư vấn
                   </label>
                   <select
+                    data-testid="account-request-service"
                     value={formData.service}
                     onChange={(e) => setFormData({ ...formData, service: e.target.value })}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 font-body text-sm focus:ring-2 focus:ring-red-500 outline-none"
@@ -889,9 +900,10 @@ export default function AccountPageClient({
                   />
                 </div>
                 <button
+                  data-testid="account-request-submit"
                   type="submit"
-                  disabled={isSubmitting}
-                  className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-slate-400 text-white font-heading font-bold rounded-xl transition-colors"
+                  disabled={isSubmitting || !canSubmitRequest}
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-heading font-bold rounded-xl transition-colors"
                 >
                   {isSubmitting ? "Đang gửi..." : "Gửi Yêu Cầu"}
                 </button>
@@ -903,6 +915,8 @@ export default function AccountPageClient({
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
         <button
+          data-testid="account-review-toggle"
+          aria-expanded={showReviewForm}
           onClick={() => setShowReviewForm(!showReviewForm)}
           className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
         >
@@ -963,6 +977,7 @@ export default function AccountPageClient({
                     Dịch vụ đã sử dụng
                   </label>
                   <select
+                    data-testid="account-review-service"
                     value={reviewData.service}
                     onChange={(e) => setReviewData({ ...reviewData, service: e.target.value })}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 font-body text-sm focus:ring-2 focus:ring-red-500 outline-none"
@@ -982,6 +997,7 @@ export default function AccountPageClient({
                     Bình luận
                   </label>
                   <textarea
+                    data-testid="account-review-comment"
                     value={reviewData.comment}
                     onChange={(e) => setReviewData({ ...reviewData, comment: e.target.value })}
                     rows={3}
@@ -991,9 +1007,10 @@ export default function AccountPageClient({
                   />
                 </div>
                 <button
+                  data-testid="account-review-submit"
                   type="submit"
-                  disabled={isReviewSubmitting}
-                  className="w-full py-3 bg-yellow-500 hover:bg-yellow-600 disabled:bg-slate-400 text-slate-900 font-heading font-bold rounded-xl transition-colors"
+                  disabled={isReviewSubmitting || !canSubmitReview}
+                  className="w-full py-3 bg-yellow-500 hover:bg-yellow-600 disabled:bg-slate-200 disabled:text-slate-400 text-slate-900 font-heading font-bold rounded-xl transition-colors"
                 >
                   {isReviewSubmitting ? "Đang gửi..." : "Gửi Đánh Giá ⭐"}
                 </button>
