@@ -78,6 +78,8 @@ model ContactRequest {
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([source, createdAt])
 }
 
 model Review {
@@ -95,6 +97,7 @@ model Review {
   @@index([userId])
   @@index([approved])
   @@index([createdAt])
+  @@index([approved, createdAt])
 }
 
 model PricingItem {
@@ -112,6 +115,8 @@ model PricingItem {
 
   @@index([category])
   @@index([active])
+  @@index([category, sortOrder])
+  @@index([active, category, sortOrder])
 }
 
 model Coupon {
@@ -132,6 +137,8 @@ model Coupon {
   @@index([code])
   @@index([userId])
   @@index([active])
+  @@index([createdAt])
+  @@index([active, createdAt])
 }
 
 model Warranty {
@@ -153,6 +160,8 @@ model Warranty {
   @@index([serialNo])
   @@index([customerPhone])
   @@index([userId])
+  @@index([createdAt])
+  @@index([endDate])
 }
 
 model AuditLog {
@@ -171,6 +180,8 @@ model AuditLog {
   @@index([userId])
   @@index([action])
   @@index([createdAt])
+  @@index([entity, entityId])
+  @@index([action, createdAt])
 }
 
 model RateLimitBucket {
