@@ -193,6 +193,8 @@ test.describe("Auth, account and dashboard smoke", () => {
 
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
     await expect(page.getByTestId("dashboard-page")).toBeVisible();
+    await expect(page.getByTestId("dashboard-crm-overview")).toBeVisible();
+    await expect(page.getByTestId("dashboard-action-queue")).toBeVisible();
     await expect(page.getByTestId("dashboard-chatbot-health")).toBeVisible();
   });
 
