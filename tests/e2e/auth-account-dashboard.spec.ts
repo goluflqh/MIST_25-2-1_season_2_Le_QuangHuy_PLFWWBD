@@ -184,4 +184,53 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("dashboard-page")).toBeVisible();
     await expect(page.getByTestId("dashboard-chatbot-health")).toBeVisible();
   });
+
+  test("admin can search and filter the contacts CRM list", async ({ page, request }) => {
+    const unique = Date.now().toString().slice(-8);
+    const name = `CRM Lead ${unique}`;
+    const phone = buildUniquePhone();
+
+    await loginAdminRequest(request);
+    const contactResponse = await request.post("/api/contact", {
+      data: {
+        name,
+        phone,
+        service: "CAMERA",
+        message: "Lead CRM e2e can be found by search and source filters.",
+        source: "chatbot-camera",
+        sourcePath: "/e2e/crm",
+        utmSource: "crm-e2e",
+      },
+    });
+    expect(contactResponse.ok()).toBeTruthy();
+    const contactBody = await contactResponse.json();
+    const contactId = contactBody.id as string | undefined;
+
+    try {
+      await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+
+      await page.goto("/dashboard/contacts");
+      await expect(page.getByTestId("dashboard-contacts-crm")).toBeVisible();
+      await expect(page.getByTestId("dashboard-contacts-metrics")).toBeVisible();
+
+      await page.getByTestId("dashboard-contacts-search").fill(phone);
+      await expect(page.getByTestId("dashboard-contacts-result-count")).toContainText("1 /");
+      await expect(page.getByTestId("dashboard-contact-card")).toHaveCount(1);
+      await expect(page.getByText(name)).toBeVisible();
+
+      await page.getByTestId("dashboard-contacts-source-filter").selectOption("chatbot-camera");
+      await expect(page.getByText(name)).toBeVisible();
+
+      await page.getByTestId("dashboard-contacts-sort").selectOption("priority");
+      await expect(page.getByText(name)).toBeVisible();
+
+      await page.getByTestId("dashboard-contacts-search").fill(`missing-${unique}`);
+      await expect(page.getByTestId("dashboard-contacts-empty")).toBeVisible();
+    } finally {
+      if (contactId) {
+        await request.delete(`/api/contact/${contactId}`);
+      }
+    }
+  });
 });
