@@ -260,6 +260,47 @@ test.describe("Auth, account and dashboard smoke", () => {
     }
   });
 
+  test("admin can moderate the reviews queue", async ({ page, request }) => {
+    const unique = Date.now().toString().slice(-8);
+    const comment = `Review CRM E2E ${unique}`;
+
+    await loginAdminRequest(request);
+    const reviewResponse = await request.post("/api/reviews", {
+      data: {
+        rating: 5,
+        comment,
+        service: "DONG_PIN",
+      },
+    });
+    expect(reviewResponse.ok()).toBeTruthy();
+    const reviewBody = await reviewResponse.json();
+    const reviewId = reviewBody.review?.id as string | undefined;
+
+    try {
+      await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+
+      await page.goto("/dashboard/reviews");
+      await expect(page.getByTestId("dashboard-reviews-moderation")).toBeVisible();
+      await expect(page.getByTestId("dashboard-reviews-metrics")).toBeVisible();
+
+      await page.getByTestId("dashboard-reviews-search").fill(comment);
+      await page.getByTestId("dashboard-reviews-status-filter").selectOption("pending");
+      await page.getByTestId("dashboard-reviews-service-filter").selectOption("DONG_PIN");
+      await page.getByTestId("dashboard-reviews-rating-filter").selectOption("5");
+      await expect(page.getByTestId("dashboard-reviews-result-count")).toContainText("1 /");
+      await expect(page.getByTestId("dashboard-review-card")).toHaveCount(1);
+      await expect(page.getByTestId("dashboard-review-card")).toContainText(comment);
+
+      await page.getByTestId("dashboard-reviews-sort").selectOption("ratingHigh");
+      await expect(page.getByTestId("dashboard-review-card")).toContainText("Chờ duyệt");
+    } finally {
+      if (reviewId) {
+        await request.delete("/api/admin/reviews", { data: { id: reviewId } });
+      }
+    }
+  });
+
   test("admin can search and filter the contacts CRM list", async ({ page, request }) => {
     const unique = Date.now().toString().slice(-8);
     const name = `CRM Lead ${unique}`;
