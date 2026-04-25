@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 const ADMIN_PHONE = process.env.PLAYWRIGHT_ADMIN_PHONE ?? "0987443258";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD ?? "admin123";
@@ -19,6 +19,14 @@ async function login(page: Page, phone: string, password: string) {
   await page.getByTestId("login-phone").fill(phone);
   await page.getByTestId("login-password").fill(password);
   await page.getByTestId("login-submit").click();
+}
+
+async function loginAdminRequest(request: APIRequestContext) {
+  const response = await request.post("/api/auth/login", {
+    data: { phone: ADMIN_PHONE, password: ADMIN_PASSWORD },
+  });
+
+  expect(response.ok()).toBeTruthy();
 }
 
 test.describe("Auth, account and dashboard smoke", () => {
@@ -54,9 +62,11 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("login-page")).toBeVisible();
   });
 
-  test("guest can register a new account, land on account page and log out", async ({ page }) => {
+  test("guest can register a new account, land on account page and log out", async ({ page, request }) => {
     const name = "Khach Test Phase 5";
     const phone = buildUniquePhone();
+    const serialNo = `MH-E2E-${Date.now()}`;
+    const couponCode = `E2E${Date.now().toString().slice(-8)}`;
 
     await page.goto("/dang-ky");
     await expect(page.getByTestId("register-page")).toBeVisible();
@@ -73,7 +83,55 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByText("Yêu cầu đã gửi")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Phiếu Bảo Hành" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Điểm Thưởng & Giới Thiệu" })).toBeVisible();
+    await expect(page.getByTestId("account-status-panel")).toBeVisible();
     await expect(page.getByTestId("account-request-history")).toBeVisible();
+
+    await loginAdminRequest(request);
+    const couponResponse = await request.post("/api/admin/coupons", {
+      data: {
+        code: couponCode,
+        description: "Ưu đãi e2e cho tài khoản khách hàng",
+        discount: "5%",
+        pointsCost: 0,
+        usageLimit: 1,
+        active: true,
+      },
+    });
+    expect(couponResponse.ok()).toBeTruthy();
+    const couponBody = await couponResponse.json();
+
+    const warrantyResponse = await request.post("/api/admin/warranty", {
+      data: {
+        serialNo,
+        productName: "Pin test Phase 5",
+        customerPhone: phone,
+        service: "DONG_PIN",
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        notes: "Bảo hành e2e Phase 5",
+      },
+    });
+    expect(warrantyResponse.ok()).toBeTruthy();
+    const warrantyBody = await warrantyResponse.json();
+
+    const contactResponse = await request.post("/api/contact", {
+      data: {
+        name,
+        phone,
+        service: "DONG_PIN",
+        message: "Yêu cầu hoàn thành để đánh giá trong e2e.",
+        source: "account-e2e",
+      },
+    });
+    expect(contactResponse.ok()).toBeTruthy();
+    const contactBody = await contactResponse.json();
+    const contactUpdateResponse = await request.patch(`/api/contact/${contactBody.id}`, {
+      data: { status: "COMPLETED" },
+    });
+    expect(contactUpdateResponse.ok()).toBeTruthy();
+
+    await page.reload();
+    await expect(page.getByText(serialNo)).toBeVisible();
+    await expect(page.getByText(couponCode)).toBeVisible();
 
     await page.getByTestId("account-referral-generate").click();
     await expect(page.getByTestId("account-referral-link")).toHaveValue(/\/dang-ky\?ref=MH/);
@@ -81,6 +139,13 @@ test.describe("Auth, account and dashboard smoke", () => {
     await page.getByTestId("account-warranty-serial").fill(`MH-MISSING-${Date.now()}`);
     await page.getByTestId("account-warranty-lookup").click();
     await expect(page.getByTestId("account-warranty-message")).toContainText("Không tìm thấy");
+    await page.getByTestId("account-warranty-serial").fill(serialNo);
+    await page.getByTestId("account-warranty-lookup").click();
+    await expect(page.getByTestId("account-warranty-result")).toContainText("Pin test Phase 5");
+
+    await page.getByTestId("account-coupon-redeem").click();
+    await expect(page.getByTestId("account-coupon-message")).toContainText("Đổi thành công");
+    await expect(page.getByTestId("account-coupon-owned")).toContainText(couponCode);
 
     await page.getByTestId("account-request-toggle").click();
     await expect(page.getByTestId("account-request-submit")).toBeDisabled();
@@ -93,8 +158,19 @@ test.describe("Auth, account and dashboard smoke", () => {
     await page.getByTestId("account-review-comment").fill("Dịch vụ tư vấn rõ ràng, phản hồi nhanh.");
     await expect(page.getByTestId("account-review-submit")).toBeEnabled();
 
+    await page.getByTestId("account-review-from-request").click();
+    await expect(page.getByTestId("account-review-service")).toHaveValue("DONG_PIN");
+
     await page.getByRole("button", { name: /Bảo mật đăng nhập/ }).click();
     await expect(page.getByText("Kiểm tra trước khi đổi")).toBeVisible();
+
+    await request.delete(`/api/contact/${contactBody.id}`);
+    if (warrantyBody.warranty?.id) {
+      await request.delete("/api/admin/warranty", { data: { id: warrantyBody.warranty.id } });
+    }
+    if (couponBody.coupon?.id) {
+      await request.delete("/api/admin/coupons", { data: { id: couponBody.coupon.id } });
+    }
 
     await page.getByTestId("account-logout").click();
     await expect(page).toHaveURL(/\/dang-nhap/, { timeout: 15_000 });

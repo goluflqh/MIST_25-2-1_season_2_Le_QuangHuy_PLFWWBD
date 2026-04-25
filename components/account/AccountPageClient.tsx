@@ -9,6 +9,7 @@ interface UserInfo {
   id: string;
   name: string;
   phone: string;
+  referralCode: string | null;
   role: string;
   loyaltyPoints: number;
   createdAt: string;
@@ -22,6 +23,7 @@ interface ServiceRequest {
   status: string;
   createdAt: string;
   createdAtLabel: string;
+  updatedAtLabel: string;
 }
 
 interface WarrantyInfo {
@@ -29,6 +31,7 @@ interface WarrantyInfo {
   serialNo: string;
   productName: string;
   service: string;
+  startDateLabel: string;
   endDate: string;
   endDateLabel: string;
   isActive: boolean;
@@ -49,6 +52,17 @@ interface WarrantyLookupData {
 interface FeedbackMessage {
   text: string;
   type: "success" | "error";
+}
+
+interface CouponInfo {
+  id: string;
+  code: string;
+  description: string;
+  discount: string;
+  pointsCost: number;
+  remainingUses: number;
+  expiresAtLabel: string | null;
+  isOwned: boolean;
 }
 
 const serviceLabels: Record<string, string> = {
@@ -118,6 +132,13 @@ function getLoyaltyTier(points: number) {
     return { label: "Bạc", next: `Còn ${200 - points} điểm để lên Vàng`, color: "bg-orange-100 text-orange-700" };
   }
   return { label: "Đồng", next: `Còn ${50 - points} điểm để lên Bạc`, color: "bg-slate-100 text-slate-500" };
+}
+
+function getLoyaltyProgress(points: number) {
+  if (points >= 500) return 100;
+  if (points >= 200) return Math.min(100, Math.round((points / 500) * 100));
+  if (points >= 50) return Math.min(100, Math.round((points / 200) * 100));
+  return Math.min(100, Math.round((points / 50) * 100));
 }
 
 function getInitials(name: string) {
@@ -229,7 +250,7 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
                       {warranty.productName}
                     </p>
                     <p className="font-body text-xs text-slate-400">
-                      {serviceLabels[warranty.service]} · Hết hạn: {warranty.endDateLabel}
+                      {serviceLabels[warranty.service]} · Từ {warranty.startDateLabel} đến {warranty.endDateLabel}
                     </p>
                     {warranty.notes ? (
                       <p className="font-body text-xs text-slate-500 mt-2">{warranty.notes}</p>
@@ -307,12 +328,28 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
   );
 }
 
-function ReferralSection({ loyaltyPoints }: { loyaltyPoints: number }) {
-  const [referralCode, setReferralCode] = useState<string | null>(null);
+function RewardsSection({
+  initialCoupons,
+  initialReferralCode,
+  loyaltyPoints,
+  onLoyaltyPointsChange,
+}: {
+  initialCoupons: CouponInfo[];
+  initialReferralCode: string | null;
+  loyaltyPoints: number;
+  onLoyaltyPointsChange: (points: number) => void;
+}) {
+  const [referralCode, setReferralCode] = useState<string | null>(initialReferralCode);
+  const [coupons, setCoupons] = useState<CouponInfo[]>(initialCoupons);
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [redeemingId, setRedeemingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [couponMessage, setCouponMessage] = useState<FeedbackMessage | null>(null);
   const tier = getLoyaltyTier(loyaltyPoints);
+  const progress = getLoyaltyProgress(loyaltyPoints);
+  const availableCoupons = coupons.filter((coupon) => !coupon.isOwned);
+  const ownedCoupons = coupons.filter((coupon) => coupon.isOwned);
 
   const generateCode = async () => {
     setError(null);
@@ -335,12 +372,60 @@ function ReferralSection({ loyaltyPoints }: { loyaltyPoints: number }) {
     }
   };
 
+  const redeemCoupon = async (couponId: string) => {
+    setCouponMessage(null);
+    setRedeemingId(couponId);
+
+    try {
+      const response = await fetch("/api/coupons/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ couponId }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setCouponMessage({
+          text: data.message || "Chưa đổi được mã ưu đãi lúc này.",
+          type: "error",
+        });
+        return;
+      }
+
+      setCoupons((prev) =>
+        prev.map((coupon) =>
+          coupon.id === couponId
+            ? {
+                ...coupon,
+                ...(data.coupon || {}),
+                isOwned: true,
+                remainingUses: Math.max(0, coupon.remainingUses - 1),
+              }
+            : coupon
+        )
+      );
+      if (typeof data.loyaltyPoints === "number") {
+        onLoyaltyPointsChange(data.loyaltyPoints);
+      }
+      setCouponMessage({
+        text: data.message || "Đã đổi mã ưu đãi thành công.",
+        type: "success",
+      });
+    } catch {
+      setCouponMessage({ text: "Kết nối bị gián đoạn khi đổi mã ưu đãi.", type: "error" });
+    } finally {
+      setRedeemingId(null);
+    }
+  };
+
   const referralLink =
     typeof window !== "undefined" && referralCode
       ? `${window.location.origin}/dang-ky?ref=${referralCode}`
       : "";
 
   const copyLink = () => {
+    if (!referralLink) return;
+
     navigator.clipboard
       .writeText(referralLink)
       .then(() => {
@@ -353,12 +438,12 @@ function ReferralSection({ loyaltyPoints }: { loyaltyPoints: number }) {
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
+    <div data-testid="account-rewards-section" className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
         <div>
           <h3 className="font-heading font-bold text-slate-900">🎁 Điểm Thưởng & Giới Thiệu</h3>
           <p className="font-body text-xs text-slate-400 mt-1">
-            Gửi link mời cho bạn bè, theo dõi hạng thành viên và điểm còn thiếu rõ hơn.
+            Gửi link mời, đổi điểm lấy ưu đãi và theo dõi hạng thành viên.
           </p>
         </div>
         <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
@@ -372,6 +457,9 @@ function ReferralSection({ loyaltyPoints }: { loyaltyPoints: number }) {
         <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
           <p className="font-body text-[10px] uppercase tracking-wider text-slate-400">Điểm hiện có</p>
           <p className="font-heading text-2xl font-extrabold text-slate-900">{loyaltyPoints}</p>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
+            <div className="h-full rounded-full bg-yellow-400" style={{ width: `${progress}%` }} />
+          </div>
         </div>
         <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
           <p className="font-body text-[10px] uppercase tracking-wider text-slate-400">Mốc tiếp theo</p>
@@ -383,36 +471,124 @@ function ReferralSection({ loyaltyPoints }: { loyaltyPoints: number }) {
           {error}
         </div>
       ) : null}
-      {!referralCode ? (
-        <button
-          data-testid="account-referral-generate"
-          onClick={generateCode}
-          disabled={isGenerating}
-          className="px-5 py-2.5 bg-yellow-500 text-slate-900 rounded-xl font-body font-bold text-sm hover:bg-yellow-600 disabled:bg-slate-200 disabled:text-slate-500 transition-colors"
-        >
-          {isGenerating ? "Đang tạo link..." : "Lấy Link Mời"}
-        </button>
-      ) : (
-        <div className="space-y-2">
-          <div className="flex gap-2">
-            <input
-              data-testid="account-referral-link"
-              readOnly
-              value={referralLink}
-              aria-label="Link giới thiệu"
-              className="flex-1 px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono text-slate-600 select-all"
-            />
-            <button
-              data-testid="account-referral-copy"
-              onClick={copyLink}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${copied ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}
-            >
-              {copied ? "✓ Đã copy" : "📋 Copy"}
-            </button>
+
+      <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+        {!referralCode ? (
+          <button
+            data-testid="account-referral-generate"
+            type="button"
+            onClick={generateCode}
+            disabled={isGenerating}
+            className="px-5 py-2.5 bg-yellow-500 text-slate-900 rounded-xl font-body font-bold text-sm hover:bg-yellow-600 disabled:bg-slate-200 disabled:text-slate-500 transition-colors"
+          >
+            {isGenerating ? "Đang tạo link..." : "Lấy Link Mời"}
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                data-testid="account-referral-link"
+                readOnly
+                value={referralLink}
+                aria-label="Link giới thiệu"
+                className="flex-1 px-3 py-2 bg-white rounded-xl border border-slate-200 text-xs font-mono text-slate-600 select-all"
+              />
+              <button
+                data-testid="account-referral-copy"
+                type="button"
+                onClick={copyLink}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${copied ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}
+              >
+                {copied ? "✓ Đã copy" : "📋 Copy"}
+              </button>
+            </div>
+            <p className="font-body text-[10px] text-slate-400">Mã: {referralCode}</p>
           </div>
-          <p className="font-body text-[10px] text-slate-300">Mã: {referralCode}</p>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-slate-400">Ưu đãi đổi điểm</p>
+          <p className="font-body text-[10px] text-slate-400">{ownedCoupons.length} mã đã đổi</p>
         </div>
-      )}
+        {couponMessage ? (
+          <div
+            data-testid="account-coupon-message"
+            aria-live="polite"
+            className={`mb-3 rounded-xl border px-3 py-2 text-xs font-body font-semibold ${
+              couponMessage.type === "success"
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-red-200 bg-red-50 text-red-600"
+            }`}
+          >
+            {couponMessage.text}
+          </div>
+        ) : null}
+        {coupons.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
+            <p className="font-body text-sm font-semibold text-slate-600">Chưa có mã ưu đãi đang mở.</p>
+            <p className="font-body text-xs text-slate-400 mt-1">
+              Điểm của bạn vẫn được giữ và sẽ dùng được khi có chương trình mới.
+            </p>
+          </div>
+        ) : (
+          <div data-testid="account-coupon-list" className="space-y-3">
+            {availableCoupons.map((coupon) => {
+              const canRedeem = loyaltyPoints >= coupon.pointsCost && coupon.remainingUses > 0;
+
+              return (
+                <div key={coupon.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <code className="rounded-lg bg-white px-2 py-1 text-xs font-bold text-slate-800">
+                          {coupon.code}
+                        </code>
+                        <span className="text-xs font-heading font-bold text-red-600">-{coupon.discount}</span>
+                        <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-700">
+                          {coupon.pointsCost} điểm
+                        </span>
+                      </div>
+                      <p className="mt-1 font-body text-xs text-slate-500">{coupon.description}</p>
+                      <p className="mt-0.5 font-body text-[10px] text-slate-400">
+                        Còn {coupon.remainingUses} lượt{coupon.expiresAtLabel ? ` · Hết hạn ${coupon.expiresAtLabel}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      data-testid="account-coupon-redeem"
+                      type="button"
+                      onClick={() => redeemCoupon(coupon.id)}
+                      disabled={redeemingId === coupon.id || !canRedeem}
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-body font-bold text-white transition-colors disabled:bg-slate-200 disabled:text-slate-400"
+                    >
+                      {redeemingId === coupon.id ? "Đang đổi..." : canRedeem ? "Đổi mã" : "Chưa đủ điểm"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {ownedCoupons.map((coupon) => (
+              <div
+                key={coupon.id}
+                data-testid="account-coupon-owned"
+                className="rounded-xl border border-green-200 bg-green-50 p-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="rounded-lg bg-white/80 px-2 py-1 text-xs font-bold text-green-800">
+                    {coupon.code}
+                  </code>
+                  <span className="text-xs font-heading font-bold text-green-700">-{coupon.discount}</span>
+                  <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold text-green-700">
+                    Đã đổi
+                  </span>
+                </div>
+                <p className="mt-1 font-body text-xs text-green-700">{coupon.description}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -616,8 +792,83 @@ function PasswordChangeSection() {
   );
 }
 
+function AccountStatusPanel({
+  dataWarning,
+  initialUser,
+  requests,
+}: {
+  dataWarning?: string | null;
+  initialUser: UserInfo;
+  requests: ServiceRequest[];
+}) {
+  const actionableUpdates = requests.filter((request) => request.status !== "PENDING").length;
+  const latestRequest = requests[0] ?? null;
+  const profileRows = [
+    { label: "Họ tên", value: initialUser.name },
+    { label: "Số điện thoại", value: initialUser.phone },
+    { label: "Ngày tham gia", value: initialUser.createdAtLabel },
+  ];
+
+  return (
+    <div data-testid="account-status-panel" className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="font-heading font-bold text-slate-900">Hồ sơ & thông báo</h3>
+          <p className="font-body text-xs text-slate-400 mt-1">
+            Thông tin định danh, trạng thái đồng bộ và các cập nhật dịch vụ.
+          </p>
+        </div>
+        <span
+          className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-body font-bold sm:mt-0 ${
+            dataWarning ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700"
+          }`}
+        >
+          {dataWarning ? "Đang đồng bộ" : "Đã đồng bộ"}
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {profileRows.map((row) => (
+          <div key={row.label} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">{row.label}</p>
+            <p className="mt-1 break-words font-body text-sm font-bold text-slate-800">{row.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+          <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Cập nhật mới</p>
+          <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{actionableUpdates}</p>
+          <p className="font-body text-xs text-slate-500">
+            {actionableUpdates > 0
+              ? "Có yêu cầu đã chuyển trạng thái."
+              : "Chưa có thay đổi cần chú ý."}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+          <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Theo dõi gần nhất</p>
+          {latestRequest ? (
+            <>
+              <p className="mt-1 font-body text-sm font-bold text-slate-800">
+                {serviceLabels[latestRequest.service] || latestRequest.service}
+              </p>
+              <p className="font-body text-xs text-slate-500">
+                {statusConfig[latestRequest.status]?.label || "Đang cập nhật"} · {latestRequest.updatedAtLabel}
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 font-body text-sm font-semibold text-slate-500">Chưa có yêu cầu để theo dõi.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface AccountPageClientProps {
   dataWarning?: string | null;
+  initialCoupons: CouponInfo[];
   initialRequests: ServiceRequest[];
   initialUser: UserInfo;
   initialWarranties: WarrantyInfo[];
@@ -625,6 +876,7 @@ interface AccountPageClientProps {
 
 export default function AccountPageClient({
   dataWarning,
+  initialCoupons,
   initialRequests,
   initialUser,
   initialWarranties,
@@ -643,7 +895,8 @@ export default function AccountPageClient({
   const [reviewSuccess, setReviewSuccess] = useState(false);
   const [reviewFeedback, setReviewFeedback] = useState<FeedbackMessage | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const loyaltyTier = getLoyaltyTier(initialUser.loyaltyPoints);
+  const [loyaltyPoints, setLoyaltyPoints] = useState(initialUser.loyaltyPoints);
+  const loyaltyTier = getLoyaltyTier(loyaltyPoints);
   const canSubmitRequest = formData.service.length > 0;
   const canSubmitReview = reviewData.service.length > 0 && reviewData.comment.trim().length > 0;
 
@@ -712,6 +965,7 @@ export default function AccountPageClient({
             status: "PENDING",
             createdAt: new Date().toISOString(),
             createdAtLabel: formatClientVietnamDateTime(new Date()),
+            updatedAtLabel: formatClientVietnamDateTime(new Date()),
           },
           ...prev,
         ]);
@@ -780,6 +1034,19 @@ export default function AccountPageClient({
     }
   };
 
+  const openReviewForRequest = (request: ServiceRequest) => {
+    setReviewData((prev) => ({ ...prev, service: request.service }));
+    setReviewFeedback(null);
+    setReviewSuccess(false);
+    setShowReviewForm(true);
+    window.setTimeout(() => {
+      document.getElementById("account-review-section")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 0);
+  };
+
   return (
     <div
       data-testid="account-page"
@@ -800,30 +1067,7 @@ export default function AccountPageClient({
         onLogout={handleLogout}
       />
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <p className="font-body text-xs text-slate-400 uppercase tracking-wider mb-1">Điểm Thưởng Tích Luỹ</p>
-            <div className="flex items-center gap-3">
-              <span className="font-heading font-extrabold text-3xl text-slate-900">
-                {initialUser.loyaltyPoints}
-              </span>
-              <span className={`px-3 py-1 rounded-full text-xs font-bold ${loyaltyTier.color}`}>
-                {loyaltyTier.label}
-              </span>
-            </div>
-          </div>
-          <div className="text-right">
-            <p className="font-body text-xs text-slate-400">{loyaltyTier.next}</p>
-          </div>
-        </div>
-        <div className="mt-3 bg-slate-50 rounded-xl p-3">
-          <p className="font-body text-xs text-slate-500">
-            💡 Tích điểm khi sử dụng dịch vụ tại Minh Hồng! Đổi điểm để nhận ưu đãi giảm giá, bảo
-            hành mở rộng và quà tặng.
-          </p>
-        </div>
-      </div>
+      <AccountStatusPanel dataWarning={dataWarning} initialUser={initialUser} requests={requests} />
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
         <button
@@ -913,7 +1157,11 @@ export default function AccountPageClient({
         ) : null}
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
+      <div
+        id="account-review-section"
+        data-testid="account-review-section"
+        className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden"
+      >
         <button
           data-testid="account-review-toggle"
           aria-expanded={showReviewForm}
@@ -1021,7 +1269,12 @@ export default function AccountPageClient({
       </div>
 
       <WarrantyCards warranties={initialWarranties} />
-      <ReferralSection loyaltyPoints={initialUser.loyaltyPoints} />
+      <RewardsSection
+        initialCoupons={initialCoupons}
+        initialReferralCode={initialUser.referralCode}
+        loyaltyPoints={loyaltyPoints}
+        onLoyaltyPointsChange={setLoyaltyPoints}
+      />
       <PasswordChangeSection />
 
       <div
@@ -1100,6 +1353,18 @@ export default function AccountPageClient({
                     {request.message ? (
                       <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
                         <p className="font-body text-xs text-slate-500 break-words">{request.message}</p>
+                      </div>
+                    ) : null}
+                    {request.status === "COMPLETED" ? (
+                      <div>
+                        <button
+                          data-testid="account-review-from-request"
+                          type="button"
+                          onClick={() => openReviewForRequest(request)}
+                          className="rounded-xl bg-yellow-100 px-3 py-2 text-xs font-body font-bold text-yellow-800 transition-colors hover:bg-yellow-200"
+                        >
+                          Đánh giá dịch vụ này
+                        </button>
                       </div>
                     ) : null}
                   </div>
