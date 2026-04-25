@@ -216,6 +216,50 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("dashboard-user-row")).toContainText(ADMIN_PHONE);
   });
 
+  test("admin can triage the warranty CRM list", async ({ page, request }) => {
+    const unique = Date.now().toString().slice(-8);
+    const serialNo = `MH-WTY-${unique}`;
+    const endDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    await loginAdminRequest(request);
+    const warrantyResponse = await request.post("/api/admin/warranty", {
+      data: {
+        serialNo,
+        productName: "Pin CRM warranty E2E",
+        customerPhone: ADMIN_PHONE,
+        service: "DONG_PIN",
+        endDate,
+        notes: "Warranty CRM e2e can be found by serial and expiry filters.",
+      },
+    });
+    expect(warrantyResponse.ok()).toBeTruthy();
+    const warrantyBody = await warrantyResponse.json();
+    const warrantyId = warrantyBody.warranty?.id as string | undefined;
+
+    try {
+      await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+
+      await page.goto("/dashboard/warranty");
+      await expect(page.getByTestId("dashboard-warranty-crm")).toBeVisible();
+      await expect(page.getByTestId("dashboard-warranty-metrics")).toBeVisible();
+
+      await page.getByTestId("dashboard-warranty-search").fill(serialNo);
+      await page.getByTestId("dashboard-warranty-status-filter").selectOption("expiring");
+      await page.getByTestId("dashboard-warranty-service-filter").selectOption("DONG_PIN");
+      await expect(page.getByTestId("dashboard-warranty-result-count")).toContainText("1 /");
+      await expect(page.getByTestId("dashboard-warranty-card")).toHaveCount(1);
+      await expect(page.getByTestId("dashboard-warranty-card")).toContainText(serialNo);
+
+      await page.getByTestId("dashboard-warranty-sort").selectOption("customer");
+      await expect(page.getByTestId("dashboard-warranty-card")).toContainText("Pin CRM warranty E2E");
+    } finally {
+      if (warrantyId) {
+        await request.delete("/api/admin/warranty", { data: { id: warrantyId } });
+      }
+    }
+  });
+
   test("admin can search and filter the contacts CRM list", async ({ page, request }) => {
     const unique = Date.now().toString().slice(-8);
     const name = `CRM Lead ${unique}`;

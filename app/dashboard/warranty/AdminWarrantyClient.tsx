@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNotify } from "@/components/NotifyProvider";
 
 interface WarrantyData {
@@ -15,6 +15,9 @@ interface WarrantyData {
   notes: string | null;
 }
 
+type WarrantyStatusFilter = "all" | "valid" | "expiring" | "expired";
+type WarrantySortMode = "newest" | "endingSoon" | "customer";
+
 const serviceLabels: Record<string, string> = {
   DONG_PIN: "🔋 Đóng Pin",
   DEN_NLMT: "☀️ NLMT",
@@ -22,6 +25,44 @@ const serviceLabels: Record<string, string> = {
   CAMERA: "📹 Camera",
   KHAC: "📞 Khác",
 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function getDaysRemaining(endDate: string) {
+  return Math.ceil((new Date(endDate).getTime() - Date.now()) / DAY_MS);
+}
+
+function getWarrantyStatus(endDate: string) {
+  const daysRemaining = getDaysRemaining(endDate);
+  if (daysRemaining < 0) {
+    return {
+      key: "expired" as const,
+      label: "❌ Hết BH",
+      color: "bg-red-100 text-red-700",
+      border: "border-red-200 bg-red-50/30",
+    };
+  }
+
+  if (daysRemaining <= 30) {
+    return {
+      key: "expiring" as const,
+      label: "⚠️ Sắp hết",
+      color: "bg-amber-100 text-amber-700",
+      border: "border-amber-200 bg-amber-50/30",
+    };
+  }
+
+  return {
+    key: "valid" as const,
+    label: "✅ Còn BH",
+    color: "bg-green-100 text-green-700",
+    border: "border-green-100",
+  };
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString("vi-VN");
+}
 
 export default function AdminWarrantyClient({
   initialWarranties,
@@ -42,6 +83,63 @@ export default function AdminWarrantyClient({
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<WarrantyStatusFilter>("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const [sortMode, setSortMode] = useState<WarrantySortMode>("endingSoon");
+
+  const metrics = useMemo(() => {
+    return warranties.reduce(
+      (summary, warranty) => {
+        const status = getWarrantyStatus(warranty.endDate);
+        summary.total += 1;
+        summary[status.key] += 1;
+        return summary;
+      },
+      { total: 0, valid: 0, expiring: 0, expired: 0 }
+    );
+  }, [warranties]);
+
+  const serviceOptions = useMemo(() => {
+    return Array.from(new Set(warranties.map((warranty) => warranty.service))).sort((first, second) => (
+      (serviceLabels[first] || first).localeCompare(serviceLabels[second] || second, "vi")
+    ));
+  }, [warranties]);
+
+  const filteredWarranties = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return warranties
+      .filter((warranty) => {
+        const status = getWarrantyStatus(warranty.endDate);
+        const matchesStatus = statusFilter === "all" || status.key === statusFilter;
+        const matchesService = serviceFilter === "all" || warranty.service === serviceFilter;
+        const matchesSearch = query.length === 0
+          || warranty.serialNo.toLowerCase().includes(query)
+          || warranty.productName.toLowerCase().includes(query)
+          || warranty.customerName.toLowerCase().includes(query)
+          || warranty.customerPhone.toLowerCase().includes(query)
+          || (warranty.notes || "").toLowerCase().includes(query);
+
+        return matchesStatus && matchesService && matchesSearch;
+      })
+      .sort((first, second) => {
+        if (sortMode === "endingSoon") {
+          return new Date(first.endDate).getTime() - new Date(second.endDate).getTime();
+        }
+        if (sortMode === "customer") {
+          return first.customerName.localeCompare(second.customerName, "vi");
+        }
+        return new Date(second.startDate).getTime() - new Date(first.startDate).getTime();
+      });
+  }, [searchQuery, serviceFilter, sortMode, statusFilter, warranties]);
+
+  const resetFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setServiceFilter("all");
+    setSortMode("endingSoon");
+  };
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -111,21 +209,101 @@ export default function AdminWarrantyClient({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in-up">
-      <div className="flex items-center justify-between">
+    <div data-testid="dashboard-warranty-crm" className="space-y-6 animate-fade-in-up">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Warranty CRM</p>
           <h2 className="font-heading font-extrabold text-xl text-slate-900">Bảo Hành Số</h2>
-          <p className="font-body text-sm text-slate-500">{warranties.length} phiếu</p>
+          <p className="font-body text-sm text-slate-500">
+            {metrics.total} phiếu · {metrics.expiring} sắp hết hạn · {metrics.expired} đã hết hạn
+          </p>
         </div>
-        <button
-          onClick={() => {
-            setShowForm(!showForm);
-            setError("");
-          }}
-          className="px-4 py-2 bg-red-600 text-white rounded-xl font-body font-bold text-sm hover:bg-red-700 transition-colors"
-        >
-          + Tạo Phiếu BH
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={resetFilters}
+            className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
+          >
+            Reset bộ lọc
+          </button>
+          <button
+            onClick={() => {
+              setShowForm(!showForm);
+              setError("");
+            }}
+            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-red-700"
+          >
+            + Tạo Phiếu BH
+          </button>
+        </div>
+      </div>
+
+      <div data-testid="dashboard-warranty-metrics" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Tổng phiếu</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.total}</p>
+        </div>
+        <div className="rounded-2xl border border-green-100 bg-green-50 p-5">
+          <p className="font-body text-xs uppercase tracking-wider text-green-700">Còn hiệu lực</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-green-700">{metrics.valid}</p>
+        </div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <p className="font-body text-xs uppercase tracking-wider text-amber-700">Sắp hết hạn</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-amber-700">{metrics.expiring}</p>
+        </div>
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-5">
+          <p className="font-body text-xs uppercase tracking-wider text-red-700">Đã hết hạn</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-red-700">{metrics.expired}</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(0,1fr))]">
+          <input
+            data-testid="dashboard-warranty-search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Tìm serial, SĐT, khách hàng, sản phẩm"
+            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          />
+          <select
+            data-testid="dashboard-warranty-status-filter"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as WarrantyStatusFilter)}
+            title="Lọc trạng thái bảo hành"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          >
+            <option value="all">Tất cả trạng thái</option>
+            <option value="valid">Còn hiệu lực</option>
+            <option value="expiring">Sắp hết hạn</option>
+            <option value="expired">Đã hết hạn</option>
+          </select>
+          <select
+            data-testid="dashboard-warranty-service-filter"
+            value={serviceFilter}
+            onChange={(event) => setServiceFilter(event.target.value)}
+            title="Lọc dịch vụ bảo hành"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          >
+            <option value="all">Tất cả dịch vụ</option>
+            {serviceOptions.map((service) => (
+              <option key={service} value={service}>{serviceLabels[service] || service}</option>
+            ))}
+          </select>
+          <select
+            data-testid="dashboard-warranty-sort"
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value as WarrantySortMode)}
+            title="Sắp xếp phiếu bảo hành"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          >
+            <option value="endingSoon">Hạn gần nhất</option>
+            <option value="newest">Mới tạo</option>
+            <option value="customer">Tên khách A-Z</option>
+          </select>
+        </div>
+        <p data-testid="dashboard-warranty-result-count" className="mt-3 font-body text-xs text-slate-400">
+          Hiển thị {filteredWarranties.length} / {warranties.length} phiếu
+        </p>
       </div>
 
       {showForm && (
@@ -159,35 +337,58 @@ export default function AdminWarrantyClient({
         </div>
       ) : (
         <div className="space-y-3">
-          {warranties.map((warranty) => {
-            const isValid = new Date() < new Date(warranty.endDate);
+          {filteredWarranties.length === 0 ? (
+            <div className="rounded-2xl border border-slate-100 bg-white p-10 text-center shadow-sm">
+              <p className="font-body text-sm text-slate-400">Không có phiếu bảo hành nào khớp bộ lọc.</p>
+            </div>
+          ) : (
+            filteredWarranties.map((warranty) => {
+              const status = getWarrantyStatus(warranty.endDate);
+              const daysRemaining = getDaysRemaining(warranty.endDate);
+              const timelineCopy = daysRemaining < 0
+                ? `Quá hạn ${Math.abs(daysRemaining)} ngày`
+                : `Còn ${daysRemaining} ngày`;
 
-            return (
-              <div key={warranty.id} className={`bg-white rounded-xl p-5 border shadow-sm ${isValid ? "border-green-100" : "border-red-200 bg-red-50/30"} ${deletingId === warranty.id ? "opacity-60" : ""}`}>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <code className="px-2 py-0.5 bg-slate-100 rounded text-xs font-bold">{warranty.serialNo}</code>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isValid ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                        {isValid ? "✅ Còn BH" : "❌ Hết BH"}
-                      </span>
-                      <span className="text-xs text-slate-400">{serviceLabels[warranty.service]}</span>
+              return (
+                <div
+                  key={warranty.id}
+                  data-testid="dashboard-warranty-card"
+                  className={`rounded-xl border bg-white p-5 shadow-sm ${status.border} ${deletingId === warranty.id ? "opacity-60" : ""}`}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <code className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold">{warranty.serialNo}</code>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${status.color}`}>
+                          {status.label}
+                        </span>
+                        <span className="font-body text-xs text-slate-400">
+                          {serviceLabels[warranty.service] || warranty.service}
+                        </span>
+                      </div>
+                      <p className="mt-1 font-body text-sm font-semibold text-slate-800">{warranty.productName}</p>
+                      <p className="font-body text-xs text-slate-500">{warranty.customerName} · {warranty.customerPhone}</p>
+                      <div className="mt-2 flex flex-wrap gap-2 font-body text-[10px] text-slate-400">
+                        <span>Tạo: {formatDate(warranty.startDate)}</span>
+                        <span>BH đến: {formatDate(warranty.endDate)}</span>
+                        <span>{timelineCopy}</span>
+                      </div>
+                      {warranty.notes && (
+                        <p className="mt-2 line-clamp-2 font-body text-xs text-slate-500">{warranty.notes}</p>
+                      )}
                     </div>
-                    <p className="font-body font-semibold text-sm text-slate-800 mt-1">{warranty.productName}</p>
-                    <p className="font-body text-xs text-slate-400">{warranty.customerName} · {warranty.customerPhone}</p>
-                    <p className="font-body text-[10px] text-slate-300">BH đến: {new Date(warranty.endDate).toLocaleDateString("vi-VN")}</p>
+                    <button
+                      onClick={() => deleteWarranty(warranty.id)}
+                      disabled={deletingId === warranty.id}
+                      className="shrink-0 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                    >
+                      {deletingId === warranty.id ? "..." : "Xoá"}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => deleteWarranty(warranty.id)}
-                    disabled={deletingId === warranty.id}
-                    className="px-3 py-1.5 text-xs font-bold bg-red-50 text-red-500 rounded-lg shrink-0 disabled:bg-slate-100 disabled:text-slate-300"
-                  >
-                    {deletingId === warranty.id ? "..." : "Xoá"}
-                  </button>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       )}
     </div>
