@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import JsonLd from "@/components/seo/JsonLd";
+import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { cameraPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
@@ -51,6 +52,41 @@ const benefits = [
   "Ưu tiên cấu hình đủ dùng, hình ảnh rõ và quản lý ổn định trên điện thoại.",
   "Giải thích trước về đầu ghi, lưu trữ và mức độ phù hợp cho từng không gian.",
   "Giữ đầu mối hỗ trợ khi khách cần kiểm tra lại, đổi góc hoặc hỏi thêm cách sử dụng.",
+] as const;
+
+const guidanceSteps = [
+  {
+    title: "Xác định khu vực cần quan sát",
+    description: "Hỏi mục tiêu xem cổng, quầy, kho, sân hay khu để xe để tránh lắp thừa hoặc thiếu góc.",
+  },
+  {
+    title: "Khảo sát góc và đường dây",
+    description: "Cân vị trí camera, nguồn điện, mạng, lưu trữ và cách đi dây gọn nhất có thể.",
+  },
+  {
+    title: "Chốt số mắt và cấu hình",
+    description: "Báo phương án theo đúng không gian, nhu cầu xem lại và ngân sách của khách.",
+  },
+] as const;
+
+const priceFactors = [
+  "Số lượng camera, loại camera, độ phân giải và góc quan sát cần phủ.",
+  "Đầu ghi, thẻ nhớ hoặc ổ cứng lưu trữ theo số ngày muốn xem lại.",
+  "Khoảng cách đi dây, vị trí lắp cao/thấp và điều kiện ngoài trời.",
+  "Nhu cầu xem từ xa, cảnh báo chuyển động và hỗ trợ sau bàn giao.",
+] as const;
+
+const serviceFaqs = [
+  {
+    question: "Gói camera trên bảng giá có cố định cho mọi nhà không?",
+    answer:
+      "Không. Gói trên web là tham khảo, vì mỗi nhà hoặc cửa hàng có góc nhìn, đường dây và nhu cầu lưu trữ khác nhau.",
+  },
+  {
+    question: "Admin cập nhật bảng giá thì trang camera có cần sửa lại không?",
+    answer:
+      "Không cần sửa tay phần code. Bảng giá public sẽ hiển thị theo các mục báo giá đang được bật sau khi admin cập nhật trong dashboard.",
+  },
 ] as const;
 
 export default function CameraServicePage() {
@@ -160,6 +196,15 @@ export default function CameraServicePage() {
           </article>
         ))}
       </section>
+
+      <ServiceGuidanceSection
+        accent="blue"
+        faqs={serviceFaqs}
+        priceFactors={priceFactors}
+        quoteHref="/?service=CAMERA&source=service-camera-guidance#quote"
+        serviceName="Camera an ninh"
+        steps={guidanceSteps}
+      />
 
       <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">
         <div className="absolute right-0 top-0 h-full w-1/2 bg-linear-to-l from-primary/12 to-transparent"></div>

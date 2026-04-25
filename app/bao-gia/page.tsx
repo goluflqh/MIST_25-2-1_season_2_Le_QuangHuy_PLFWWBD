@@ -140,8 +140,9 @@ export default async function PricingPage() {
           Giá Dịch Vụ <span className="text-red-600">Minh Hồng</span>
         </h1>
         <p className="font-body text-lg leading-8 text-slate-600">
-          Bảng giá dưới đây giúp khách ước lượng ngân sách trước. Mức chốt cuối vẫn dựa trên tình
-          trạng thiết bị, cấu hình thật và phương án Minh Hồng kiểm tra trực tiếp.
+          Bảng giá dưới đây chỉ giúp khách ước lượng ngân sách trước, không phải mức giá cố định.
+          Website hiển thị theo các mục báo giá đang được bật trong dashboard quản trị; mức chốt
+          cuối vẫn dựa trên tình trạng thiết bị, cấu hình thật và phương án Minh Hồng kiểm tra trực tiếp.
         </p>
 
         <div className="mt-8 grid gap-3 md:grid-cols-3">
@@ -154,10 +155,11 @@ export default async function PricingPage() {
           </div>
           <div className="rounded-[1.5rem] border border-amber-100 bg-amber-50/70 p-5 text-left">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">
-              Không báo mập mờ
+              Dữ liệu đang bật
             </p>
             <p className="mt-2 font-body text-sm leading-6 text-slate-700">
-              Trao đổi rõ về cell, mạch, phụ kiện và công việc cần làm để khách chủ động quyết định.
+              Khi admin cập nhật báo giá trong dashboard, giao diện web sẽ hiển thị theo dữ liệu mới
+              đang được bật.
             </p>
           </div>
           <div className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5 text-left">
@@ -187,7 +189,7 @@ export default async function PricingPage() {
                 </span>
                 {category.fromDb ? (
                   <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    Cập nhật
+                    Đang bật
                   </span>
                 ) : null}
               </div>
@@ -224,8 +226,9 @@ export default async function PricingPage() {
 
       <div className="mb-8 rounded-[1.75rem] border border-slate-200 bg-slate-100 p-6 text-center">
         <p className="font-body text-sm leading-7 text-slate-600">
-          <strong>Lưu ý:</strong> Bảng giá trên chỉ mang tính tham khảo. Giá thực tế phụ thuộc vào
-          loại cell, dung lượng, kích thước, hãng thiết bị và yêu cầu thi công cụ thể.
+          <strong>Lưu ý:</strong> Bảng giá trên chỉ mang tính tham khảo và có thể được Minh Hồng cập
+          nhật từ dashboard quản trị. Giá thực tế phụ thuộc vào loại cell, dung lượng, kích thước,
+          hãng thiết bị, hiện trạng kiểm tra và yêu cầu thi công cụ thể.
         </p>
       </div>
 
@@ -235,7 +238,8 @@ export default async function PricingPage() {
             Cần báo giá chính xác hơn?
           </h2>
           <p className="font-body text-slate-300">
-            Gọi trực tiếp hoặc để lại yêu cầu để Minh Hồng tư vấn đúng theo trường hợp của bạn.
+            Gọi trực tiếp hoặc để lại yêu cầu để Minh Hồng kiểm tra thông tin và báo lại theo trường
+            hợp cụ thể của bạn.
           </p>
         </div>
         <div className="flex flex-wrap gap-4">

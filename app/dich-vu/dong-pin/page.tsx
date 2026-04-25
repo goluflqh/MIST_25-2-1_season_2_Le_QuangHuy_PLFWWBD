@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import JsonLd from "@/components/seo/JsonLd";
+import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { batteryPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
@@ -51,6 +52,41 @@ const benefits = [
   "Ưu tiên cấu hình phù hợp với thiết bị và ngân sách thật thay vì chạy theo thông số quá tay.",
   "Kiểm tra lại đầu ra, độ ổn định và tình trạng sạc xả trước khi bàn giao.",
   "Giữ đầu mối hỗ trợ nếu khách cần tinh chỉnh hoặc hỏi thêm trong quá trình sử dụng.",
+] as const;
+
+const guidanceSteps = [
+  {
+    title: "Hỏi thiết bị và tải dùng",
+    description: "Xác nhận điện áp, dòng xả, thời gian dùng mong muốn và tình trạng bộ pin cũ nếu có.",
+  },
+  {
+    title: "Kiểm tra cell, mạch, vỏ",
+    description: "Đo tình trạng thật để biết nên phục hồi, thay cell hay đóng mới cả bộ.",
+  },
+  {
+    title: "Báo phương án phù hợp",
+    description: "Chốt cấu hình, linh kiện và chi phí sau khi khách hiểu rõ ưu nhược điểm.",
+  },
+] as const;
+
+const priceFactors = [
+  "Loại cell, dung lượng Ah, dòng xả và độ đồng đều của cell.",
+  "Mạch BMS, đầu sạc, đầu xả, vỏ pin và mức chống rung/chống nước.",
+  "Bộ pin cần phục hồi một phần hay đóng mới toàn bộ.",
+  "Yêu cầu thời gian dùng, độ bền và ngân sách khách muốn giữ.",
+] as const;
+
+const serviceFaqs = [
+  {
+    question: "Có thể báo giá cố định ngay qua tin nhắn không?",
+    answer:
+      "Chỉ có thể báo mức tham khảo. Pin cần kiểm tra điện áp, cell, BMS và tải dùng trước khi chốt giá chính xác.",
+  },
+  {
+    question: "Nếu bảng giá trên web thay đổi thì sao?",
+    answer:
+      "Trang web hiển thị theo dữ liệu báo giá đang được bật từ dashboard quản trị, nên Minh Hồng có thể cập nhật khi vật tư hoặc cấu hình thay đổi.",
+  },
 ] as const;
 
 export default function BatteryServicePage() {
@@ -161,6 +197,15 @@ export default function BatteryServicePage() {
           </article>
         ))}
       </section>
+
+      <ServiceGuidanceSection
+        accent="red"
+        faqs={serviceFaqs}
+        priceFactors={priceFactors}
+        quoteHref="/?service=DONG_PIN&source=service-dong-pin-guidance#quote"
+        serviceName="Đóng pin Lithium"
+        steps={guidanceSteps}
+      />
 
       <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">
         <div className="absolute right-0 top-0 h-full w-1/2 bg-linear-to-l from-primary/12 to-transparent"></div>

@@ -150,7 +150,7 @@ export function buildPricingFaqJsonLd() {
         name: "Bảng giá Minh Hồng có phải giá cố định không?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Bảng giá là mức tham khảo để khách ước lượng ngân sách. Giá chốt phụ thuộc vào tình trạng thiết bị, cấu hình thật, linh kiện và phương án thi công sau khi kiểm tra.",
+          text: "Không. Bảng giá là mức tham khảo để khách ước lượng ngân sách. Minh Hồng có thể cập nhật báo giá trong dashboard quản trị và website hiển thị theo các mục đang được bật; giá chốt vẫn phụ thuộc vào tình trạng thiết bị, cấu hình thật, linh kiện và phương án thi công sau khi kiểm tra.",
         },
       },
       {

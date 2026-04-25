@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import JsonLd from "@/components/seo/JsonLd";
+import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { solarPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
@@ -51,6 +52,41 @@ const benefits = [
   "Giải thích trước về thời lượng sáng, mùa mưa và khả năng thay pin về sau.",
   "Ưu tiên cấu hình đủ sáng, dễ bảo trì và dễ thay linh kiện khi cần.",
   "Khảo sát và cân lại công suất theo khu vực sử dụng thực tế thay vì chốt theo quảng cáo.",
+] as const;
+
+const guidanceSteps = [
+  {
+    title: "Hỏi vị trí và thời lượng sáng",
+    description: "Xác nhận khu vực cần chiếu sáng, mức sáng mong muốn và số giờ cần dùng mỗi đêm.",
+  },
+  {
+    title: "Kiểm tra điều kiện nắng",
+    description: "Cân hướng đặt tấm pin, độ che bóng, mùa mưa và khả năng bảo trì về sau.",
+  },
+  {
+    title: "Chọn bộ đèn đủ dùng",
+    description: "Đề xuất công suất, pin và cách lắp theo nhu cầu thật thay vì chỉ nhìn thông số quảng cáo.",
+  },
+] as const;
+
+const priceFactors = [
+  "Công suất đèn, dung lượng pin và loại tấm pin đi kèm.",
+  "Vị trí lắp, độ cao, hướng nắng và mức che bóng trong ngày.",
+  "Nhu cầu sáng liên tục, cảm biến, remote hoặc chế độ tự động.",
+  "Thay pin hệ cũ hay lắp mới toàn bộ bộ đèn và phụ kiện.",
+] as const;
+
+const serviceFaqs = [
+  {
+    question: "Đèn năng lượng mặt trời có báo giá cố định được không?",
+    answer:
+      "Chỉ nên xem là tham khảo. Giá phụ thuộc công suất, pin, vị trí nắng và thời lượng sáng khách cần.",
+  },
+  {
+    question: "Bảng giá trên web có phải dữ liệu mới nhất không?",
+    answer:
+      "Website lấy theo các mục báo giá đang được bật. Khi admin cập nhật trong dashboard, giao diện public sẽ hiển thị theo dữ liệu mới.",
+  },
 ] as const;
 
 export default function SolarLightPage() {
@@ -160,6 +196,15 @@ export default function SolarLightPage() {
           </article>
         ))}
       </section>
+
+      <ServiceGuidanceSection
+        accent="yellow"
+        faqs={serviceFaqs}
+        priceFactors={priceFactors}
+        quoteHref="/?service=DEN_NLMT&source=service-den-nlmt-guidance#quote"
+        serviceName="Đèn năng lượng mặt trời"
+        steps={guidanceSteps}
+      />
 
       <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">
         <div className="absolute right-0 top-0 h-full w-1/2 bg-linear-to-l from-primary/12 to-transparent"></div>

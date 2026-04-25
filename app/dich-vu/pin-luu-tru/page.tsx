@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import JsonLd from "@/components/seo/JsonLd";
+import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { storagePreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
@@ -51,6 +52,41 @@ const benefits = [
   "Ưu tiên cấu hình dễ theo dõi, dễ thay thế linh kiện và dễ mở rộng sau này.",
   "Giải thích trước về điện áp, Ah, dòng xả và những giới hạn an toàn khi sử dụng lâu dài.",
   "Giữ đầu mối hỗ trợ khi khách cần nâng cấp, thay đổi đầu ra hoặc kiểm tra lại cấu hình.",
+] as const;
+
+const guidanceSteps = [
+  {
+    title: "Tính tải và thời gian lưu",
+    description: "Hỏi thiết bị cần cấp nguồn, công suất xả và thời gian cần duy trì khi mất điện.",
+  },
+  {
+    title: "Chọn điện áp và cell phù hợp",
+    description: "Cân cấu hình cell, BMS, dây dẫn, vỏ và khả năng mở rộng theo mức an toàn cần thiết.",
+  },
+  {
+    title: "Báo phương án theo ngân sách",
+    description: "Chốt cấu hình đủ tải, dễ bảo trì và không đẩy khách vào hệ quá lớn nếu chưa cần.",
+  },
+] as const;
+
+const priceFactors = [
+  "Điện áp hệ, dung lượng Ah/Wh và dòng xả liên tục cần đáp ứng.",
+  "Loại cell, BMS, vỏ tủ, dây dẫn và mức bảo vệ an toàn.",
+  "Nhu cầu kích đề, lưu điện gia đình hay nguồn dự phòng theo yêu cầu riêng.",
+  "Khả năng mở rộng sau này và mức độ hoàn thiện khi bàn giao.",
+] as const;
+
+const serviceFaqs = [
+  {
+    question: "Pin lưu trữ có thể chốt giá theo một mức chung không?",
+    answer:
+      "Không nên chốt cứng trước. Cần tính tải xả, thời gian lưu và mức an toàn trước khi đưa báo giá cuối.",
+  },
+  {
+    question: "Bảng giá tham khảo trên web lấy từ đâu?",
+    answer:
+      "Bảng giá public lấy từ các mục đang được bật trong hệ thống quản trị. Admin có thể cập nhật để UI phản ánh lại theo dữ liệu hiện tại.",
+  },
 ] as const;
 
 export default function StorageBatteryPage() {
@@ -161,6 +197,15 @@ export default function StorageBatteryPage() {
           </article>
         ))}
       </section>
+
+      <ServiceGuidanceSection
+        accent="green"
+        faqs={serviceFaqs}
+        priceFactors={priceFactors}
+        quoteHref="/?service=PIN_LUU_TRU&source=service-pin-luu-tru-guidance#quote"
+        serviceName="Pin lưu trữ & kích đề"
+        steps={guidanceSteps}
+      />
 
       <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">
         <div className="absolute right-0 top-0 h-full w-1/2 bg-linear-to-l from-primary/12 to-transparent"></div>
