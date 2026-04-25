@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import JsonLd from "@/components/seo/JsonLd";
 import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
+import { ServiceLocalTrustSection } from "@/components/service/ServiceLocalTrustSection";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { solarPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
@@ -87,6 +88,34 @@ const serviceFaqs = [
     answer:
       "Website lấy theo các mục báo giá đang được bật. Khi admin cập nhật trong dashboard, giao diện public sẽ hiển thị theo dữ liệu mới.",
   },
+] as const;
+
+const localTrustCases = [
+  {
+    title: "Sân, cổng cần sáng tự động mỗi tối",
+    situation:
+      "Khách muốn giảm dây điện nhưng vẫn cần đủ sáng để đi lại và quan sát khu vực ra vào.",
+    decision: "cân công suất đèn, hướng tấm pin và chế độ sáng theo số giờ dùng thật.",
+  },
+  {
+    title: "Đèn cũ xuống pin hoặc sáng yếu",
+    situation:
+      "Bộ đèn vẫn dùng được nhưng thời lượng sáng giảm, hộp pin hoặc cell đã xuống cấp.",
+    decision: "kiểm tra pin, mạch và hộp lưu trữ trước khi quyết định thay pin hay đổi bộ mới.",
+  },
+  {
+    title: "Khu vực khó kéo điện",
+    situation:
+      "Lối đi, sân vườn hoặc góc xa nguồn điện cần giải pháp gọn và ít bảo trì.",
+    decision: "chỉ đề xuất NLMT khi vị trí đủ nắng và khách hiểu rõ giới hạn mùa mưa.",
+  },
+] as const;
+
+const prepareItems = [
+  "Ảnh vị trí muốn lắp và hướng nắng trong ngày.",
+  "Mức sáng mong muốn: đi lại nhẹ, chiếu cổng hay rọi sân rộng.",
+  "Số giờ cần sáng mỗi đêm và có cần cảm biến/chế độ tự động không.",
+  "Tình trạng bộ đèn cũ nếu đang cần thay pin hoặc sửa lại.",
 ] as const;
 
 export default function SolarLightPage() {
@@ -204,6 +233,14 @@ export default function SolarLightPage() {
         quoteHref="/?service=DEN_NLMT&source=service-den-nlmt-guidance#quote"
         serviceName="Đèn năng lượng mặt trời"
         steps={guidanceSteps}
+      />
+
+      <ServiceLocalTrustSection
+        accent="yellow"
+        cases={localTrustCases}
+        prepareItems={prepareItems}
+        quoteHref="/?service=DEN_NLMT&source=service-den-nlmt-local-trust#quote"
+        serviceName="đèn năng lượng mặt trời"
       />
 
       <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">

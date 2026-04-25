@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import JsonLd from "@/components/seo/JsonLd";
 import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
+import { ServiceLocalTrustSection } from "@/components/service/ServiceLocalTrustSection";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { cameraPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
@@ -87,6 +88,34 @@ const serviceFaqs = [
     answer:
       "Không cần sửa tay phần code. Bảng giá public sẽ hiển thị theo các mục báo giá đang được bật sau khi admin cập nhật trong dashboard.",
   },
+] as const;
+
+const localTrustCases = [
+  {
+    title: "Cửa hàng mặt tiền cần xem quầy và cửa ra vào",
+    situation:
+      "Không gian có nhiều điểm cần theo dõi nhưng chủ shop vẫn muốn xem nhanh trên điện thoại.",
+    decision: "chốt số mắt, góc lắp và thời gian lưu trữ theo khu vực cần xem lại nhiều nhất.",
+  },
+  {
+    title: "Nhà phố cần quan sát cổng và sân",
+    situation:
+      "Camera phải đủ rõ ban đêm, ít vướng thẩm mỹ và có đường nguồn/mạng ổn định.",
+    decision: "khảo sát góc nhìn, đường dây, vị trí nguồn và cách bàn giao app trước khi báo cấu hình.",
+  },
+  {
+    title: "Kho nhỏ hoặc xưởng cần theo dõi nhiều lối",
+    situation:
+      "Khu vực rộng hơn cần tránh điểm mù, đồng thời cân dung lượng lưu trữ hợp lý.",
+    decision: "ưu tiên sơ đồ vị trí, đầu ghi hoặc thẻ nhớ phù hợp và cách xem lại dễ thao tác.",
+  },
+] as const;
+
+const prepareItems = [
+  "Ảnh hoặc video khu vực cần lắp camera.",
+  "Số vị trí muốn quan sát: cổng, quầy, kho, sân hoặc khu để xe.",
+  "Nhu cầu xem lại trong bao nhiêu ngày và có cần xem từ xa không.",
+  "Thông tin Wi-Fi, nguồn điện gần vị trí lắp hoặc yêu cầu đi dây gọn.",
 ] as const;
 
 export default function CameraServicePage() {
@@ -204,6 +233,14 @@ export default function CameraServicePage() {
         quoteHref="/?service=CAMERA&source=service-camera-guidance#quote"
         serviceName="Camera an ninh"
         steps={guidanceSteps}
+      />
+
+      <ServiceLocalTrustSection
+        accent="blue"
+        cases={localTrustCases}
+        prepareItems={prepareItems}
+        quoteHref="/?service=CAMERA&source=service-camera-local-trust#quote"
+        serviceName="lắp camera an ninh"
       />
 
       <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">

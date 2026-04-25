@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import JsonLd from "@/components/seo/JsonLd";
 import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
+import { ServiceLocalTrustSection } from "@/components/service/ServiceLocalTrustSection";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { storagePreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
@@ -87,6 +88,34 @@ const serviceFaqs = [
     answer:
       "Bảng giá public lấy từ các mục đang được bật trong hệ thống quản trị. Admin có thể cập nhật để UI phản ánh lại theo dữ liệu hiện tại.",
   },
+] as const;
+
+const localTrustCases = [
+  {
+    title: "Nguồn dự phòng cho gia đình hoặc cửa hàng",
+    situation:
+      "Khách cần duy trì một số thiết bị quan trọng khi mất điện nhưng chưa muốn đầu tư hệ quá lớn.",
+    decision: "tính tải, thời gian lưu và đường nâng cấp trước khi chốt dung lượng.",
+  },
+  {
+    title: "Bộ kích đề mang theo xe",
+    situation:
+      "Cần bộ pin gọn, dòng xả đủ mạnh và thao tác nhanh khi ắc quy yếu.",
+    decision: "chọn cell, dây kẹp, BMS và vỏ theo điện áp xe và mức an toàn cần có.",
+  },
+  {
+    title: "Bộ nguồn riêng cho thiết bị đặc thù",
+    situation:
+      "Thiết bị cần điện áp, đầu ra hoặc thời gian chạy không có sẵn ở bộ pin phổ thông.",
+    decision: "xác nhận tải xả, đầu cắm, kích thước và cách sạc trước khi đóng bộ riêng.",
+  },
+] as const;
+
+const prepareItems = [
+  "Danh sách thiết bị cần cấp nguồn và công suất nếu biết.",
+  "Thời gian muốn duy trì khi mất điện hoặc khi dùng ngoài hiện trường.",
+  "Điện áp hệ cần dùng: 12V, 24V, 48V, 51.2V hoặc thông số riêng.",
+  "Yêu cầu về kích thước, vị trí đặt, khả năng mở rộng và mức ngân sách.",
 ] as const;
 
 export default function StorageBatteryPage() {
@@ -205,6 +234,14 @@ export default function StorageBatteryPage() {
         quoteHref="/?service=PIN_LUU_TRU&source=service-pin-luu-tru-guidance#quote"
         serviceName="Pin lưu trữ & kích đề"
         steps={guidanceSteps}
+      />
+
+      <ServiceLocalTrustSection
+        accent="green"
+        cases={localTrustCases}
+        prepareItems={prepareItems}
+        quoteHref="/?service=PIN_LUU_TRU&source=service-pin-luu-tru-local-trust#quote"
+        serviceName="pin lưu trữ & kích đề"
       />
 
       <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">

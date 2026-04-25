@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import JsonLd from "@/components/seo/JsonLd";
 import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
+import { ServiceLocalTrustSection } from "@/components/service/ServiceLocalTrustSection";
 import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
 import { batteryPreviewItems } from "@/lib/service-previews";
 import { buildMarketingMetadata, siteConfig } from "@/lib/site";
@@ -87,6 +88,34 @@ const serviceFaqs = [
     answer:
       "Trang web hiển thị theo dữ liệu báo giá đang được bật từ dashboard quản trị, nên Minh Hồng có thể cập nhật khi vật tư hoặc cấu hình thay đổi.",
   },
+] as const;
+
+const localTrustCases = [
+  {
+    title: "Xe điện dùng đi làm hằng ngày",
+    situation:
+      "Khách cần quãng đường ổn định, sạc dễ và bộ pin vừa đúng khoang xe đang có.",
+    decision: "đo điện áp, hỏi quãng đường, cân dung lượng và BMS đủ dòng trước khi đóng.",
+  },
+  {
+    title: "Máy khoan, máy mài cần dòng xả cao",
+    situation:
+      "Bộ pin phải chịu tải đột ngột, rung khi làm việc và cần vỏ cầm chắc tay.",
+    decision: "ưu tiên cell đồng đều, mạch bảo vệ phù hợp và kiểm tra lại đầu ra trước bàn giao.",
+  },
+  {
+    title: "Bộ pin theo kích thước riêng",
+    situation:
+      "Thiết bị cần đúng điện áp, đầu cắm, kích thước hoặc thời gian dùng không theo mẫu phổ thông.",
+    decision: "chốt thông số, cách đặt cell và phụ kiện trước khi làm để tránh sửa đi sửa lại.",
+  },
+] as const;
+
+const prepareItems = [
+  "Ảnh thiết bị hoặc bộ pin cũ, nếu còn giữ được.",
+  "Điện áp, dung lượng Ah/Wh hoặc thông số ghi trên tem.",
+  "Lỗi đang gặp: chai pin, sạc không vào, tụt áp hoặc cần dùng lâu hơn.",
+  "Thời gian dùng mong muốn và ngân sách dự kiến.",
 ] as const;
 
 export default function BatteryServicePage() {
@@ -205,6 +234,14 @@ export default function BatteryServicePage() {
         quoteHref="/?service=DONG_PIN&source=service-dong-pin-guidance#quote"
         serviceName="Đóng pin Lithium"
         steps={guidanceSteps}
+      />
+
+      <ServiceLocalTrustSection
+        accent="red"
+        cases={localTrustCases}
+        prepareItems={prepareItems}
+        quoteHref="/?service=DONG_PIN&source=service-dong-pin-local-trust#quote"
+        serviceName="đóng pin Lithium"
       />
 
       <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">
