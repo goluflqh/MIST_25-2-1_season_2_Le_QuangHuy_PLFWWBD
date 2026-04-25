@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useState } from "react";
+import { startTransition, type FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -35,6 +35,17 @@ interface WarrantyInfo {
   notes: string | null;
 }
 
+interface WarrantyLookupData {
+  serialNo: string;
+  productName: string;
+  customerName: string;
+  service: string;
+  startDate: string;
+  endDate: string;
+  notes: string | null;
+  isValid: boolean;
+}
+
 interface FeedbackMessage {
   text: string;
   type: "success" | "error";
@@ -57,6 +68,58 @@ const statusConfig: Record<string, { label: string; color: string }> = {
   CANCELLED: { label: "Đã huỷ", color: "bg-red-100 text-red-700" },
 };
 
+const requestStages = [
+  { key: "PENDING", label: "Tiếp nhận" },
+  { key: "CONTACTED", label: "Liên hệ" },
+  { key: "IN_PROGRESS", label: "Đang làm" },
+  { key: "COMPLETED", label: "Hoàn thành" },
+];
+
+function getRequestStageIndex(status: string) {
+  if (status === "CANCELLED") return 0;
+  const index = requestStages.findIndex((stage) => stage.key === status);
+  return index >= 0 ? index : 0;
+}
+
+function getRequestNextAction(status: string) {
+  switch (status) {
+    case "PENDING":
+      return "Minh Hồng đang tiếp nhận và sẽ liên hệ để xác nhận thông tin.";
+    case "CONTACTED":
+      return "Đã liên hệ. Bước tiếp theo là chốt lịch khảo sát hoặc phương án xử lý.";
+    case "IN_PROGRESS":
+      return "Dịch vụ đang được thực hiện. Bạn có thể theo dõi trạng thái tại đây.";
+    case "COMPLETED":
+      return "Yêu cầu đã hoàn thành. Bạn có thể gửi đánh giá để Minh Hồng cải thiện dịch vụ.";
+    case "CANCELLED":
+      return "Yêu cầu đã huỷ. Bạn có thể tạo yêu cầu mới khi cần hỗ trợ.";
+    default:
+      return "Trạng thái đang được cập nhật.";
+  }
+}
+
+function getWarrantyRemainingLabel(endDate: string, isActive: boolean) {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const days = Math.ceil((new Date(endDate).getTime() - Date.now()) / dayMs);
+
+  if (!isActive || days <= 0) return "Đã hết hạn";
+  if (days === 1) return "Còn 1 ngày";
+  return `Còn ${days} ngày`;
+}
+
+function getLoyaltyTier(points: number) {
+  if (points >= 500) {
+    return { label: "Kim Cương", next: "Hạng cao nhất", color: "bg-yellow-100 text-yellow-700" };
+  }
+  if (points >= 200) {
+    return { label: "Vàng", next: `Còn ${500 - points} điểm để lên Kim Cương`, color: "bg-slate-200 text-slate-700" };
+  }
+  if (points >= 50) {
+    return { label: "Bạc", next: `Còn ${200 - points} điểm để lên Vàng`, color: "bg-orange-100 text-orange-700" };
+  }
+  return { label: "Đồng", next: `Còn ${50 - points} điểm để lên Bạc`, color: "bg-slate-100 text-slate-500" };
+}
+
 const clientDateTimeFormatter = new Intl.DateTimeFormat("vi-VN", {
   day: "2-digit",
   hour: "2-digit",
@@ -71,53 +134,170 @@ function formatClientVietnamDateTime(date: Date) {
 }
 
 function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
-  if (warranties.length === 0) return null;
+  const [lookupSerial, setLookupSerial] = useState("");
+  const [lookupResult, setLookupResult] = useState<WarrantyLookupData | null>(null);
+  const [lookupMessage, setLookupMessage] = useState<FeedbackMessage | null>(null);
+  const [isLookingUp, setIsLookingUp] = useState(false);
+
+  const lookupWarranty = async (event: FormEvent) => {
+    event.preventDefault();
+    const serial = lookupSerial.trim();
+    if (!serial) {
+      setLookupMessage({ text: "Nhập số serial cần tra cứu.", type: "error" });
+      return;
+    }
+
+    setIsLookingUp(true);
+    setLookupMessage(null);
+    setLookupResult(null);
+
+    try {
+      const response = await fetch(`/api/warranty/lookup?serial=${encodeURIComponent(serial)}`);
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setLookupMessage({
+          text: data.message || "Chưa tra cứu được bảo hành lúc này.",
+          type: "error",
+        });
+        return;
+      }
+
+      setLookupResult(data.warranty);
+      setLookupMessage({ text: "Đã tìm thấy thông tin bảo hành.", type: "success" });
+    } catch {
+      setLookupMessage({ text: "Kết nối bị gián đoạn khi tra cứu bảo hành.", type: "error" });
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
-      <h3 className="font-heading font-bold text-slate-900 mb-3">🛡️ Phiếu Bảo Hành Của Bạn</h3>
-      <div className="space-y-3">
-        {warranties.map((warranty) => {
-          const isValid = warranty.isActive;
-          return (
-            <div
-              key={warranty.id}
-              className={`rounded-xl p-4 border ${isValid ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}
-            >
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs font-bold bg-white/70 px-2 py-0.5 rounded">
-                      {warranty.serialNo}
-                    </code>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isValid ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}
-                    >
-                      {isValid ? "✅ Còn BH" : "❌ Hết BH"}
-                    </span>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between mb-4">
+        <div>
+          <h3 className="font-heading font-bold text-slate-900">🛡️ Phiếu Bảo Hành</h3>
+          <p className="font-body text-xs text-slate-400">
+            Theo dõi hạn bảo hành và tra cứu nhanh bằng số serial.
+          </p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-body font-bold text-slate-500">
+          {warranties.length} phiếu
+        </span>
+      </div>
+
+      {warranties.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
+          <p className="font-body text-sm font-semibold text-slate-600">Chưa có phiếu bảo hành gắn với tài khoản.</p>
+          <p className="font-body text-xs text-slate-400 mt-1">
+            Nếu đã có serial, bạn vẫn có thể tra cứu trực tiếp bên dưới.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {warranties.map((warranty) => {
+            const isValid = warranty.isActive;
+            return (
+              <div
+                key={warranty.id}
+                className={`rounded-xl p-4 border ${isValid ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <code className="text-xs font-bold bg-white/70 px-2 py-0.5 rounded">
+                        {warranty.serialNo}
+                      </code>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isValid ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}
+                      >
+                        {isValid ? "Còn bảo hành" : "Hết bảo hành"}
+                      </span>
+                    </div>
+                    <p className="font-body font-semibold text-sm text-slate-800 mt-1">
+                      {warranty.productName}
+                    </p>
+                    <p className="font-body text-xs text-slate-400">
+                      {serviceLabels[warranty.service]} · Hết hạn: {warranty.endDateLabel}
+                    </p>
+                    {warranty.notes ? (
+                      <p className="font-body text-xs text-slate-500 mt-2">{warranty.notes}</p>
+                    ) : null}
                   </div>
-                  <p className="font-body font-semibold text-sm text-slate-800 mt-1">
-                    {warranty.productName}
-                  </p>
-                  <p className="font-body text-xs text-slate-400">
-                    {serviceLabels[warranty.service]} · Hết hạn:{" "}
-                    {warranty.endDateLabel}
-                  </p>
+                  <span className="shrink-0 rounded-lg bg-white/80 px-2.5 py-1 text-[10px] font-body font-bold text-slate-600">
+                    {getWarrantyRemainingLabel(warranty.endDate, isValid)}
+                  </span>
                 </div>
               </div>
+            );
+          })}
+        </div>
+      )}
+
+      <form onSubmit={lookupWarranty} className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
+        <label className="block font-body text-xs font-bold text-slate-500 mb-2">
+          Tra cứu bằng serial
+        </label>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            value={lookupSerial}
+            onChange={(event) => setLookupSerial(event.target.value)}
+            placeholder="Ví dụ: MH-BH-001"
+            className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body outline-none focus:ring-2 focus:ring-red-500"
+          />
+          <button
+            type="submit"
+            disabled={isLookingUp}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white transition-colors disabled:bg-slate-300"
+          >
+            {isLookingUp ? "Đang tra..." : "Tra cứu"}
+          </button>
+        </div>
+        {lookupMessage ? (
+          <div
+            className={`mt-3 rounded-lg border px-3 py-2 text-xs font-body font-semibold ${
+              lookupMessage.type === "success"
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-red-200 bg-red-50 text-red-600"
+            }`}
+          >
+            {lookupMessage.text}
+          </div>
+        ) : null}
+        {lookupResult ? (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-body text-sm font-bold text-slate-800">{lookupResult.productName}</p>
+                <p className="font-body text-xs text-slate-400">
+                  {serviceLabels[lookupResult.service] || lookupResult.service} · {lookupResult.customerName}
+                </p>
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-1 text-[10px] font-body font-bold ${
+                  lookupResult.isValid ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                }`}
+              >
+                {lookupResult.isValid ? "Còn hiệu lực" : "Hết hạn"}
+              </span>
             </div>
-          );
-        })}
-      </div>
+            <p className="mt-2 font-body text-xs text-slate-500">
+              Hết hạn: {new Date(lookupResult.endDate).toLocaleDateString("vi-VN")} ·{" "}
+              {getWarrantyRemainingLabel(lookupResult.endDate, lookupResult.isValid)}
+            </p>
+          </div>
+        ) : null}
+      </form>
     </div>
   );
 }
 
-function ReferralSection() {
+function ReferralSection({ loyaltyPoints }: { loyaltyPoints: number }) {
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tier = getLoyaltyTier(loyaltyPoints);
 
   const generateCode = async () => {
     setError(null);
@@ -159,10 +339,30 @@ function ReferralSection() {
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
-      <h3 className="font-heading font-bold text-slate-900 mb-2">🎁 Giới Thiệu Bạn Bè</h3>
-      <p className="font-body text-xs text-slate-400 mb-3">
-        Gửi link mời cho bạn bè → bạn bè đăng ký thành công → cả 2 nhận +20 điểm thưởng!
-      </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+        <div>
+          <h3 className="font-heading font-bold text-slate-900">🎁 Điểm Thưởng & Giới Thiệu</h3>
+          <p className="font-body text-xs text-slate-400 mt-1">
+            Gửi link mời cho bạn bè, theo dõi hạng thành viên và điểm còn thiếu rõ hơn.
+          </p>
+        </div>
+        <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
+          <p className="font-body text-[10px] uppercase tracking-wider text-slate-400">Hạng hiện tại</p>
+          <p className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-body font-bold ${tier.color}`}>
+            {tier.label}
+          </p>
+        </div>
+      </div>
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+          <p className="font-body text-[10px] uppercase tracking-wider text-slate-400">Điểm hiện có</p>
+          <p className="font-heading text-2xl font-extrabold text-slate-900">{loyaltyPoints}</p>
+        </div>
+        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+          <p className="font-body text-[10px] uppercase tracking-wider text-slate-400">Mốc tiếp theo</p>
+          <p className="font-body text-sm font-bold text-slate-700">{tier.next}</p>
+        </div>
+      </div>
       {error ? (
         <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-body font-semibold text-red-600">
           {error}
@@ -330,6 +530,7 @@ export default function AccountPageClient({
   const [reviewSuccess, setReviewSuccess] = useState(false);
   const [reviewFeedback, setReviewFeedback] = useState<FeedbackMessage | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const loyaltyTier = getLoyaltyTier(initialUser.loyaltyPoints);
 
   const handleLogout = async () => {
     if (isLoggingOut) return;
@@ -360,7 +561,7 @@ export default function AccountPageClient({
     }
   };
 
-  const handleSubmitRequest = async (e: React.FormEvent) => {
+  const handleSubmitRequest = async (e: FormEvent) => {
     e.preventDefault();
     if (!formData.service) return;
 
@@ -420,7 +621,7 @@ export default function AccountPageClient({
     }
   };
 
-  const handleSubmitReview = async (e: React.FormEvent) => {
+  const handleSubmitReview = async (e: FormEvent) => {
     e.preventDefault();
     if (!reviewData.comment || !reviewData.service) return;
 
@@ -517,37 +718,13 @@ export default function AccountPageClient({
               <span className="font-heading font-extrabold text-3xl text-slate-900">
                 {initialUser.loyaltyPoints}
               </span>
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-bold ${
-                  initialUser.loyaltyPoints >= 500
-                    ? "bg-yellow-100 text-yellow-700"
-                    : initialUser.loyaltyPoints >= 200
-                      ? "bg-slate-200 text-slate-700"
-                      : initialUser.loyaltyPoints >= 50
-                        ? "bg-orange-100 text-orange-700"
-                        : "bg-slate-100 text-slate-500"
-                }`}
-              >
-                {initialUser.loyaltyPoints >= 500
-                  ? "💎 Kim Cương"
-                  : initialUser.loyaltyPoints >= 200
-                    ? "🥇 Vàng"
-                    : initialUser.loyaltyPoints >= 50
-                      ? "🥈 Bạc"
-                      : "🥉 Đồng"}
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${loyaltyTier.color}`}>
+                {loyaltyTier.label}
               </span>
             </div>
           </div>
           <div className="text-right">
-            <p className="font-body text-xs text-slate-400">
-              {initialUser.loyaltyPoints < 50
-                ? `Còn ${50 - initialUser.loyaltyPoints} điểm → Bạc`
-                : initialUser.loyaltyPoints < 200
-                  ? `Còn ${200 - initialUser.loyaltyPoints} điểm → Vàng`
-                  : initialUser.loyaltyPoints < 500
-                    ? `Còn ${500 - initialUser.loyaltyPoints} điểm → Kim Cương`
-                    : "🎉 Hạng cao nhất!"}
-            </p>
+            <p className="font-body text-xs text-slate-400">{loyaltyTier.next}</p>
           </div>
         </div>
         <div className="mt-3 bg-slate-50 rounded-xl p-3">
@@ -746,7 +923,7 @@ export default function AccountPageClient({
       </div>
 
       <WarrantyCards warranties={initialWarranties} />
-      <ReferralSection />
+      <ReferralSection loyaltyPoints={initialUser.loyaltyPoints} />
       <PasswordChangeSection />
 
       <div
@@ -770,26 +947,67 @@ export default function AccountPageClient({
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {requests.map((request) => (
-              <div key={request.id} className="px-6 py-4 flex items-center gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-body font-semibold text-sm text-slate-800">
-                      {serviceLabels[request.service] || request.service}
-                    </p>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusConfig[request.status]?.color}`}
-                    >
-                      {statusConfig[request.status]?.label || request.status}
-                    </span>
+            {requests.map((request) => {
+              const status = statusConfig[request.status] || {
+                label: "Đang cập nhật",
+                color: "bg-slate-100 text-slate-600",
+              };
+              const stageIndex = getRequestStageIndex(request.status);
+              const isCancelled = request.status === "CANCELLED";
+
+              return (
+                <div key={request.id} className="px-6 py-5">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-body font-semibold text-sm text-slate-800">
+                            {serviceLabels[request.service] || request.service}
+                          </p>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${status.color}`}>
+                            {status.label}
+                          </span>
+                        </div>
+                        <p className="font-body text-[10px] text-slate-300 mt-1">{request.createdAtLabel}</p>
+                      </div>
+                      <p className="font-body text-xs font-semibold text-slate-500 sm:text-right">
+                        {getRequestNextAction(request.status)}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2" aria-label="Tiến độ yêu cầu">
+                      {requestStages.map((stage, index) => {
+                        const isReached = !isCancelled && index <= stageIndex;
+                        const isCurrent = !isCancelled && stage.key === request.status;
+
+                        return (
+                          <div key={stage.key} className="min-w-0">
+                            <span
+                              className={`block h-1.5 rounded-full ${
+                                isReached ? "bg-red-500" : "bg-slate-100"
+                              }`}
+                            />
+                            <span
+                              className={`mt-1 block truncate text-[10px] font-body ${
+                                isCurrent ? "font-bold text-red-600" : "text-slate-400"
+                              }`}
+                            >
+                              {stage.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {request.message ? (
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <p className="font-body text-xs text-slate-500 break-words">{request.message}</p>
+                      </div>
+                    ) : null}
                   </div>
-                  {request.message ? (
-                    <p className="font-body text-xs text-slate-400 mt-0.5 truncate">{request.message}</p>
-                  ) : null}
-                  <p className="font-body text-[10px] text-slate-300 mt-1">{request.createdAtLabel}</p>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
