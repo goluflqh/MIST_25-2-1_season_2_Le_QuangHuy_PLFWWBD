@@ -108,8 +108,8 @@ export default function ContactForm() {
     defaultValues: {
       name: "",
       phone: "",
-      serviceId: "",
-      message: "",
+      serviceId: getInitialServiceValue(serviceFromQuery),
+      message: messageFromQuery,
     },
   });
 
