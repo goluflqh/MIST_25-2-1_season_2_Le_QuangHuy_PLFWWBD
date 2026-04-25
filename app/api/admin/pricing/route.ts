@@ -12,7 +12,10 @@ export async function GET() {
     return NextResponse.json({ success: true, items });
   } catch (error) {
     console.error("Pricing GET error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không tải được bảng giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -35,7 +38,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, item });
   } catch (error) {
     console.error("Pricing POST error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không tạo được mục giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -60,7 +66,10 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, item });
   } catch (error) {
     console.error("Pricing PATCH error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không cập nhật được mục giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -83,6 +92,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Pricing DELETE error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không xoá được mục giá lúc này." },
+      { status: 500 }
+    );
   }
 }

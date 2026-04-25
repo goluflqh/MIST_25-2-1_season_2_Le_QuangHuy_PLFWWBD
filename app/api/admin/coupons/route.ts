@@ -15,7 +15,10 @@ export async function GET() {
     return NextResponse.json({ success: true, coupons });
   } catch (error) {
     console.error("Coupons GET error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không tải được danh sách mã giảm giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -37,7 +40,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, coupon });
   } catch (error) {
     console.error("Coupons POST error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không tạo được mã giảm giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -59,6 +65,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Coupons DELETE error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không xoá được mã giảm giá lúc này." },
+      { status: 500 }
+    );
   }
 }

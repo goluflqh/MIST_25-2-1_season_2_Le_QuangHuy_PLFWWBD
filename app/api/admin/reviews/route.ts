@@ -18,7 +18,10 @@ export async function GET() {
     return NextResponse.json({ success: true, reviews });
   } catch (error) {
     console.error("Admin reviews GET error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không tải được danh sách đánh giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -44,7 +47,10 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, review });
   } catch (error) {
     console.error("Admin review PATCH error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không cập nhật được trạng thái đánh giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -68,6 +74,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Admin review DELETE error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không xoá được đánh giá lúc này." },
+      { status: 500 }
+    );
   }
 }
