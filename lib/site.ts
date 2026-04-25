@@ -43,6 +43,24 @@ function normalizePath(path: string) {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
+export function getAbsoluteUrl(path: string) {
+  return new URL(normalizePath(path), siteUrl).toString();
+}
+
+export const defaultOpenGraphImage = {
+  url: "/showcase/generated/hero-battery-workbench-v2.png",
+  alt: `${siteConfig.name} - ${siteConfig.tagline}`,
+} as const;
+
+export const marketingSitemapRoutes = [
+  { path: "/", changeFrequency: "weekly", priority: 1 },
+  { path: "/dich-vu/dong-pin", changeFrequency: "weekly", priority: 0.9 },
+  { path: "/dich-vu/camera", changeFrequency: "weekly", priority: 0.9 },
+  { path: "/dich-vu/den-nang-luong", changeFrequency: "weekly", priority: 0.9 },
+  { path: "/dich-vu/pin-luu-tru", changeFrequency: "weekly", priority: 0.9 },
+  { path: "/bao-gia", changeFrequency: "weekly", priority: 0.8 },
+] as const;
+
 export function buildMarketingMetadata({
   title,
   description,
@@ -67,6 +85,13 @@ export function buildMarketingMetadata({
       type: "website",
       locale: siteConfig.locale,
       siteName: siteConfig.name,
+      images: [defaultOpenGraphImage],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${title} | ${siteConfig.name}`,
+      description,
+      images: [defaultOpenGraphImage.url],
     },
   };
 }

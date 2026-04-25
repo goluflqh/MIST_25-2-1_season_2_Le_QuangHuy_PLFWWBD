@@ -84,6 +84,19 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001 npm run test:e2e
 
 CI trên GitHub hiện chạy các bước chính với PostgreSQL service: `npm ci`, Prisma generate/validate/migrate deploy, lint và build.
 
+## Technical SEO
+
+Site dùng `NEXT_PUBLIC_SITE_URL` để tạo canonical URL, sitemap và robots. Cấu hình production nên đặt biến này về domain thật, ví dụ:
+
+```env
+NEXT_PUBLIC_SITE_URL="https://minhhong.example"
+```
+
+Các route public quan trọng được xuất qua:
+
+- `/sitemap.xml`
+- `/robots.txt`
+
 ## AI provider cho chatbot
 
 Code hiện hỗ trợ 3 provider qua biến `AI_PROVIDER`:
@@ -133,6 +146,18 @@ Khi đó chatbot metrics chưa có số thật. Đây là hành vi đã biết, 
 Xem thêm checklist rollout, env và migration ở:
 
 - `docs/release-readiness.md`
+
+## Docker production foundation
+
+Repo có Dockerfile standalone cho Next.js và compose nền cho app + PostgreSQL:
+
+```bash
+docker build -t minhhong-next .
+docker compose --profile migrate run --rm migrate
+docker compose up -d app
+```
+
+Trước khi dùng thật, đặt lại `AUTH_SECRET`, `NEXT_PUBLIC_SITE_URL`, thông tin DB và provider AI trong môi trường deploy. Nếu dùng managed PostgreSQL, có thể giữ Dockerfile cho app và đổi compose theo secret/runtime của hạ tầng đó.
 
 ## Gợi ý production target
 

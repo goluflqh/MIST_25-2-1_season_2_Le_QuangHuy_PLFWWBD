@@ -6,7 +6,7 @@ import Footer from "@/components/layout/Footer";
 import ChatbotWidget from "@/components/ChatbotWidget";
 import { getNotificationCountForUser } from "@/lib/notifications";
 import { getCurrentSessionUser } from "@/lib/session";
-import { siteConfig, siteUrl } from "@/lib/site";
+import { defaultOpenGraphImage, siteConfig, siteUrl } from "@/lib/site";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -46,8 +46,25 @@ export const metadata: Metadata = {
     type: "website",
     locale: siteConfig.locale,
     siteName: siteConfig.name,
+    images: [defaultOpenGraphImage],
   },
-  robots: { index: true, follow: true },
+  twitter: {
+    card: "summary_large_image",
+    title: `${siteConfig.name} - ${siteConfig.tagline}`,
+    description: siteConfig.ogDescription,
+    images: [defaultOpenGraphImage.url],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
 };
 
 export default async function RootLayout({
