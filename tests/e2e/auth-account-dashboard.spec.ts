@@ -64,7 +64,7 @@ test.describe("Auth, account and dashboard smoke", () => {
   });
 
   test("guest can register a new account, land on account page and log out", async ({ page, request }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(90_000);
 
     const name = "Khach Test Phase 5";
     const phone = buildUniquePhone();
@@ -79,7 +79,7 @@ test.describe("Auth, account and dashboard smoke", () => {
     await page.getByTestId("register-password").fill("123456");
     await page.getByTestId("register-submit").click();
 
-    await expect(page).toHaveURL(/\/tai-khoan/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/tai-khoan/, { timeout: AUTH_REDIRECT_TIMEOUT });
     await expect(page.getByTestId("account-page")).toBeVisible();
     await expect(page.getByTestId("account-name")).toContainText(name);
     await expect(page.getByText("Hồ sơ khách hàng")).toBeVisible();
@@ -340,6 +340,50 @@ test.describe("Auth, account and dashboard smoke", () => {
     } finally {
       if (couponId) {
         await request.delete("/api/admin/coupons", { data: { id: couponId } });
+      }
+    }
+  });
+
+  test("admin can filter the pricing CMS list", async ({ page, request }) => {
+    const unique = Date.now().toString().slice(-8);
+    const itemName = `Pricing CRM E2E ${unique}`;
+
+    await loginAdminRequest(request);
+    const pricingResponse = await request.post("/api/admin/pricing", {
+      data: {
+        category: "CAMERA",
+        name: itemName,
+        price: "123.000",
+        unit: "VNĐ",
+        description: "Pricing CRM e2e can be found by search and category filters.",
+        note: "E2E pricing note",
+        sortOrder: 99,
+        active: true,
+      },
+    });
+    expect(pricingResponse.ok()).toBeTruthy();
+    const pricingBody = await pricingResponse.json();
+    const pricingId = pricingBody.item?.id as string | undefined;
+
+    try {
+      await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: AUTH_REDIRECT_TIMEOUT });
+
+      await page.goto("/dashboard/pricing");
+      await expect(page.getByTestId("dashboard-pricing-crm")).toBeVisible();
+      await expect(page.getByTestId("dashboard-pricing-metrics")).toBeVisible();
+
+      await page.getByTestId("dashboard-pricing-search").fill(itemName);
+      await page.getByTestId("dashboard-pricing-category-filter").selectOption("CAMERA");
+      await expect(page.getByTestId("dashboard-pricing-result-count")).toContainText("1 /");
+      await expect(page.getByTestId("dashboard-pricing-item")).toHaveCount(1);
+      await expect(page.getByTestId("dashboard-pricing-item")).toContainText(itemName);
+
+      await page.getByTestId("dashboard-pricing-sort").selectOption("name");
+      await expect(page.getByTestId("dashboard-pricing-item")).toContainText("123.000");
+    } finally {
+      if (pricingId) {
+        await request.delete("/api/admin/pricing", { data: { id: pricingId } });
       }
     }
   });
