@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -35,9 +35,7 @@ export default function LoginPage() {
     }
 
     const targetPath = user.role === "ADMIN" ? "/dashboard" : "/tai-khoan";
-    startTransition(() => {
-      router.replace(targetPath);
-    });
+    router.replace(targetPath);
   }, [router, user]);
 
   useEffect(() => {
@@ -104,9 +102,7 @@ export default function LoginPage() {
       setUser(data.user ?? null);
 
       const targetPath = data.user?.role === "ADMIN" ? "/dashboard" : "/tai-khoan";
-      startTransition(() => {
-        router.replace(targetPath);
-      });
+      router.replace(targetPath);
     } catch {
       setError("Lỗi kết nối. Vui lòng thử lại.");
     } finally {
