@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function openContactForm(page: Page) {
-  await page.goto("/");
+async function openContactForm(page: Page, path = "/") {
+  await page.goto(path);
   const form = page.getByTestId("contact-form");
   await form.scrollIntoViewIfNeeded();
   await expect(form).toBeVisible();
@@ -88,6 +88,46 @@ test.describe("Contact form", () => {
     await expect(page.getByTestId("contact-form")).toBeVisible();
     await expect(page.getByTestId("contact-name")).toHaveValue("");
     await expect(page.getByTestId("contact-phone")).toHaveValue("");
+  });
+
+  test("sends source and campaign tracking with the contact request", async ({ page }) => {
+    await page.route("**/api/contact", async (route) => {
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().postDataJSON()).toMatchObject({
+        name: "Nguyen Van A",
+        phone: "0987123456",
+        service: "CAMERA",
+        message: "Can tu van camera 4 mat cho cua hang.",
+        source: "service-camera",
+        utmSource: "google",
+        utmMedium: "organic",
+        utmCampaign: "local-seo",
+        utmTerm: "lap-camera-da-nang",
+        utmContent: "hero-cta",
+      });
+      expect(route.request().postDataJSON().sourcePath).toContain(
+        "utm_campaign=local-seo"
+      );
+
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          id: "tracked-contact-id",
+          message: "ok",
+        }),
+      });
+    });
+
+    await openContactForm(
+      page,
+      "/?service=CAMERA&source=service-camera&utm_source=google&utm_medium=organic&utm_campaign=local-seo&utm_term=lap-camera-da-nang&utm_content=hero-cta#quote"
+    );
+    await fillContactForm(page);
+    await page.getByTestId("contact-submit").click();
+
+    await expect(page.getByTestId("contact-success")).toBeVisible();
   });
 
   test("shows an API error message when the request fails", async ({ page }) => {
