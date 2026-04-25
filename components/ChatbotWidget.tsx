@@ -544,30 +544,41 @@ export default function ChatbotWidget() {
         </div>
       )}
 
-      <div className="fixed bottom-4 right-3 z-50 flex items-end gap-3 sm:bottom-6 sm:right-6">
+      <div className="fixed bottom-4 right-3 z-50 flex flex-col items-end gap-2 sm:bottom-6 sm:right-6">
         {!isOpen && (
-          <div className="animate-fade-in-up relative mb-2 hidden whitespace-nowrap rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-body font-bold text-white shadow-lg sm:block">
+          <div className="animate-fade-in-up relative mr-1 hidden items-center gap-2 whitespace-nowrap rounded-full bg-slate-950 px-3.5 py-2 text-xs font-body font-bold text-white shadow-xl shadow-slate-900/20 sm:inline-flex">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70"></span>
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
+            </span>
             {CHATBOT_WIDGET_COPY.floatingBadge}
-            <div className="absolute bottom-3 -right-1.5 h-3 w-3 rotate-45 bg-slate-900"></div>
+            <div className="absolute -bottom-1 right-6 h-3 w-3 rotate-45 bg-slate-950"></div>
           </div>
         )}
 
         <button
           data-testid="chatbot-toggle"
           onClick={() => setIsOpen((current) => !current)}
-          className="group relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 hover:shadow-2xl sm:h-16 sm:w-16"
-          aria-label="Mở chatbot tư vấn AI"
+          className="chatbot-float-button group relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-orange-200 sm:h-16 sm:w-16"
+          aria-label="Mở AI tư vấn chuyên nghiệp"
           style={{
             background: "linear-gradient(135deg, #dc2626 0%, #ea580c 50%, #f59e0b 100%)",
           }}
           type="button"
         >
+          {!isOpen && (
+            <>
+              <span className="chatbot-float-aura absolute inset-0 rounded-full"></span>
+              <span className="chatbot-float-ring absolute -inset-1 rounded-full border border-orange-300/70"></span>
+            </>
+          )}
+
           {isOpen ? (
-            <svg className="h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="relative z-10 h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
           ) : (
-            <svg className="h-7 w-7 text-white drop-shadow-sm sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none">
+            <svg className="chatbot-float-icon relative z-10 h-7 w-7 text-white drop-shadow-sm sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none">
               <rect x="4" y="6" width="16" height="14" rx="3" fill="white" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" />
               <line x1="12" y1="6" x2="12" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               <circle cx="12" cy="2.5" r="1.5" fill="currentColor" />
@@ -580,8 +591,8 @@ export default function ChatbotWidget() {
           )}
 
           {!isOpen && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5">
-              <span className="relative inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-green-500 text-[8px] font-black text-white">
+            <span className="absolute -right-0.5 -top-0.5 z-20 flex h-5 min-w-5">
+              <span className="chatbot-ai-badge relative inline-flex h-5 min-w-5 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-emerald-500 px-1 text-[8px] font-black text-white shadow-md shadow-emerald-500/30">
                 AI
               </span>
             </span>

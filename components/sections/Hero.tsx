@@ -229,7 +229,7 @@ export default function Hero() {
                 src={slide.image}
                 alt={slide.alt}
                 fill
-                priority={index === 0}
+                loading={index === currentSlide ? "eager" : "lazy"}
                 unoptimized
                 sizes="(max-width: 1024px) 100vw, 48vw"
                 className={`object-cover transition-opacity duration-700 ease-out ${

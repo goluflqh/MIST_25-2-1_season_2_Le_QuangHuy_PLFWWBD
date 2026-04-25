@@ -48,7 +48,7 @@ export const CHATBOT_PRIMARY_SERVICE_IDS = [
 export const CHATBOT_WIDGET_COPY = {
   defaultReplyFallback:
     "Dạ em đang phản hồi hơi chậm một chút. Anh/chị nói thêm model hoặc nhu cầu sử dụng, em sẽ gợi ý sát hơn cho mình nhé.",
-  floatingBadge: "Hỏi AI tư vấn",
+  floatingBadge: "AI hỗ trợ",
   inputPlaceholder: "Anh/chị đang cần em hỗ trợ gì?",
   onlineStatus: "Trực tuyến",
   title: `${siteConfig.name} AI`,
