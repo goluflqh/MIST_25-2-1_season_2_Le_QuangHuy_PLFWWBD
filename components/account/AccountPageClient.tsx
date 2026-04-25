@@ -120,6 +120,17 @@ function getLoyaltyTier(points: number) {
   return { label: "Đồng", next: `Còn ${50 - points} điểm để lên Bạc`, color: "bg-slate-100 text-slate-500" };
 }
 
+function getInitials(name: string) {
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join("");
+
+  return (initials || "M").toUpperCase();
+}
+
 const clientDateTimeFormatter = new Intl.DateTimeFormat("vi-VN", {
   day: "2-digit",
   hour: "2-digit",
@@ -399,14 +410,91 @@ function ReferralSection({ loyaltyPoints }: { loyaltyPoints: number }) {
   );
 }
 
+function AccountHero({
+  initialUser,
+  isLoggingOut,
+  loyaltyTier,
+  requestCount,
+  warrantyCount,
+  onLogout,
+}: {
+  initialUser: UserInfo;
+  isLoggingOut: boolean;
+  loyaltyTier: ReturnType<typeof getLoyaltyTier>;
+  requestCount: number;
+  warrantyCount: number;
+  onLogout: () => void;
+}) {
+  const accountStats = [
+    { label: "Yêu cầu đã gửi", value: requestCount, helper: requestCount > 0 ? "Đang được theo dõi" : "Chưa có yêu cầu" },
+    { label: "Phiếu bảo hành", value: warrantyCount, helper: warrantyCount > 0 ? "Gắn với tài khoản" : "Có thể tra serial" },
+    { label: "Hạng thành viên", value: loyaltyTier.label, helper: loyaltyTier.next },
+  ];
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-6 sm:p-8 border border-slate-100 mb-6">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-xl font-heading font-extrabold shadow-lg shrink-0">
+          {getInitials(initialUser.name)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-500">Hồ sơ khách hàng</p>
+          <h1 data-testid="account-name" className="mt-1 font-heading font-extrabold text-xl text-slate-900">
+            {initialUser.name}
+          </h1>
+          <p className="font-body text-sm text-slate-500 break-words">
+            {initialUser.phone} · Thành viên từ {initialUser.createdAtLabel}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          {initialUser.role === "ADMIN" ? (
+            <Link
+              href="/dashboard"
+              className="px-4 py-2 bg-slate-900 text-white rounded-xl font-body font-bold text-sm hover:bg-slate-800 transition-colors"
+            >
+              Admin
+            </Link>
+          ) : null}
+          <button
+            data-testid="account-logout"
+            onClick={onLogout}
+            disabled={isLoggingOut}
+            className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-xl font-body font-bold text-sm hover:bg-red-100 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 transition-colors"
+          >
+            {isLoggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 border-t border-slate-100 pt-4 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-slate-100">
+        {accountStats.map((item) => (
+          <div key={item.label} className="sm:px-4 first:sm:pl-0 last:sm:pr-0">
+            <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              {item.label}
+            </p>
+            <p className="mt-1 font-heading text-lg font-extrabold text-slate-900">{item.value}</p>
+            <p className="mt-0.5 font-body text-xs text-slate-400">{item.helper}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PasswordChangeSection() {
   const [isOpen, setIsOpen] = useState(false);
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [msg, setMsg] = useState<FeedbackMessage | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const passwordChecks = [
+    { label: "Mật khẩu mới có ít nhất 6 ký tự", done: newPw.length >= 6 },
+    { label: "Mật khẩu mới khác mật khẩu hiện tại", done: Boolean(currentPw && newPw && currentPw !== newPw) },
+  ];
+  const canSubmit = currentPw.trim().length > 0 && passwordChecks.every((check) => check.done);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     setMsg(null);
     if (!currentPw.trim()) {
       setMsg({ text: "Nhập mật khẩu hiện tại.", type: "error" });
@@ -444,16 +532,25 @@ function PasswordChangeSection() {
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
-      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center justify-between w-full">
-        <h3 className="font-heading font-bold text-slate-900">🔐 Đổi Mật Khẩu</h3>
-        <span className="text-slate-400 text-sm">{isOpen ? "▲" : "▼"}</span>
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
+      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center justify-between w-full px-6 py-4 hover:bg-slate-50 transition-colors">
+        <span className="text-left">
+          <span className="block font-heading font-bold text-slate-900">Bảo mật đăng nhập</span>
+          <span className="block font-body text-xs text-slate-400 mt-0.5">
+            Đổi mật khẩu khi cần, với kiểm tra điều kiện rõ ràng trước khi gửi.
+          </span>
+        </span>
+        <span className="text-slate-400 text-sm">{isOpen ? "Thu gọn" : "Mở"}</span>
       </button>
       {isOpen ? (
-        <div className="mt-4 space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-4 border-t border-slate-100 px-6 py-5">
           {msg ? (
             <div
-              className={`p-2 rounded-xl text-xs font-body font-bold text-center ${msg.type === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"}`}
+              className={`rounded-xl border px-3 py-2 text-xs font-body font-bold ${
+                msg.type === "success"
+                  ? "bg-green-50 text-green-700 border-green-200"
+                  : "bg-red-50 text-red-700 border-red-200"
+              }`}
             >
               {msg.text}
             </div>
@@ -466,6 +563,7 @@ function PasswordChangeSection() {
               type="password"
               value={currentPw}
               onChange={(e) => setCurrentPw(e.target.value)}
+              autoComplete="current-password"
               className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-body outline-none focus:ring-2 focus:ring-red-500"
               placeholder="••••••"
             />
@@ -478,26 +576,34 @@ function PasswordChangeSection() {
               type="password"
               value={newPw}
               onChange={(e) => setNewPw(e.target.value)}
+              autoComplete="new-password"
               className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-body outline-none focus:ring-2 focus:ring-red-500"
               placeholder="Ít nhất 6 ký tự"
             />
-            {newPw.length > 0 && newPw.length < 6 ? (
-              <p className="text-[10px] text-red-500 font-body mt-1">
-                Cần thêm {6 - newPw.length} ký tự
-              </p>
-            ) : null}
-            {newPw.length >= 6 ? (
-              <p className="text-[10px] text-green-600 font-body mt-1">✓ Đủ dài</p>
-            ) : null}
+          </div>
+          <div className="rounded-xl bg-slate-50 px-3 py-3">
+            <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+              Kiểm tra trước khi đổi
+            </p>
+            <div className="space-y-1.5">
+              {passwordChecks.map((check) => (
+                <p
+                  key={check.label}
+                  className={`font-body text-xs font-semibold ${check.done ? "text-green-700" : "text-slate-400"}`}
+                >
+                  {check.done ? "✓" : "•"} {check.label}
+                </p>
+              ))}
+            </div>
           </div>
           <button
-            onClick={handleSubmit}
-            disabled={isLoading}
-            className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-xl font-body font-bold text-sm transition-colors"
+            type="submit"
+            disabled={isLoading || !canSubmit}
+            className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl font-body font-bold text-sm transition-colors"
           >
             {isLoading ? "Đang đổi..." : "Xác Nhận Đổi Mật Khẩu"}
           </button>
-        </div>
+        </form>
       ) : null}
     </div>
   );
@@ -676,39 +782,14 @@ export default function AccountPageClient({
         </div>
       ) : null}
 
-      <div className="bg-white rounded-2xl shadow-sm p-6 sm:p-8 border border-slate-100 mb-6">
-        <div className="flex flex-col sm:flex-row items-center gap-5">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-2xl font-heading font-extrabold shadow-lg shrink-0">
-            {initialUser.name.charAt(0).toUpperCase()}
-          </div>
-          <div className="text-center sm:text-left flex-1">
-            <h1 data-testid="account-name" className="font-heading font-extrabold text-xl text-slate-900">
-              {initialUser.name}
-            </h1>
-            <p className="font-body text-sm text-slate-500">
-              📱 {initialUser.phone} · Thành viên từ {initialUser.createdAtLabel}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            {initialUser.role === "ADMIN" ? (
-              <Link
-                href="/dashboard"
-                className="px-4 py-2 bg-slate-900 text-white rounded-xl font-body font-bold text-sm hover:bg-slate-800 transition-colors"
-              >
-                🛠 Admin
-              </Link>
-            ) : null}
-            <button
-              data-testid="account-logout"
-              onClick={handleLogout}
-              disabled={isLoggingOut}
-              className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-xl font-body font-bold text-sm hover:bg-red-100 transition-colors"
-            >
-              {isLoggingOut ? "Đang đăng xuất..." : "Đăng Xuất"}
-            </button>
-          </div>
-        </div>
-      </div>
+      <AccountHero
+        initialUser={initialUser}
+        isLoggingOut={isLoggingOut}
+        loyaltyTier={loyaltyTier}
+        requestCount={requests.length}
+        warrantyCount={initialWarranties.length}
+        onLogout={handleLogout}
+      />
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
