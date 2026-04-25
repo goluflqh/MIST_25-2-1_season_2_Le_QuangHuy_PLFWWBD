@@ -198,6 +198,24 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("dashboard-chatbot-health")).toBeVisible();
   });
 
+  test("admin can scan and filter the customer CRM list", async ({ page }) => {
+    await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+
+    await page.goto("/dashboard/users");
+    await expect(page.getByTestId("dashboard-users-crm")).toBeVisible();
+    await expect(page.getByTestId("dashboard-users-metrics")).toBeVisible();
+
+    await page.getByTestId("dashboard-users-search").fill(ADMIN_PHONE);
+    await page.getByTestId("dashboard-users-role-filter").selectOption("ADMIN");
+    await expect(page.getByTestId("dashboard-users-result-count")).toContainText("1 /");
+    await expect(page.getByTestId("dashboard-user-row")).toHaveCount(1);
+    await expect(page.getByTestId("dashboard-user-row")).toContainText(ADMIN_PHONE);
+
+    await page.getByTestId("dashboard-users-sort").selectOption("points");
+    await expect(page.getByTestId("dashboard-user-row")).toContainText(ADMIN_PHONE);
+  });
+
   test("admin can search and filter the contacts CRM list", async ({ page, request }) => {
     const unique = Date.now().toString().slice(-8);
     const name = `CRM Lead ${unique}`;
