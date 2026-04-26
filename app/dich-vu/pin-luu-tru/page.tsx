@@ -174,7 +174,7 @@ export default function StorageBatteryPage() {
           <div className="overflow-hidden rounded-[1.5rem] border border-white bg-white shadow-[0_24px_80px_-48px_rgba(5,150,105,0.36)]">
             <div className="relative h-56 bg-slate-100 sm:h-96">
               <Image
-                src="/showcase/generated/hero-storage-counter-v2.png"
+                src="/showcase/generated/hero-storage-counter-v2.webp"
                 alt="Bộ pin lưu trữ và kích đề được sắp xếp trên quầy kỹ thuật."
                 fill
                 priority
