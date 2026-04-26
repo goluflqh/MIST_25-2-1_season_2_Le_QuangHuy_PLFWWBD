@@ -5,6 +5,28 @@ import { prisma } from "@/lib/prisma";
 import { getPublicActivePricingItems, PUBLIC_PRICING_TAG } from "@/lib/public-data";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
+function parseInteger(value: unknown, fallback: number) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizePricingData(body: Record<string, unknown>) {
+  const active = typeof body.active === "boolean" ? body.active : undefined;
+
+  return {
+    category: String(body.category || "PIN"),
+    name: String(body.name || "").trim(),
+    price: String(body.price || "").trim(),
+    unit: String(body.unit || "VNĐ").trim(),
+    description: typeof body.description === "string" && body.description.trim()
+      ? body.description.trim()
+      : null,
+    note: typeof body.note === "string" && body.note.trim() ? body.note.trim() : null,
+    sortOrder: parseInteger(body.sortOrder, 0),
+    ...(active === undefined ? {} : { active }),
+  };
+}
+
 // GET — List all pricing items (public)
 export async function GET() {
   try {
@@ -25,7 +47,7 @@ export async function POST(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const body = await request.json();
-    const item = await prisma.pricingItem.create({ data: body });
+    const item = await prisma.pricingItem.create({ data: normalizePricingData(body) });
     await recordAuditLog({
       action: "PRICING_CREATE",
       actor: admin,
@@ -52,7 +74,7 @@ export async function PATCH(request: Request) {
     if (!admin) return forbiddenResponse();
     const { id, ...data } = await request.json();
     const previousItem = await prisma.pricingItem.findUnique({ where: { id } });
-    const item = await prisma.pricingItem.update({ where: { id }, data });
+    const item = await prisma.pricingItem.update({ where: { id }, data: normalizePricingData(data) });
     await recordAuditLog({
       action: "PRICING_UPDATE",
       actor: admin,

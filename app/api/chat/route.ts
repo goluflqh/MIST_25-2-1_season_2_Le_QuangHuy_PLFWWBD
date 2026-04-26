@@ -11,6 +11,7 @@ import {
 import {
   buildChatbotMissingAiReply,
   buildChatbotRuntimeFallbackReply,
+  buildChatbotTrainingContext,
   CHATBOT_WIDGET_COPY,
 } from "@/lib/chatbot-content";
 import { recordChatbotEvent, type ChatbotEventType } from "@/lib/chatbot-metrics";
@@ -232,6 +233,14 @@ function isQuoteRefinementMessage(
     (wordCount <= 6 && (hasStandaloneNumber || mentionsQuoteRefinementSignal)) ||
     lastAssistantAskedForDetails
   );
+}
+
+function shouldTrackAsTrainingGap(plan: ChatbotResponsePlan) {
+  if (plan.shouldSuggestServices) {
+    return false;
+  }
+
+  return !plan.service && plan.intent !== "quote" && plan.intent !== "contact";
 }
 
 function buildPricingSignalText(message: string, history: ChatMessage[]) {
@@ -544,6 +553,7 @@ export async function POST(request: Request) {
       SYSTEM_PROMPT,
       CHATBOT_BUSINESS_SCOPE_NOTE,
       buildChatbotServiceContextNote(plan.service || serviceContext),
+      buildChatbotTrainingContext(plan.service || serviceContext, plan.intent),
       buildChatbotPricingContext(plan.service, pricingSignalText, pricingItems),
       buildChatbotIntentContextNote(plan, {
         hasRecentQuoteContext: recentQuoteContext,
@@ -571,7 +581,10 @@ export async function POST(request: Request) {
       });
     }
 
-    await logChatbotEvent("unmatched", {
+    const responseEvent = shouldTrackAsTrainingGap(plan) ? "unmatched" : "ai_answered";
+
+    await logChatbotEvent(responseEvent, {
+      fallbackReason: responseEvent === "unmatched" ? "training_gap" : undefined,
       intent: plan.intent,
       service: plan.service,
       sourcePath,

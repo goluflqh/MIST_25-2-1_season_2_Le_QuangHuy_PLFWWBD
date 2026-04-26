@@ -55,12 +55,44 @@ export async function DELETE(request: Request) {
       },
     });
 
-    // Cascade delete related data
-    await prisma.session.deleteMany({ where: { userId } });
-    await prisma.review.deleteMany({ where: { userId } });
-    await prisma.warranty.deleteMany({ where: { userId } });
-    await prisma.contactRequest.deleteMany({ where: { userId } });
-    await prisma.user.delete({ where: { id: userId } });
+    if (!targetUser) {
+      return NextResponse.json({ success: false, message: "Không tìm thấy tài khoản cần xoá." }, { status: 404 });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const couponUsageByUser = await tx.couponRedemption.groupBy({
+        by: ["couponId"],
+        where: { userId },
+        _count: { _all: true },
+      });
+
+      await tx.session.deleteMany({ where: { userId } });
+      await tx.review.deleteMany({ where: { userId } });
+      await tx.warranty.deleteMany({ where: { userId } });
+      await tx.contactRequest.deleteMany({
+        where: { OR: [{ userId }, { phone: targetUser.phone }] },
+      });
+      await tx.couponRedemption.deleteMany({ where: { userId } });
+      await tx.auditLog.deleteMany({ where: { userId } });
+
+      for (const couponUsage of couponUsageByUser) {
+        const coupon = await tx.coupon.findUnique({
+          where: { id: couponUsage.couponId },
+          select: { usedCount: true },
+        });
+
+        if (coupon) {
+          await tx.coupon.update({
+            where: { id: couponUsage.couponId },
+            data: {
+              usedCount: Math.max(0, coupon.usedCount - couponUsage._count._all),
+            },
+          });
+        }
+      }
+
+      await tx.user.delete({ where: { id: userId } });
+    });
     await recordAuditLog({
       action: "USER_DELETE",
       actor: admin,

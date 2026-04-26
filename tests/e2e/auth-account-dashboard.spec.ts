@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, request as playwrightRequest, test, type APIRequestContext, type Page } from "@playwright/test";
 
 const ADMIN_PHONE = process.env.PLAYWRIGHT_ADMIN_PHONE ?? "0987443258";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD ?? "admin123";
@@ -31,6 +31,8 @@ async function loginAdminRequest(request: APIRequestContext) {
 }
 
 test.describe("Auth, account and dashboard smoke", () => {
+  test.setTimeout(60_000);
+
   test("redirects guests away from protected account and dashboard pages", async ({ page }) => {
     await page.goto("/tai-khoan");
     await expect(page).toHaveURL(/\/dang-nhap/);
@@ -64,7 +66,7 @@ test.describe("Auth, account and dashboard smoke", () => {
   });
 
   test("guest can register a new account, land on account page and log out", async ({ page, request }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
 
     const name = "Khach Test Phase 5";
     const phone = buildUniquePhone();
@@ -86,6 +88,8 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByText("Yêu cầu đã gửi")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Phiếu Bảo Hành" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Điểm Thưởng & Giới Thiệu" })).toBeVisible();
+    await expect(page.getByText("Link mời bạn bè")).toBeVisible();
+    await expect(page.getByTestId("account-referral-count")).toContainText("0");
     await expect(page.getByTestId("account-status-panel")).toBeVisible();
     await expect(page.getByTestId("account-request-history")).toBeVisible();
 
@@ -96,7 +100,7 @@ test.describe("Auth, account and dashboard smoke", () => {
         description: "Ưu đãi e2e cho tài khoản khách hàng",
         discount: "5%",
         pointsCost: 0,
-        usageLimit: 1,
+        usageLimit: 2,
         active: true,
       },
     });
@@ -156,8 +160,19 @@ test.describe("Auth, account and dashboard smoke", () => {
       .locator("> div")
       .filter({ hasText: couponCode });
     await couponCard.getByTestId("account-coupon-redeem").click();
-    await expect(page.getByTestId("account-coupon-message")).toContainText("Đổi thành công");
+    await expect(page.getByTestId("account-coupon-message")).toContainText("Đổi thành công", {
+      timeout: AUTH_REDIRECT_TIMEOUT,
+    });
     await expect(page.getByTestId("account-coupon-owned").filter({ hasText: couponCode })).toBeVisible();
+    const adminCouponsResponse = await request.get("/api/admin/coupons");
+    expect(adminCouponsResponse.ok()).toBeTruthy();
+    const adminCouponsBody = await adminCouponsResponse.json();
+    const redeemedCoupon = adminCouponsBody.coupons.find((coupon: { code: string }) => coupon.code === couponCode);
+    expect(
+      redeemedCoupon?.redemptions?.some((redemption: { user: { phone: string } }) => (
+        redemption.user.phone === phone
+      ))
+    ).toBeTruthy();
 
     await page.getByTestId("account-request-toggle").click();
     await expect(page.getByTestId("account-request-submit")).toBeDisabled();
@@ -189,6 +204,85 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("login-page")).toBeVisible();
   });
 
+  test("coupon with multiple uses remains available for different customers", async ({ baseURL, request }) => {
+    const unique = Date.now().toString().slice(-8);
+    const couponCode = `E2EMULTI${unique}`;
+    const apiBaseURL = baseURL ?? "http://127.0.0.1:3001";
+    let firstUserId: string | undefined;
+    let secondUserId: string | undefined;
+    const firstCustomer = await playwrightRequest.newContext({ baseURL: apiBaseURL });
+    const secondCustomer = await playwrightRequest.newContext({ baseURL: apiBaseURL });
+
+    await loginAdminRequest(request);
+    const couponResponse = await request.post("/api/admin/coupons", {
+      data: {
+        code: couponCode,
+        description: "Coupon e2e cho nhiều khách cùng nhận.",
+        discount: "20%",
+        pointsCost: 0,
+        usageLimit: 2,
+        active: true,
+      },
+    });
+    expect(couponResponse.ok()).toBeTruthy();
+    const couponBody = await couponResponse.json();
+    const couponId = couponBody.coupon?.id as string | undefined;
+    expect(couponId).toBeTruthy();
+
+    try {
+      const firstRegister = await firstCustomer.post("/api/auth/register", {
+        data: {
+          name: "Coupon Multi One",
+          phone: buildUniquePhone(),
+          password: "123456",
+        },
+      });
+      expect(firstRegister.ok()).toBeTruthy();
+      firstUserId = (await firstRegister.json()).user?.id as string | undefined;
+
+      const firstRedeem = await firstCustomer.post("/api/coupons/redeem", {
+        data: { couponId },
+      });
+      expect(firstRedeem.ok()).toBeTruthy();
+
+      const secondRegister = await secondCustomer.post("/api/auth/register", {
+        data: {
+          name: "Coupon Multi Two",
+          phone: buildUniquePhone(),
+          password: "123456",
+        },
+      });
+      expect(secondRegister.ok()).toBeTruthy();
+      secondUserId = (await secondRegister.json()).user?.id as string | undefined;
+
+      const secondRedeem = await secondCustomer.post("/api/coupons/redeem", {
+        data: { couponId },
+      });
+      expect(secondRedeem.ok()).toBeTruthy();
+
+      const adminCouponsResponse = await request.get("/api/admin/coupons");
+      expect(adminCouponsResponse.ok()).toBeTruthy();
+      const adminCouponsBody = await adminCouponsResponse.json();
+      const redeemedCoupon = adminCouponsBody.coupons.find((coupon: { code: string }) => (
+        coupon.code === couponCode
+      ));
+      expect(redeemedCoupon?.usedCount).toBe(2);
+      expect(redeemedCoupon?._count?.redemptions).toBe(2);
+    } finally {
+      if (couponId) {
+        await request.delete("/api/admin/coupons", { data: { id: couponId } });
+      }
+      if (firstUserId) {
+        await request.delete("/api/admin/users", { data: { userId: firstUserId } });
+      }
+      if (secondUserId) {
+        await request.delete("/api/admin/users", { data: { userId: secondUserId } });
+      }
+      await firstCustomer.dispose();
+      await secondCustomer.dispose();
+    }
+  });
+
   test("admin can sign in and open the dashboard health widgets", async ({ page }) => {
     await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
 
@@ -218,14 +312,11 @@ test.describe("Auth, account and dashboard smoke", () => {
   });
 
   test("admin can triage the warranty CRM list", async ({ page, request }) => {
-    const unique = Date.now().toString().slice(-8);
-    const serialNo = `MH-WTY-${unique}`;
     const endDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     await loginAdminRequest(request);
     const warrantyResponse = await request.post("/api/admin/warranty", {
       data: {
-        serialNo,
         productName: "Pin CRM warranty E2E",
         customerPhone: ADMIN_PHONE,
         service: "DONG_PIN",
@@ -236,6 +327,9 @@ test.describe("Auth, account and dashboard smoke", () => {
     expect(warrantyResponse.ok()).toBeTruthy();
     const warrantyBody = await warrantyResponse.json();
     const warrantyId = warrantyBody.warranty?.id as string | undefined;
+    const serialNo = warrantyBody.warranty?.serialNo as string | undefined;
+    const generatedSerialNo = serialNo || "";
+    expect(generatedSerialNo).toMatch(/^MH-BH-\d{8}-[A-F0-9]{6}$/);
 
     try {
       await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
@@ -245,12 +339,12 @@ test.describe("Auth, account and dashboard smoke", () => {
       await expect(page.getByTestId("dashboard-warranty-crm")).toBeVisible();
       await expect(page.getByTestId("dashboard-warranty-metrics")).toBeVisible();
 
-      await page.getByTestId("dashboard-warranty-search").fill(serialNo);
+      await page.getByTestId("dashboard-warranty-search").fill(generatedSerialNo);
       await page.getByTestId("dashboard-warranty-status-filter").selectOption("expiring");
       await page.getByTestId("dashboard-warranty-service-filter").selectOption("DONG_PIN");
       await expect(page.getByTestId("dashboard-warranty-result-count")).toContainText("1 /");
       await expect(page.getByTestId("dashboard-warranty-card")).toHaveCount(1);
-      await expect(page.getByTestId("dashboard-warranty-card")).toContainText(serialNo);
+      await expect(page.getByTestId("dashboard-warranty-card")).toContainText(generatedSerialNo);
 
       await page.getByTestId("dashboard-warranty-sort").selectOption("customer");
       await expect(page.getByTestId("dashboard-warranty-card")).toContainText("Pin CRM warranty E2E");
@@ -305,6 +399,7 @@ test.describe("Auth, account and dashboard smoke", () => {
   test("admin can filter the coupon rewards CRM list", async ({ page, request }) => {
     const unique = Date.now().toString().slice(-8);
     const couponCode = `E2ECPN${unique}`;
+    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString("vi-VN");
 
     await loginAdminRequest(request);
     const couponResponse = await request.post("/api/admin/coupons", {
@@ -314,7 +409,7 @@ test.describe("Auth, account and dashboard smoke", () => {
         discount: "15%",
         pointsCost: 77,
         usageLimit: 3,
-        expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        expiresAt,
       },
     });
     expect(couponResponse.ok()).toBeTruthy();

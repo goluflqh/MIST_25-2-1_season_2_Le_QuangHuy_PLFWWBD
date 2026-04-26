@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildChatbotMissingAiReply,
   buildChatbotRuntimeFallbackReply,
+  buildChatbotTrainingContext,
   CHATBOT_WIDGET_COPY,
   CHATBOT_WIDGET_QUICK_PROMPTS,
   getChatbotLeadActionLabel,
@@ -14,6 +15,16 @@ test("exposes confirmed service facts for the chatbot prompt layer", () => {
   assert.match(getChatbotServiceFact("DONG_PIN"), /kiểm tra pin miễn phí hoàn toàn/i);
   assert.match(getChatbotServiceFact("CAMERA"), /xem qua điện thoại/i);
   assert.match(getChatbotServiceFact("PIN_LUU_TRU"), /UPS|điện mặt trời/i);
+});
+
+test("adds service-specific training notes to the chatbot prompt layer", () => {
+  const cameraContext = buildChatbotTrainingContext("CAMERA", "quote");
+  const storageContext = buildChatbotTrainingContext("PIN_LUU_TRU", "open_question");
+
+  assert.match(cameraContext, /số mắt/i);
+  assert.match(cameraContext, /xem điện thoại/i);
+  assert.match(storageContext, /tải muốn chạy/i);
+  assert.match(storageContext, /Wh chia tải W/i);
 });
 
 test("keeps lead CTA labels centralized by intent", () => {

@@ -41,6 +41,11 @@ function generateTempPassword() {
   return code;
 }
 
+function sanitizeSignedIntegerText(value: string) {
+  const sign = value.trimStart().startsWith("-") ? "-" : "";
+  return sign + value.replace(/\D/g, "");
+}
+
 export default function AdminUsersClient({ initialUsers }: { initialUsers: UserData[] }) {
   const { showToast, showConfirm } = useNotify();
   const [users, setUsers] = useState<UserData[]>(initialUsers);
@@ -104,7 +109,10 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
 
   const addPoints = async (userId: string) => {
     const points = parseInt(pointsAdd, 10);
-    if (!points || Number.isNaN(points)) return;
+    if (Number.isNaN(points) || points === 0) {
+      showToast("Nhập số điểm cần cộng hoặc trừ.", "error");
+      return;
+    }
 
     setSavingPointsId(userId);
 
@@ -233,17 +241,17 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
     <div data-testid="dashboard-users-crm" className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Customer CRM</p>
-          <h2 className="font-heading font-extrabold text-xl text-slate-900">Khách Hàng & Loyalty</h2>
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Hồ sơ khách hàng</p>
+          <h2 className="font-heading font-extrabold text-xl text-slate-900">Khách Hàng & Điểm Thưởng</h2>
           <p className="font-body text-sm text-slate-500">
-            {metrics.customers} khách hàng · {metrics.admins} admin · {metrics.totalPoints} điểm đang lưu hành
+            {metrics.customers} khách hàng · {metrics.admins} quản trị viên · {metrics.totalPoints} điểm đang lưu hành
           </p>
         </div>
         <button
           onClick={resetFilters}
           className="self-start rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200 lg:self-auto"
         >
-          Reset bộ lọc
+          Xoá bộ lọc
         </button>
       </div>
 
@@ -261,7 +269,7 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
           <p className="mt-1 font-heading text-3xl font-extrabold text-blue-700">{metrics.engagedCustomers}</p>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Điểm loyalty</p>
+          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Điểm thưởng</p>
           <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.totalPoints}</p>
         </div>
       </div>
@@ -284,13 +292,13 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
           >
             <option value="all">Tất cả vai trò</option>
             <option value="CUSTOMER">Khách hàng</option>
-            <option value="ADMIN">Admin</option>
+            <option value="ADMIN">Quản trị viên</option>
           </select>
           <select
             data-testid="dashboard-users-tier-filter"
             value={tierFilter}
             onChange={(event) => setTierFilter(event.target.value as TierFilter)}
-            title="Lọc hạng loyalty"
+            title="Lọc hạng điểm thưởng"
             className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
           >
             <option value="all">Tất cả hạng</option>
@@ -317,7 +325,170 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="space-y-3 lg:hidden">
+        {filteredUsers.length === 0 ? (
+          <div className="rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
+            <p className="font-body text-sm text-slate-400">Không có tài khoản nào khớp bộ lọc.</p>
+          </div>
+        ) : (
+          filteredUsers.map((user) => {
+            const tier = getTier(user.loyaltyPoints);
+            const engagementScore = getEngagementScore(user);
+            const isBusy = savingPointsId === user.id
+              || resettingPointsId === user.id
+              || resettingPasswordId === user.id
+              || deletingUserId === user.id;
+
+            return (
+              <div
+                key={user.id}
+                data-testid="dashboard-user-card"
+                className={`rounded-2xl border border-slate-100 bg-white p-4 shadow-sm ${isBusy ? "opacity-70" : ""}`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-600">
+                    {user.name.charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate font-body text-sm font-bold text-slate-900">{user.name}</p>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${user.role === "ADMIN" ? "bg-red-50 text-red-500" : "bg-slate-100 text-slate-500"}`}>
+                        {user.role === "ADMIN" ? "Admin" : "Khách"}
+                      </span>
+                    </div>
+                    <p className="font-body text-xs text-slate-500">{user.phone}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Hạng</p>
+                    <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${tier.color}`}>
+                      {tier.label}
+                    </span>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Tương tác</p>
+                    <p className="font-body text-sm font-bold text-slate-800">{engagementScore}</p>
+                    <p className="font-body text-[10px] text-slate-400">
+                      {user._count.contactRequests} YC · {user._count.reviews} review
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày ĐK</p>
+                    <p className="font-body text-xs font-semibold text-slate-700">{formatDate(user.createdAt)}</p>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã GT</p>
+                    <code className="font-body text-[10px] font-bold text-slate-500">{user.referralCode || "—"}</code>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-xl border border-slate-100 p-3">
+                  <p className="mb-2 font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Điểm thưởng</p>
+                  {editingPoints === user.id ? (
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={pointsAdd}
+                        onChange={(event) => setPointsAdd(sanitizeSignedIntegerText(event.target.value))}
+                        className="min-h-10 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none"
+                        placeholder="+50 hoặc -10"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => addPoints(user.id)}
+                        disabled={savingPointsId === user.id}
+                        className="rounded-lg bg-green-100 px-3 py-2 text-xs font-bold text-green-700 disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        {savingPointsId === user.id ? "..." : "Lưu"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingPoints(null)}
+                        disabled={savingPointsId === user.id}
+                        className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500 disabled:text-slate-300"
+                      >
+                        Huỷ
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingPoints(user.id);
+                        setPointsAdd("");
+                      }}
+                      className="w-full rounded-lg bg-slate-900 px-3 py-2 text-left font-body text-sm font-bold text-white"
+                    >
+                      {user.loyaltyPoints} điểm ±
+                    </button>
+                  )}
+                </div>
+
+                {user.role !== "ADMIN" ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => resetPassword(user.id, user.name)}
+                      disabled={resettingPasswordId === user.id}
+                      className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600 disabled:bg-slate-100 disabled:text-slate-300"
+                    >
+                      {resettingPasswordId === user.id ? "..." : "Tạo MK tạm"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => resetPoints(user.id, user.name)}
+                      disabled={resettingPointsId === user.id}
+                      className="rounded-lg bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-700 disabled:bg-slate-100 disabled:text-slate-300"
+                    >
+                      {resettingPointsId === user.id ? "..." : "Reset điểm"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteUser(user.id, user.name)}
+                      disabled={deletingUserId === user.id}
+                      className="rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                    >
+                      {deletingUserId === user.id ? "..." : "Xoá tài khoản"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {resetPwId === user.id && tempCode ? (
+                  <div className="mt-3 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+                    <code className="font-mono text-sm font-bold text-green-700">{tempCode}</code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(tempCode);
+                        showToast("Đã sao chép!", "success");
+                      }}
+                      className="ml-auto text-xs font-bold text-green-700"
+                    >
+                      Sao chép
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetPwId(null);
+                        setTempCode("");
+                      }}
+                      className="text-xs font-bold text-slate-400"
+                    >
+                      Ẩn
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm lg:block">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -326,7 +497,10 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
                 <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">SĐT</th>
                 <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Hạng</th>
                 <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Điểm</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Tương tác</th>
+                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500" title="Tổng yêu cầu và đánh giá của khách">
+                  Tương tác
+                  <span className="block text-[10px] font-semibold normal-case text-slate-400">YC + review</span>
+                </th>
                 <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Mã GT</th>
                 <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Ngày ĐK</th>
                 <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500"></th>
@@ -375,10 +549,11 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
                         {editingPoints === user.id ? (
                           <div className="flex gap-1">
                             <input
-                              type="number"
+                              type="text"
+                              inputMode="numeric"
                               value={pointsAdd}
-                              onChange={(event) => setPointsAdd(event.target.value)}
-                              className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none"
+                              onChange={(event) => setPointsAdd(sanitizeSignedIntegerText(event.target.value))}
+                              className="min-h-9 w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none"
                               placeholder="+50"
                               autoFocus
                             />

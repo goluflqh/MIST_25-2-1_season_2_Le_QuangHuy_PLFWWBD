@@ -14,7 +14,16 @@ export default async function AdminCouponsPage() {
       usedCount: true,
       active: true,
       expiresAt: true,
-      user: { select: { name: true } },
+      _count: { select: { redemptions: true } },
+      redemptions: {
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        select: {
+          id: true,
+          createdAt: true,
+          user: { select: { name: true, phone: true } },
+        },
+      },
     },
   });
 
@@ -23,6 +32,10 @@ export default async function AdminCouponsPage() {
       initialCoupons={coupons.map((coupon) => ({
         ...coupon,
         expiresAt: coupon.expiresAt ? coupon.expiresAt.toISOString() : null,
+        redemptions: coupon.redemptions.map((redemption) => ({
+          ...redemption,
+          createdAt: redemption.createdAt.toISOString(),
+        })),
       }))}
     />
   );

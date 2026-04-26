@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
+
+function redeemError(message: string, status = 400) {
+  const error = new Error(message) as Error & { status?: number };
+  error.status = status;
+  return error;
+}
 
 // POST — User redeems coupon with loyalty points
 export async function POST(request: Request) {
@@ -8,36 +15,74 @@ export async function POST(request: Request) {
     const session = await getCurrentSession();
     if (!session) return unauthorizedResponse("Vui lòng đăng nhập.");
 
-    const { couponId } = await request.json();
-    const coupon = await prisma.coupon.findUnique({ where: { id: couponId } });
-    if (!coupon || !coupon.active) return NextResponse.json({ success: false, message: "Mã không hợp lệ." }, { status: 400 });
-    if (coupon.userId && coupon.userId !== session.user.id) return NextResponse.json({ success: false, message: "Mã này đã được đổi bởi tài khoản khác." }, { status: 400 });
-    if (coupon.usedCount >= coupon.usageLimit) return NextResponse.json({ success: false, message: "Mã đã hết lượt." }, { status: 400 });
-    if (coupon.expiresAt && coupon.expiresAt < new Date()) return NextResponse.json({ success: false, message: "Mã đã hết hạn." }, { status: 400 });
-    if (session.user.loyaltyPoints < coupon.pointsCost) return NextResponse.json({ success: false, message: `Cần ${coupon.pointsCost} điểm, bạn có ${session.user.loyaltyPoints} điểm.` }, { status: 400 });
+    const body = await request.json().catch(() => null);
+    const couponId = typeof body?.couponId === "string" ? body.couponId : "";
+    if (!couponId) {
+      return NextResponse.json({ success: false, message: "Thiếu mã ưu đãi cần đổi." }, { status: 400 });
+    }
 
-    // Deduct points + assign coupon + increment usage
-    const [updatedUser, redeemedCoupon] = await prisma.$transaction([
-      prisma.user.update({
-        where: { id: session.user.id },
-        data: { loyaltyPoints: { decrement: coupon.pointsCost } },
-        select: { loyaltyPoints: true },
-      }),
-      prisma.coupon.update({
+    const now = new Date();
+    const { updatedUser, redeemedCoupon } = await prisma.$transaction(async (tx) => {
+      const coupon = await tx.coupon.findUnique({
         where: { id: couponId },
-        data: { usedCount: { increment: 1 }, userId: session.user.id },
-        select: {
-          id: true,
-          code: true,
-          description: true,
-          discount: true,
-          expiresAt: true,
-          pointsCost: true,
-          usageLimit: true,
-          usedCount: true,
+        include: {
+          redemptions: {
+            where: { userId: session.user.id },
+            select: { id: true },
+            take: 1,
+          },
         },
-      }),
-    ]);
+      });
+
+      if (!coupon || !coupon.active) throw redeemError("Mã không hợp lệ.");
+      if (coupon.redemptions.length > 0) throw redeemError("Bạn đã nhận mã này rồi.", 409);
+      if (coupon.usedCount >= coupon.usageLimit) throw redeemError("Mã đã hết lượt.");
+      if (coupon.expiresAt && coupon.expiresAt < now) throw redeemError("Mã đã hết hạn.");
+
+      const user = await tx.user.findUnique({
+        where: { id: session.user.id },
+        select: { loyaltyPoints: true },
+      });
+      if (!user) throw redeemError("Tài khoản không hợp lệ.", 401);
+      if (user.loyaltyPoints < coupon.pointsCost) {
+        throw redeemError(`Cần ${coupon.pointsCost} điểm, bạn có ${user.loyaltyPoints} điểm.`);
+      }
+
+      const usageUpdate = await tx.coupon.updateMany({
+        where: { id: coupon.id, usedCount: coupon.usedCount },
+        data: { usedCount: { increment: 1 } },
+      });
+      if (usageUpdate.count !== 1) {
+        throw redeemError("Mã vừa được người khác nhận. Vui lòng tải lại và thử lại.", 409);
+      }
+
+      await tx.couponRedemption.create({
+        data: { couponId: coupon.id, userId: session.user.id },
+      });
+
+      const [updatedUser, redeemedCoupon] = await Promise.all([
+        tx.user.update({
+          where: { id: session.user.id },
+          data: { loyaltyPoints: { decrement: coupon.pointsCost } },
+          select: { loyaltyPoints: true },
+        }),
+        tx.coupon.findUniqueOrThrow({
+          where: { id: coupon.id },
+          select: {
+            id: true,
+            code: true,
+            description: true,
+            discount: true,
+            expiresAt: true,
+            pointsCost: true,
+            usageLimit: true,
+            usedCount: true,
+          },
+        }),
+      ]);
+
+      return { updatedUser, redeemedCoupon };
+    });
 
     return NextResponse.json({
       success: true,
@@ -57,6 +102,17 @@ export async function POST(request: Request) {
       loyaltyPoints: updatedUser.loyaltyPoints,
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json({ success: false, message: "Bạn đã nhận mã này rồi." }, { status: 409 });
+    }
+
+    if (error instanceof Error && "status" in error) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: (error as Error & { status: number }).status }
+      );
+    }
+
     console.error("Coupon redeem error:", error);
     return NextResponse.json({ success: false }, { status: 500 });
   }

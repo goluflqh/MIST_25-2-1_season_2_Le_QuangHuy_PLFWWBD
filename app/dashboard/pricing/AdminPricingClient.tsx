@@ -29,7 +29,7 @@ const emptyItem = {
   unit: "VNĐ",
   description: "",
   note: "",
-  sortOrder: 0,
+  sortOrder: "0",
 };
 
 type PricingSortMode = "category" | "name" | "order";
@@ -44,6 +44,15 @@ function sortItems(items: PricingItem[]) {
 
     return left.name.localeCompare(right.name);
   });
+}
+
+function sanitizeIntegerText(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function parseIntegerField(value: string, fallback: number) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export default function AdminPricingClient({ initialItems }: { initialItems: PricingItem[] }) {
@@ -100,7 +109,11 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const method = editingId ? "PATCH" : "POST";
-    const body = editingId ? { id: editingId, ...formData } : formData;
+    const payload = {
+      ...formData,
+      sortOrder: parseIntegerField(formData.sortOrder, 0),
+    };
+    const body = editingId ? { id: editingId, ...payload } : payload;
 
     setIsSaving(true);
     setFormError(null);
@@ -146,7 +159,7 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
       unit: item.unit,
       description: item.description || "",
       note: item.note || "",
-      sortOrder: item.sortOrder,
+      sortOrder: String(item.sortOrder),
     });
     setEditingId(item.id);
     setFormError(null);
@@ -184,7 +197,7 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
     <div data-testid="dashboard-pricing-crm" className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Pricing CMS</p>
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Bảng giá dịch vụ</p>
           <h2 className="font-heading font-extrabold text-xl text-slate-900">Quản Lý Bảng Giá</h2>
           <p className="font-body text-sm text-slate-500">
             {items.length} mục · sửa ở đây → tự cập nhật trang /bao-gia
@@ -195,7 +208,7 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
             onClick={resetFilters}
             className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
           >
-            Reset bộ lọc
+            Xoá bộ lọc
           </button>
           <button
             onClick={() => {
@@ -284,7 +297,14 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
             <input value={formData.price} onChange={(event) => setFormData({ ...formData, price: event.target.value })} placeholder="Giá (VD: 350.000 - 500.000)" className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm" required />
             <input value={formData.description || ""} onChange={(event) => setFormData({ ...formData, description: event.target.value })} placeholder="Mô tả (tuỳ chọn)" className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm" />
             <input value={formData.note || ""} onChange={(event) => setFormData({ ...formData, note: event.target.value })} placeholder="Ghi chú (tuỳ chọn)" className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm" />
-            <input type="number" value={formData.sortOrder} onChange={(event) => setFormData({ ...formData, sortOrder: parseInt(event.target.value, 10) || 0 })} placeholder="Thứ tự" className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm" />
+            <input
+              type="text"
+              inputMode="numeric"
+              value={formData.sortOrder}
+              onChange={(event) => setFormData({ ...formData, sortOrder: sanitizeIntegerText(event.target.value) })}
+              placeholder="Thứ tự"
+              className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm"
+            />
           </div>
           <div className="flex gap-2">
             <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-red-600 text-white rounded-xl font-body font-bold text-sm disabled:bg-slate-300">

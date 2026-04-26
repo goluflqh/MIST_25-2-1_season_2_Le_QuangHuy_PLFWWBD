@@ -1,5 +1,6 @@
 export const leadSourceLabels: Record<string, string> = {
   homepage: "Trang chủ",
+  "account-e2e": "Trang tài khoản khách",
   "homepage-services-camera": "Khối dịch vụ camera trang chủ",
   "homepage-services-dong-pin": "Khối dịch vụ đóng pin trang chủ",
   "homepage-services-den-nlmt": "Khối dịch vụ đèn năng lượng trang chủ",
@@ -33,6 +34,7 @@ const serviceSourceFallbacks = [
   { token: "pin-luu-tru", label: "Nguồn liên hệ pin lưu trữ" },
   { token: "storage", label: "Nguồn liên hệ pin lưu trữ" },
   { token: "battery", label: "Nguồn liên hệ đóng pin" },
+  { token: "account", label: "Trang tài khoản khách" },
 ] as const;
 
 export function getLeadSourceLabel(source: string | null | undefined) {

@@ -154,7 +154,7 @@ export default function AdminReviewsClient({ initialReviews }: { initialReviews:
     <div data-testid="dashboard-reviews-moderation" className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Review moderation</p>
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Duyệt đánh giá</p>
           <h2 className="font-heading font-extrabold text-xl text-slate-900">Quản Lý Đánh Giá</h2>
           <p className="font-body text-sm text-slate-500">
             {metrics.pending} chờ duyệt · {metrics.approved} đã duyệt · {reviews.length} tổng
@@ -164,7 +164,7 @@ export default function AdminReviewsClient({ initialReviews }: { initialReviews:
           onClick={resetFilters}
           className="self-start rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200 lg:self-auto"
         >
-          Reset bộ lọc
+          Xoá bộ lọc
         </button>
       </div>
 
@@ -178,7 +178,7 @@ export default function AdminReviewsClient({ initialReviews }: { initialReviews:
           <p className="mt-1 font-heading text-3xl font-extrabold text-green-700">{metrics.approved}</p>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Điểm TB</p>
+          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Điểm trung bình</p>
           <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">
             {metrics.averageRating.toFixed(1)}
           </p>

@@ -13,24 +13,24 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String
-  phone         String   @unique
+  phone         String    @unique
   password      String
-  role          String   @default("CUSTOMER")
-  loyaltyPoints Int      @default(0)
-  referralCode  String?  @unique
+  role          String    @default("CUSTOMER")
+  loyaltyPoints Int       @default(0)
+  referralCode  String?   @unique
   referredBy    String?
   deletedAt     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  sessions        Session[]
-  contactRequests ContactRequest[]
-  reviews         Review[]
-  coupons         Coupon[]
-  warranties      Warranty[]
-  auditLogs       AuditLog[]
+  sessions          Session[]
+  contactRequests   ContactRequest[]
+  reviews           Review[]
+  warranties        Warranty[]
+  auditLogs         AuditLog[]
+  couponRedemptions CouponRedemption[]
 
   @@index([phone])
   @@index([referralCode])
@@ -52,12 +52,12 @@ model Session {
 }
 
 model ContactRequest {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   phone       String
-  service     String   @default("KHAC")
+  service     String    @default("KHAC")
   message     String?
-  status      String   @default("PENDING")
+  status      String    @default("PENDING")
   notes       String?
   source      String?
   sourcePath  String?
@@ -69,8 +69,8 @@ model ContactRequest {
   utmContent  String?
   userId      String?
   deletedAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -83,14 +83,14 @@ model ContactRequest {
 }
 
 model Review {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   rating    Int
   comment   String
-  service   String   @default("KHAC")
-  approved  Boolean  @default(false)
+  service   String    @default("KHAC")
+  approved  Boolean   @default(false)
   deletedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -129,30 +129,43 @@ model Coupon {
   usedCount   Int       @default(0)
   active      Boolean   @default(true)
   expiresAt   DateTime?
-  userId      String?
   createdAt   DateTime  @default(now())
 
-  user User? @relation(fields: [userId], references: [id])
+  redemptions CouponRedemption[]
 
   @@index([code])
-  @@index([userId])
   @@index([active])
   @@index([createdAt])
   @@index([active, createdAt])
 }
 
+model CouponRedemption {
+  id        String   @id @default(cuid())
+  couponId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, userId])
+  @@index([couponId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
 model Warranty {
-  id            String   @id @default(cuid())
-  serialNo      String   @unique
+  id            String    @id @default(cuid())
+  serialNo      String    @unique
   productName   String
   customerName  String
   customerPhone String
-  service       String   @default("KHAC")
-  startDate     DateTime @default(now())
+  service       String    @default("KHAC")
+  startDate     DateTime  @default(now())
   endDate       DateTime
   notes         String?
   deletedAt     DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
   userId        String?
 
   user User? @relation(fields: [userId], references: [id])

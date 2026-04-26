@@ -420,7 +420,7 @@ export default function ChatbotWidget() {
       {isOpen && (
         <div
           data-testid="chatbot-panel"
-          className="animate-fade-in-up fixed bottom-20 right-3 z-50 flex h-[min(70vh,32rem)] w-[calc(100vw-1.5rem)] max-w-[360px] flex-col overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-2xl sm:bottom-24 sm:right-6 sm:h-[500px] sm:max-w-[380px]"
+          className="animate-fade-in-up fixed bottom-20 left-3 right-3 z-50 flex h-[min(78dvh,34rem)] max-h-[calc(100dvh-6rem)] flex-col overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-2xl sm:bottom-24 sm:left-auto sm:right-6 sm:h-[500px] sm:w-[380px] sm:max-w-[380px]"
         >
           <div className="flex shrink-0 items-center justify-between bg-slate-900 px-5 py-4">
             <div className="flex items-center gap-3">
@@ -501,12 +501,12 @@ export default function ChatbotWidget() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-slate-100 bg-white px-3 py-2">
+          <div className="flex shrink-0 snap-x gap-2 overflow-x-auto border-t border-slate-100 bg-white px-3 py-2">
             {CHATBOT_WIDGET_QUICK_PROMPTS.map((item) => (
                 <button
                   key={item.label}
                   onClick={() => sendMessage(item.prompt)}
-                  className="shrink-0 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
+                  className="shrink-0 snap-start whitespace-nowrap rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
                   type="button"
                 >
                   {item.label}
@@ -524,7 +524,7 @@ export default function ChatbotWidget() {
                 onChange={(event) => setInputValue(event.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={CHATBOT_WIDGET_COPY.inputPlaceholder}
-                className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-body outline-none transition-all focus:border-red-500 focus:ring-2 focus:ring-red-500"
+                className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-base font-body outline-none transition-all focus:border-red-500 focus:ring-2 focus:ring-red-500 sm:text-sm"
                 disabled={isLoading}
               />
               <button

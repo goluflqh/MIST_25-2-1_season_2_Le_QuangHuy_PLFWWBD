@@ -52,7 +52,7 @@ const sortOptions = [
   { value: "newest", label: "Mới nhất" },
   { value: "oldest", label: "Cũ nhất" },
   { value: "name", label: "Tên A-Z" },
-  { value: "priority", label: "Ưu tiên pipeline" },
+  { value: "priority", label: "Ưu tiên cần xử lý" },
 ] as const;
 
 type SortMode = (typeof sortOptions)[number]["value"];
@@ -75,6 +75,31 @@ function formatReferrer(referrer: string | null) {
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString("vi-VN");
+}
+
+function formatSourcePath(sourcePath: string | null) {
+  if (!sourcePath) return null;
+
+  try {
+    const url = new URL(sourcePath, "https://minhhong.local");
+    const source = url.searchParams.get("source");
+    if (source) {
+      const sourceLabel = getLeadSourceLabel(source);
+      return url.hash === "#quote" ? `${sourceLabel} - biểu mẫu tư vấn` : sourceLabel;
+    }
+
+    const pathLabels: Record<string, string> = {
+      "/": "Trang chủ",
+      "/bao-gia": "Trang báo giá",
+      "/dang-ky": "Trang đăng ký",
+      "/dang-nhap": "Trang đăng nhập",
+      "/tai-khoan": "Trang tài khoản khách",
+    };
+
+    return pathLabels[url.pathname] || `Đường dẫn ${url.pathname}`;
+  } catch {
+    return sourcePath;
+  }
 }
 
 function getLeadAgeLabel(createdAt: string) {
@@ -302,6 +327,7 @@ export default function ContactsManagementClient({
         contact.notes,
         contact.source,
         contact.source ? getLeadSourceLabel(contact.source) : null,
+        formatSourcePath(contact.sourcePath),
         contact.sourcePath,
         referrer,
         contact.utmSource,
@@ -366,7 +392,7 @@ export default function ContactsManagementClient({
 
       <div data-testid="dashboard-contacts-metrics" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-          <p className="font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">Lead đang mở</p>
+          <p className="font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">Khách đang chờ</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{crmStats.openCount}</p>
         </div>
         <div className="rounded-xl border border-green-100 bg-green-50 p-4">
@@ -387,7 +413,7 @@ export default function ContactsManagementClient({
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_180px]">
           <label className="block">
             <span className="mb-1 block font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Tìm kiếm CRM
+              Tìm khách liên hệ
             </span>
             <input
               data-testid="dashboard-contacts-search"
@@ -395,12 +421,12 @@ export default function ContactsManagementClient({
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-body text-slate-700 outline-none transition-colors focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
-              placeholder="Tên, SĐT, ghi chú, UTM..."
+              placeholder="Tên, SĐT, ghi chú, nguồn quảng cáo…"
             />
           </label>
           <label className="block">
             <span className="mb-1 block font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Nguồn lead
+              Nguồn khách
             </span>
             <select
               data-testid="dashboard-contacts-source-filter"
@@ -436,7 +462,7 @@ export default function ContactsManagementClient({
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p data-testid="dashboard-contacts-result-count" className="font-body text-xs text-slate-500">
-            Hiển thị {filtered.length} / {contacts.length} lead
+            Hiển thị {filtered.length} / {contacts.length} khách liên hệ
           </p>
           {(filter !== "ALL" || sourceFilter !== "ALL" || searchQuery.trim()) && (
             <button
@@ -487,42 +513,44 @@ export default function ContactsManagementClient({
                   <div className="mt-2 flex flex-wrap gap-2">
                     {contact.source ? (
                       <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-body font-bold text-slate-600">
-                    Nguồn: {getLeadSourceLabel(contact.source)}
+                        Nguồn: {getLeadSourceLabel(contact.source)}
                       </span>
                     ) : null}
                     {contact.utmSource ? (
                       <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-body font-bold text-blue-700">
-                        utm_source: {contact.utmSource}
+                        Kênh quảng cáo: {contact.utmSource}
                       </span>
                     ) : null}
                     {contact.utmCampaign ? (
                       <span className="rounded-full bg-purple-50 px-2 py-1 text-[10px] font-body font-bold text-purple-700">
-                        campaign: {contact.utmCampaign}
+                        Chiến dịch: {contact.utmCampaign}
                       </span>
                     ) : null}
                     {contact.utmMedium ? (
                       <span className="rounded-full bg-cyan-50 px-2 py-1 text-[10px] font-body font-bold text-cyan-700">
-                        utm_medium: {contact.utmMedium}
+                        Cách chạy: {contact.utmMedium}
                       </span>
                     ) : null}
                     {contact.utmTerm ? (
                       <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-body font-bold text-amber-700">
-                        utm_term: {contact.utmTerm}
+                        Từ khoá: {contact.utmTerm}
                       </span>
                     ) : null}
                     {contact.utmContent ? (
                       <span className="rounded-full bg-pink-50 px-2 py-1 text-[10px] font-body font-bold text-pink-700">
-                        utm_content: {contact.utmContent}
+                        Nội dung quảng cáo: {contact.utmContent}
                       </span>
                     ) : null}
                     {formatReferrer(contact.referrer) ? (
                       <span className="rounded-full bg-green-50 px-2 py-1 text-[10px] font-body font-bold text-green-700">
-                        Referrer: {formatReferrer(contact.referrer)}
+                        Trang giới thiệu: {formatReferrer(contact.referrer)}
                       </span>
                     ) : null}
                   </div>
-                  {contact.sourcePath ? (
-                    <p className="font-body text-[10px] text-slate-300 mt-1">Trang tạo lead: {contact.sourcePath}</p>
+                  {formatSourcePath(contact.sourcePath) ? (
+                    <p className="font-body text-[10px] text-slate-300 mt-1">
+                      Trang khách mở: {formatSourcePath(contact.sourcePath)}
+                    </p>
                   ) : null}
                   <p className="font-body text-[10px] text-slate-300 mt-1">
                     {new Date(contact.createdAt).toLocaleString("vi-VN")}
@@ -639,7 +667,7 @@ export default function ContactsManagementClient({
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 p-3 sm:p-6">
           <button
             type="button"
-            aria-label="Đóng chi tiết lead"
+            aria-label="Đóng chi tiết khách"
             className="absolute inset-0"
             onClick={() => setSelectedContactId(null)}
           />
@@ -703,7 +731,7 @@ export default function ContactsManagementClient({
 
               <div>
                 <p className="mb-2 font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Pipeline nhanh
+                  Tiến độ nhanh
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(statusConfig).map(([key, value]) => (
@@ -790,7 +818,7 @@ export default function ContactsManagementClient({
 
               <div className="rounded-xl border border-slate-100 p-4">
                 <p className="mb-3 font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Nguồn và tracking
+                  Nguồn khách biết đến
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {selectedContact.source ? (
@@ -798,24 +826,24 @@ export default function ContactsManagementClient({
                       {getLeadSourceLabel(selectedContact.source)}
                     </span>
                   ) : null}
-                  {selectedContact.sourcePath ? (
+                  {formatSourcePath(selectedContact.sourcePath) ? (
                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-body font-bold text-slate-600">
-                      {selectedContact.sourcePath}
+                      Trang khách mở: {formatSourcePath(selectedContact.sourcePath)}
                     </span>
                   ) : null}
                   {selectedReferrer ? (
                     <span className="rounded-full bg-green-50 px-2.5 py-1 text-[11px] font-body font-bold text-green-700">
-                      Referrer: {selectedReferrer}
+                      Trang giới thiệu: {selectedReferrer}
                     </span>
                   ) : null}
                   {selectedContact.utmSource ? (
                     <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-body font-bold text-blue-700">
-                      utm_source: {selectedContact.utmSource}
+                      Kênh quảng cáo: {selectedContact.utmSource}
                     </span>
                   ) : null}
                   {selectedContact.utmCampaign ? (
                     <span className="rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-body font-bold text-purple-700">
-                      campaign: {selectedContact.utmCampaign}
+                      Chiến dịch: {selectedContact.utmCampaign}
                     </span>
                   ) : null}
                 </div>

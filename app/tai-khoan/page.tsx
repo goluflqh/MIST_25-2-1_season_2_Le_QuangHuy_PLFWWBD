@@ -31,9 +31,9 @@ function formatVietnamDateTime(date: Date) {
   return vietnamDateTimeFormatter.format(date);
 }
 
-async function loadAccountCollections(userId: string, phone: string) {
+async function loadAccountCollections(userId: string, phone: string, referralCode: string | null) {
   try {
-    const [requests, warranties, coupons] = await Promise.all([
+    const [requests, warranties, coupons, referralCount] = await Promise.all([
       prisma.contactRequest.findMany({
         where: {
           deletedAt: null,
@@ -48,10 +48,19 @@ async function loadAccountCollections(userId: string, phone: string) {
       prisma.coupon.findMany({
         where: {
           active: true,
-          OR: [{ userId: null }, { userId }],
         },
-        orderBy: [{ userId: "desc" }, { pointsCost: "asc" }, { createdAt: "desc" }],
+        include: {
+          redemptions: {
+            where: { userId },
+            select: { id: true },
+            take: 1,
+          },
+        },
+        orderBy: [{ pointsCost: "asc" }, { createdAt: "desc" }],
       }),
+      referralCode
+        ? prisma.user.count({ where: { referredBy: referralCode, deletedAt: null } })
+        : Promise.resolve(0),
     ]);
     const nowMs = Date.now();
 
@@ -60,7 +69,8 @@ async function loadAccountCollections(userId: string, phone: string) {
         .filter((coupon) => {
           const isExpired = coupon.expiresAt ? coupon.expiresAt.getTime() <= nowMs : false;
           const hasUsesLeft = coupon.usedCount < coupon.usageLimit;
-          return coupon.userId === userId || (!isExpired && hasUsesLeft);
+          const isOwned = coupon.redemptions.length > 0;
+          return isOwned || (!isExpired && hasUsesLeft);
         })
         .map((coupon) => ({
           id: coupon.id,
@@ -70,8 +80,9 @@ async function loadAccountCollections(userId: string, phone: string) {
           pointsCost: coupon.pointsCost,
           remainingUses: Math.max(0, coupon.usageLimit - coupon.usedCount),
           expiresAtLabel: coupon.expiresAt ? formatVietnamDate(coupon.expiresAt) : null,
-          isOwned: coupon.userId === userId,
+          isOwned: coupon.redemptions.length > 0,
         })),
+      referralCount,
       dataWarning: null,
       requests: requests.map((request) => ({
         id: request.id,
@@ -101,6 +112,7 @@ async function loadAccountCollections(userId: string, phone: string) {
         dataWarning:
           "Dữ liệu tài khoản tạm thời chưa đồng bộ đầy đủ. Bạn vẫn có thể xem thông tin cơ bản và thử tải lại sau ít phút.",
         coupons: [],
+        referralCount: 0,
         requests: [],
         warranties: [],
       };
@@ -117,7 +129,11 @@ export default async function AccountPage() {
     return <AccountAuthRedirect />;
   }
 
-  const { requests, warranties, coupons, dataWarning } = await loadAccountCollections(user.id, user.phone);
+  const { requests, warranties, coupons, referralCount, dataWarning } = await loadAccountCollections(
+    user.id,
+    user.phone,
+    user.referralCode
+  );
 
   return (
     <AccountPageClient
@@ -128,6 +144,7 @@ export default async function AccountPage() {
         name: user.name,
         phone: user.phone,
         referralCode: user.referralCode,
+        referralCount,
         role: user.role,
         loyaltyPoints: user.loyaltyPoints,
         createdAt: user.createdAt.toISOString(),

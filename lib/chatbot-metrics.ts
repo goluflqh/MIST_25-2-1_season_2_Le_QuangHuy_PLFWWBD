@@ -1,6 +1,6 @@
 import { prisma, isPrismaDatabaseUnavailable, logPrismaAvailabilityWarning } from "@/lib/prisma";
 
-export type ChatbotEventType = "lead_signal" | "unmatched" | "fallback";
+export type ChatbotEventType = "ai_answered" | "lead_signal" | "unmatched" | "fallback";
 
 interface RecordChatbotEventInput {
   eventType: ChatbotEventType;
@@ -12,10 +12,13 @@ interface RecordChatbotEventInput {
 }
 
 export interface ChatbotDashboardMetrics {
+  aiAnsweredCount: number;
   fallbackCount: number;
   leadSignalCount: number;
   recentUnmatched: Array<{
     createdAt: string;
+    eventType: string;
+    fallbackReason: string | null;
     intent: string | null;
     messagePreview: string | null;
     service: string | null;
@@ -25,9 +28,12 @@ export interface ChatbotDashboardMetrics {
 }
 
 const DASHBOARD_WINDOW_DAYS = 7;
+const CHATBOT_RESPONSE_EVENT_TYPES = ["ai_answered", "unmatched", "fallback"] as const;
+const TRAINING_GAP_REASON = "training_gap";
 
 function buildDashboardFallback(): ChatbotDashboardMetrics {
   return {
+    aiAnsweredCount: 0,
     fallbackCount: 0,
     leadSignalCount: 0,
     recentUnmatched: [],
@@ -69,11 +75,24 @@ export async function getChatbotDashboardMetrics(): Promise<ChatbotDashboardMetr
   const since = new Date(Date.now() - DASHBOARD_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   try {
-    const [totalChatsMeasured, leadSignalCount, fallbackCount, unmatchedCount, recentUnmatched] =
-      await Promise.all([
+    const [
+      totalChatsMeasured,
+      aiAnsweredCount,
+      leadSignalCount,
+      fallbackCount,
+      unmatchedCount,
+      recentUnmatched,
+    ] = await Promise.all([
         prisma.chatbotEvent.count({
           where: {
             createdAt: { gte: since },
+            eventType: { in: [...CHATBOT_RESPONSE_EVENT_TYPES] },
+          },
+        }),
+        prisma.chatbotEvent.count({
+          where: {
+            createdAt: { gte: since },
+            eventType: "ai_answered",
           },
         }),
         prisma.chatbotEvent.count({
@@ -92,17 +111,23 @@ export async function getChatbotDashboardMetrics(): Promise<ChatbotDashboardMetr
           where: {
             createdAt: { gte: since },
             eventType: "unmatched",
+            fallbackReason: TRAINING_GAP_REASON,
           },
         }),
         prisma.chatbotEvent.findMany({
           where: {
             createdAt: { gte: since },
-            eventType: "unmatched",
+            OR: [
+              { eventType: "fallback" },
+              { eventType: "unmatched", fallbackReason: TRAINING_GAP_REASON },
+            ],
           },
           orderBy: { createdAt: "desc" },
           take: 5,
           select: {
             createdAt: true,
+            eventType: true,
+            fallbackReason: true,
             intent: true,
             messagePreview: true,
             service: true,
@@ -111,10 +136,13 @@ export async function getChatbotDashboardMetrics(): Promise<ChatbotDashboardMetr
       ]);
 
     return {
+      aiAnsweredCount,
       fallbackCount,
       leadSignalCount,
       recentUnmatched: recentUnmatched.map((item) => ({
         createdAt: item.createdAt.toISOString(),
+        eventType: item.eventType,
+        fallbackReason: item.fallbackReason,
         intent: item.intent,
         messagePreview: item.messagePreview,
         service: item.service,

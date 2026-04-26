@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, type FormEvent, useState } from "react";
+import { startTransition, type FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -10,6 +10,7 @@ interface UserInfo {
   name: string;
   phone: string;
   referralCode: string | null;
+  referralCount: number;
   role: string;
   loyaltyPoints: number;
   createdAt: string;
@@ -330,11 +331,13 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
 
 function RewardsSection({
   initialCoupons,
+  initialReferralCount,
   initialReferralCode,
   loyaltyPoints,
   onLoyaltyPointsChange,
 }: {
   initialCoupons: CouponInfo[];
+  initialReferralCount: number;
   initialReferralCode: string | null;
   loyaltyPoints: number;
   onLoyaltyPointsChange: (points: number) => void;
@@ -465,6 +468,12 @@ function RewardsSection({
           <p className="font-body text-[10px] uppercase tracking-wider text-slate-400">Mốc tiếp theo</p>
           <p className="font-body text-sm font-bold text-slate-700">{tier.next}</p>
         </div>
+        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 sm:col-span-2">
+          <p className="font-body text-[10px] uppercase tracking-wider text-slate-400">Người đã đăng ký từ link mời</p>
+          <p data-testid="account-referral-count" className="font-heading text-2xl font-extrabold text-slate-900">
+            {initialReferralCount}
+          </p>
+        </div>
       </div>
       {error ? (
         <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-body font-semibold text-red-600">
@@ -473,6 +482,12 @@ function RewardsSection({
       ) : null}
 
       <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+        <div className="mb-3">
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-slate-500">Link mời bạn bè</p>
+          <p className="mt-1 font-body text-xs text-slate-400">
+            Gửi link này cho người thân hoặc bạn bè. Khi họ đăng ký bằng link, hệ thống sẽ ghi nhận vào số người đã mời.
+          </p>
+        </div>
         {!referralCode ? (
           <button
             data-testid="account-referral-generate"
@@ -481,7 +496,7 @@ function RewardsSection({
             disabled={isGenerating}
             className="px-5 py-2.5 bg-yellow-500 text-slate-900 rounded-xl font-body font-bold text-sm hover:bg-yellow-600 disabled:bg-slate-200 disabled:text-slate-500 transition-colors"
           >
-            {isGenerating ? "Đang tạo link..." : "Lấy Link Mời"}
+            {isGenerating ? "Đang tạo link…" : "Lấy Link Mời"}
           </button>
         ) : (
           <div className="space-y-2">
@@ -883,6 +898,7 @@ export default function AccountPageClient({
 }: AccountPageClientProps) {
   const router = useRouter();
   const { user, setUser } = useAuth();
+  const requestFormRef = useRef<HTMLDivElement>(null);
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ service: "", message: "" });
@@ -899,6 +915,16 @@ export default function AccountPageClient({
   const loyaltyTier = getLoyaltyTier(loyaltyPoints);
   const canSubmitRequest = formData.service.length > 0;
   const canSubmitReview = reviewData.service.length > 0 && reviewData.comment.trim().length > 0;
+
+  const openRequestForm = () => {
+    setShowForm(true);
+    window.setTimeout(() => {
+      requestFormRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 0);
+  };
 
   const handleLogout = async () => {
     if (isLoggingOut) return;
@@ -1069,11 +1095,19 @@ export default function AccountPageClient({
 
       <AccountStatusPanel dataWarning={dataWarning} initialUser={initialUser} requests={requests} />
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
+      <div ref={requestFormRef} className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
         <button
           data-testid="account-request-toggle"
+          type="button"
           aria-expanded={showForm}
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => {
+            if (showForm) {
+              setShowForm(false);
+              return;
+            }
+
+            openRequestForm();
+          }}
           className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
         >
           <span className="font-heading font-bold text-slate-900 flex items-center gap-2">
@@ -1271,6 +1305,7 @@ export default function AccountPageClient({
       <WarrantyCards warranties={initialWarranties} />
       <RewardsSection
         initialCoupons={initialCoupons}
+        initialReferralCount={initialUser.referralCount}
         initialReferralCode={initialUser.referralCode}
         loyaltyPoints={loyaltyPoints}
         onLoyaltyPointsChange={setLoyaltyPoints}
@@ -1290,7 +1325,9 @@ export default function AccountPageClient({
             <p className="text-3xl mb-2">📭</p>
             <p className="font-body text-slate-400 mb-3">Bạn chưa có yêu cầu nào</p>
             <button
-              onClick={() => setShowForm(true)}
+              data-testid="account-request-empty-open"
+              type="button"
+              onClick={openRequestForm}
               className="font-body font-bold text-sm text-red-600 hover:text-red-700"
             >
               + Gửi yêu cầu đầu tiên
