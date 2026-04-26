@@ -4,10 +4,14 @@ This workspace uses the shared MCP server `mem0-local` for project memory.
 
 Project id: `minhhong-next`
 
+This repo is a worktree of the main `minhhong-next` project. Always use `project_id="minhhong-next"` for project memory, even when the current directory name is `minhhong-next-app-upgrades`.
+
 Default memory rules:
 
 - Before answering when prior project context may matter, call `search_memory` for shared memory with `project_id="minhhong-next"`.
-- When the user asks what happened in the last session, asks to continue, or switches back to this repo after a break, prefer `resume_project(project_id="minhhong-next")`.
+- When the user asks what happened in the last session, asks to continue, or switches back to this repo after a break, prefer `resume_project(project_id="minhhong-next", limit=2 or 3)`.
+- If resume context is insufficient, use `search_memory(project_id="minhhong-next", query="<task-specific terms>", limit=3 to 5)` before reading broad repo areas.
+- Do not use broad `list_memories` for normal task recall. Use it only for memory inventory, cleanup, or explicit user-requested audits. If a broad memory inspection is genuinely required, set `full=true` and explain why.
 - Use `search_global_memory` when personal workflow, response style, or cross-repo coding preferences may matter.
 - If shared project memory is missing or clearly incomplete, inspect the repo and call `bootstrap_project_memory` once with confirmed facts.
 - Save durable confirmed project facts with `remember_fact`. Set `memory_kind` when obvious, such as `stack`, `architecture`, `command`, `entrypoint`, `data_rule`, `decision`, or `bug_fix`.
@@ -27,6 +31,14 @@ Compact session behavior:
 - If the user says "continue", "what did we get to yesterday?", or asks to resume work, call `resume_project` first.
 - Keep global memory small and stable. Use it for the user's durable habits across repos, not repo-specific facts.
 - Keep recalled memory short and relevant. Do not dump everything into the reply.
+
+Context-efficient repo exploration:
+
+- Use `rg` and filesystem tools on source paths first, scoped to the task.
+- Exclude generated/cache/report directories by default: `node_modules`, `.next`, `.gitnexus`, `playwright-report`, `test-results`, `coverage`, and `dist`.
+- Only inspect those excluded directories when the task specifically depends on generated output, dependency internals, GitNexus index artifacts, or a concrete failing test report.
+- Prefer `git status --short`, `git diff --stat`, targeted `git diff -- <file>`, and focused file reads over dumping whole diffs or entire large files.
+- Prefer GitNexus MCP for dependency/route/impact questions instead of raw searching `.gitnexus`.
 
 ## Karpathy-Style Execution Defaults
 
