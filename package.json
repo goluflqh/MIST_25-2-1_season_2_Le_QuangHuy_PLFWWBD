@@ -3,12 +3,46 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --turbopack",
+    "dev:webpack": "next dev --webpack",
+    "dev:turbo": "next dev --turbopack",
+    "dev:3001": "next dev --turbopack --hostname 127.0.0.1 --port 3001",
+    "dev:3001:webpack": "next dev --webpack --hostname 127.0.0.1 --port 3001",
+    "dev:3001:turbo": "next dev --turbopack --hostname 127.0.0.1 --port 3001",
+    "dev:3001:start": "powershell -ExecutionPolicy Bypass -File scripts/dev-server.ps1 start -Port 3001",
+    "dev:3001:start:webpack": "powershell -ExecutionPolicy Bypass -File scripts/dev-server.ps1 start -Port 3001 -Bundler webpack",
+    "dev:3001:stop": "powershell -ExecutionPolicy Bypass -File scripts/dev-server.ps1 stop -Port 3001",
+    "dev:3001:restart": "powershell -ExecutionPolicy Bypass -File scripts/dev-server.ps1 restart -Port 3001",
+    "dev:3001:restart:webpack": "powershell -ExecutionPolicy Bypass -File scripts/dev-server.ps1 restart -Port 3001 -Bundler webpack",
+    "dev:3001:status": "powershell -ExecutionPolicy Bypass -File scripts/dev-server.ps1 status -Port 3001",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "db:generate": "prisma generate",
+    "db:format": "prisma format",
+    "db:validate": "prisma validate",
+    "db:status": "prisma migrate status",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:seed:base": "tsx prisma/seed.ts",
+    "db:seed:pricing": "tsx prisma/seed-pricing.ts",
+    "db:seed": "npm run db:seed:base && npm run db:seed:pricing",
+    "db:local:up": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 up",
+    "db:local:down": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 down",
+    "db:local:reset": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 reset",
+    "db:local:logs": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 logs",
+    "db:local:ps": "powershell -ExecutionPolicy Bypass -File scripts/dev-db.ps1 ps"
+  },
+  "prisma": {
+    "seed": "npm run db:seed"
   },
   "dependencies": {
+    "@fontsource/dm-sans": "^5.2.8",
+    "@fontsource/space-grotesk": "^5.2.10",
     "@hookform/resolvers": "^3.9.0",
     "@prisma/client": "^5.22.0",
     "clsx": "^2.1.1",
@@ -21,6 +55,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -28,6 +63,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsx": "^4.20.6",
     "typescript": "^5"
   }
 }

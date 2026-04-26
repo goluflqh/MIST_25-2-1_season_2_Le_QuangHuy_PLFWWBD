@@ -1,87 +1,291 @@
-import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
+import JsonLd from "@/components/seo/JsonLd";
+import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
+import { ServiceLocalTrustSection } from "@/components/service/ServiceLocalTrustSection";
+import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
+import { cameraPreviewItems } from "@/lib/service-previews";
+import { buildMarketingMetadata, siteConfig } from "@/lib/site";
+import { buildBreadcrumbJsonLd, buildServiceJsonLd } from "@/lib/structured-data";
 
-export const metadata: Metadata = {
-  title: "Lắp Đặt Camera An Ninh | Minh Hồng",
-  description: "Tư vấn giải pháp an ninh, thi công lắp đặt camera giám sát chất lượng cao. Khảo sát miễn phí tận nơi.",
-};
+export const metadata = buildMarketingMetadata({
+  title: "Lắp Đặt Camera An Ninh Đà Nẵng",
+  description:
+    "Khảo sát, lắp đặt camera an ninh tại Đà Nẵng cho gia đình, cửa hàng, kho và xưởng với cấu hình đủ dùng, đi dây gọn và bàn giao dễ theo dõi.",
+  path: "/dich-vu/camera",
+});
+
+const heroPoints = [
+  "Khảo sát góc nhìn trước khi chốt số lượng camera",
+  "Đi dây gọn và tối ưu trải nghiệm theo dõi trên điện thoại",
+  "Bàn giao rõ cách xem trực tiếp và xem lại",
+] as const;
 
 const features = [
-  { icon: "🏠", title: "Camera Gia Đình", desc: "Giám sát nhà ở, sân vườn, cổng ngõ. Xem qua điện thoại 24/7." },
-  { icon: "🏪", title: "Camera Cửa Hàng", desc: "Hệ thống đa góc nhìn, chống trộm AI thông minh, cảnh báo tức thì." },
-  { icon: "🏭", title: "Camera Xưởng / Kho", desc: "Giải pháp công nghiệp cho xưởng sản xuất, kho bãi, bãi xe." },
-  { icon: "🌙", title: "Quay Đêm Màu", desc: "Camera có đèn LED tích hợp, quay đêm full color, không dùng hồng ngoại." },
-];
+  {
+    description: "Bố trí mắt camera cho cổng, sân, phòng khách hoặc khu vực cần theo dõi thường xuyên.",
+    iconPath:
+      "M3 10l9-7 9 7v10a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V10z",
+    title: "Nhà ở & cổng",
+  },
+  {
+    description: "Ưu tiên góc quan sát quầy, cửa ra vào và khu giữ xe theo đúng lưu lượng khách.",
+    iconPath:
+      "M4 7h16M5 7l1-3h12l1 3m-1 0v11a2 2 0 01-2 2H8a2 2 0 01-2-2V7m4 5h4",
+    title: "Cửa hàng",
+  },
+  {
+    description: "Đề xuất số mắt, góc nhìn và giải pháp lưu trữ phù hợp cho khu vực rộng hơn.",
+    iconPath:
+      "M3 21h18M5 21V9l7-4 7 4v12M9 13h6",
+    title: "Kho & xưởng",
+  },
+  {
+    description: "Cài đặt app, xem từ xa và hướng dẫn cách dùng để khách thao tác thoải mái sau bàn giao.",
+    iconPath:
+      "M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h7a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z",
+    title: "Xem từ xa dễ dùng",
+  },
+] as const;
 
 const benefits = [
-  "Khảo sát tận nơi và tư vấn góc nhìn tối ưu — HOÀN TOÀN MIỄN PHÍ",
-  "Thi công gọn gàng, đi dây chống nhiễu, đảm bảo thẩm mỹ",
-  "Cài đặt ứng dụng xem camera qua điện thoại miễn phí",
-  "Bảo hành kỹ thuật tận nơi 12-24 tháng tuỳ hãng",
-  "Hỗ trợ lưu trữ đám mây hoặc đầu ghi NVR bảo mật",
-  "Cảnh báo chống trộm AI thông minh, nhận diện khuôn mặt",
-];
+  "Khảo sát tận nơi nếu cần để tránh thiếu góc hoặc lắp thừa mắt camera.",
+  "Ưu tiên cấu hình đủ dùng, hình ảnh rõ và quản lý ổn định trên điện thoại.",
+  "Giải thích trước về đầu ghi, lưu trữ và mức độ phù hợp cho từng không gian.",
+  "Giữ đầu mối hỗ trợ khi khách cần kiểm tra lại, đổi góc hoặc hỏi thêm cách sử dụng.",
+] as const;
+
+const guidanceSteps = [
+  {
+    title: "Xác định khu vực cần quan sát",
+    description: "Hỏi mục tiêu xem cổng, quầy, kho, sân hay khu để xe để tránh lắp thừa hoặc thiếu góc.",
+  },
+  {
+    title: "Khảo sát góc và đường dây",
+    description: "Cân vị trí camera, nguồn điện, mạng, lưu trữ và cách đi dây gọn nhất có thể.",
+  },
+  {
+    title: "Chốt số mắt và cấu hình",
+    description: "Báo phương án theo đúng không gian, nhu cầu xem lại và ngân sách của khách.",
+  },
+] as const;
+
+const priceFactors = [
+  "Số lượng camera, loại camera, độ phân giải và góc quan sát cần phủ.",
+  "Đầu ghi, thẻ nhớ hoặc ổ cứng lưu trữ theo số ngày muốn xem lại.",
+  "Khoảng cách đi dây, vị trí lắp cao/thấp và điều kiện ngoài trời.",
+  "Nhu cầu xem từ xa, cảnh báo chuyển động và hỗ trợ sau bàn giao.",
+] as const;
+
+const serviceFaqs = [
+  {
+    question: "Gói camera trên bảng giá có cố định cho mọi nhà không?",
+    answer:
+      "Không. Gói trên web là tham khảo, vì mỗi nhà hoặc cửa hàng có góc nhìn, đường dây và nhu cầu lưu trữ khác nhau.",
+  },
+  {
+    question: "Admin cập nhật bảng giá thì trang camera có cần sửa lại không?",
+    answer:
+      "Không cần sửa tay phần code. Bảng giá public sẽ hiển thị theo các mục báo giá đang được bật sau khi admin cập nhật trong dashboard.",
+  },
+] as const;
+
+const localTrustCases = [
+  {
+    title: "Cửa hàng mặt tiền cần xem quầy và cửa ra vào",
+    situation:
+      "Không gian có nhiều điểm cần theo dõi nhưng chủ shop vẫn muốn xem nhanh trên điện thoại.",
+    decision: "chốt số mắt, góc lắp và thời gian lưu trữ theo khu vực cần xem lại nhiều nhất.",
+  },
+  {
+    title: "Nhà phố cần quan sát cổng và sân",
+    situation:
+      "Camera phải đủ rõ ban đêm, ít vướng thẩm mỹ và có đường nguồn/mạng ổn định.",
+    decision: "khảo sát góc nhìn, đường dây, vị trí nguồn và cách bàn giao app trước khi báo cấu hình.",
+  },
+  {
+    title: "Kho nhỏ hoặc xưởng cần theo dõi nhiều lối",
+    situation:
+      "Khu vực rộng hơn cần tránh điểm mù, đồng thời cân dung lượng lưu trữ hợp lý.",
+    decision: "ưu tiên sơ đồ vị trí, đầu ghi hoặc thẻ nhớ phù hợp và cách xem lại dễ thao tác.",
+  },
+] as const;
+
+const prepareItems = [
+  "Ảnh hoặc video khu vực cần lắp camera.",
+  "Số vị trí muốn quan sát: cổng, quầy, kho, sân hoặc khu để xe.",
+  "Nhu cầu xem lại trong bao nhiêu ngày và có cần xem từ xa không.",
+  "Thông tin Wi-Fi, nguồn điện gần vị trí lắp hoặc yêu cầu đi dây gọn.",
+] as const;
 
 export default function CameraServicePage() {
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 animate-fade-in-up">
-      {/* Hero */}
-      <div className="bg-white rounded-3xl shadow-xl p-8 md:p-12 mb-12 border border-slate-100 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-300 opacity-15 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2"></div>
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-slate-400 opacity-10 rounded-full blur-2xl transform -translate-x-1/4 translate-y-1/2"></div>
-
-        <div className="relative z-10 max-w-3xl">
-          <span className="inline-block py-1 px-3 rounded-full bg-blue-50 text-blue-700 font-body font-semibold text-sm mb-4 border border-blue-200">
-            📹 Giải Pháp An Ninh
+    <>
+      <JsonLd
+        data={[
+          buildServiceJsonLd("camera"),
+          buildBreadcrumbJsonLd([
+            { name: "Trang chủ", path: "/" },
+            { name: "Dịch vụ", path: "/dich-vu" },
+            { name: "Camera an ninh", path: "/dich-vu/camera" },
+          ]),
+        ]}
+      />
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
+      <section className="relative mb-14 overflow-hidden rounded-[1.75rem] border border-sky-100 bg-[linear-gradient(135deg,#eff6ff,#ffffff_54%,#fff7ed)] p-6 shadow-[0_30px_90px_-48px_rgba(15,23,42,0.42)] md:p-10">
+        <div className="relative z-10 grid gap-8 lg:grid-cols-[1fr_0.82fr] lg:items-center">
+          <div>
+          <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-4 py-1.5 text-sm font-semibold text-sky-700">
+            Camera an ninh
           </span>
-          <h1 className="font-heading font-extrabold text-4xl md:text-5xl text-slate-900 mb-6 leading-tight">
-            Giám Sát 24/7 Với <span className="text-blue-600">Camera Công Nghệ Mới</span>
+          <h1 className="mt-5 bg-linear-to-r from-slate-950 via-blue-700 to-sky-500 bg-clip-text font-heading text-3xl font-extrabold leading-tight text-transparent md:text-6xl">
+            Lắp camera rõ góc, xem lại dễ.
           </h1>
-          <p className="font-body text-slate-600 text-lg mb-8 leading-relaxed">
-            Giải pháp tối ưu cho gia đình, cửa hàng và xưởng sản xuất. Minh Hồng trực tiếp khảo sát, thiết kế sơ đồ đi dây chống nhiễu, đảm bảo thẩm mỹ và không có điểm mù.
+          <p className="mt-4 max-w-3xl font-body text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
+            Minh Hồng tập trung vào việc khảo sát góc nhìn, bố trí số mắt hợp lý, đi dây gọn
+            và bàn giao để khách xem trực tiếp hoặc xem lại thật thuận tay trên điện thoại.
           </p>
-          <Link
-            href="/bao-gia"
-            className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-heading font-bold py-3 px-8 rounded-xl transition-colors shadow-md hover:shadow-lg"
-          >
-            Xem Bảng Giá Camera
-          </Link>
-        </div>
-      </div>
 
-      {/* Features Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        {features.map((f) => (
-          <div key={f.title} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md hover:border-blue-200 transition-all">
-            <div className="text-3xl mb-3">{f.icon}</div>
-            <h3 className="font-heading font-bold text-slate-900 mb-2">{f.title}</h3>
-            <p className="font-body text-sm text-slate-500">{f.desc}</p>
+          <div className="mt-7 hidden gap-3 sm:grid sm:grid-cols-3">
+            {heroPoints.map((point) => (
+              <div key={point} className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">
+                {point}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* Benefits */}
-      <div className="bg-gradient-to-br from-blue-50 to-slate-50 rounded-3xl p-8 md:p-12 border border-blue-100">
-        <h2 className="font-heading font-extrabold text-2xl text-slate-900 mb-6">Ưu Điểm Dịch Vụ Camera Minh Hồng</h2>
-        <ul className="space-y-4">
-          {benefits.map((b, i) => (
-            <li key={i} className="flex items-start gap-3 font-body text-slate-700">
-              <svg className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-              </svg>
-              {b}
-            </li>
-          ))}
-        </ul>
-        <div className="mt-8 flex flex-wrap gap-4">
-          <a href="tel:0987443258" className="inline-flex items-center gap-2 bg-slate-900 text-white font-body font-bold py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors">
-            📞 Gọi 0987.443.258
-          </a>
-          <Link href="/bao-gia" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
-            📋 Yêu Cầu Khảo Sát
-          </Link>
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:mt-8 sm:flex sm:flex-row">
+            <Link
+              href="/?service=CAMERA&source=service-camera#quote"
+              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3.5 text-sm font-bold text-white transition-colors hover:bg-primary sm:px-8 sm:text-lg"
+            >
+              Khảo sát
+            </Link>
+            <a
+              href={siteConfig.hotlineHref}
+              className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-bold text-textMain transition-colors hover:border-primary hover:text-primary sm:px-8 sm:text-lg"
+            >
+              Gọi ngay
+            </a>
+          </div>
+          </div>
+
+          <div className="overflow-hidden rounded-[1.5rem] border border-white bg-white shadow-[0_24px_80px_-48px_rgba(2,132,199,0.38)]">
+            <div className="relative h-56 bg-slate-100 sm:h-96">
+              <Image
+                src="/showcase/generated/hero-camera-install-v2.png"
+                alt="Camera an ninh Wi-Fi ngoài trời được lắp ở mặt tiền cửa hàng."
+                fill
+                priority
+                unoptimized
+                sizes="(max-width: 1024px) 100vw, 38vw"
+                className="object-cover"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3 p-4">
+              <div className="rounded-2xl bg-sky-50 px-4 py-3">
+                <p className="text-xs font-semibold text-sky-700">Khảo sát</p>
+                <p className="mt-1 font-heading text-lg font-bold text-slate-900">Góc nhìn</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold text-slate-500">Bàn giao</p>
+                <p className="mt-1 font-heading text-lg font-bold text-slate-900">Xem từ xa</p>
+              </div>
+            </div>
+          </div>
         </div>
+      </section>
+
+      <ServicePreviewCatalog
+        accent="blue"
+        eyebrow="Mẫu lắp đặt thực tế"
+        title="Các gói camera phổ biến"
+        description="Khách có thể tham khảo nhanh quy mô hệ thống. Minh Hồng vẫn sẽ điều chỉnh số mắt, vị trí lắp và giải pháp lưu trữ sau khi khảo sát thực tế."
+        items={cameraPreviewItems}
+      />
+
+      <section className="mb-16 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        {features.map((feature) => (
+          <article
+            key={feature.title}
+            className="rounded-[1.9rem] border border-slate-200 bg-white p-6 shadow-[0_22px_70px_-50px_rgba(15,23,42,0.32)]"
+          >
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-100 bg-sky-50 text-sky-700">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                  d={feature.iconPath}
+                />
+              </svg>
+            </div>
+            <h2 className="mt-5 font-body text-lg font-semibold text-slate-900">{feature.title}</h2>
+            <p className="mt-2 font-body text-sm leading-7 text-slate-600">{feature.description}</p>
+          </article>
+        ))}
+      </section>
+
+      <ServiceGuidanceSection
+        accent="blue"
+        faqs={serviceFaqs}
+        priceFactors={priceFactors}
+        quoteHref="/?service=CAMERA&source=service-camera-guidance#quote"
+        serviceName="Camera an ninh"
+        steps={guidanceSteps}
+      />
+
+      <ServiceLocalTrustSection
+        accent="blue"
+        cases={localTrustCases}
+        prepareItems={prepareItems}
+        quoteHref="/?service=CAMERA&source=service-camera-local-trust#quote"
+        serviceName="lắp camera an ninh"
+      />
+
+      <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">
+        <div className="absolute right-0 top-0 h-full w-1/2 bg-linear-to-l from-primary/12 to-transparent"></div>
+
+        <div className="relative z-10 grid gap-8 lg:grid-cols-[0.92fr_1fr] lg:items-center">
+          <div>
+            <h2 className="font-heading text-3xl font-extrabold md:text-4xl">
+              Cách Minh Hồng làm dịch vụ camera
+            </h2>
+            <p className="mt-4 font-body text-base leading-7 text-slate-300 md:text-lg">
+              Không chỉ là lắp được hình ảnh. Điều quan trọng hơn là góc nhìn hợp lý, quản lý dễ
+              dùng và có người hỗ trợ rõ ràng khi khách cần kiểm tra lại.
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/?service=CAMERA&source=service-camera#quote"
+                className="inline-flex items-center justify-center rounded-2xl bg-primary px-6 py-3 font-bold text-white transition-colors hover:bg-red-500"
+              >
+                Gửi nhu cầu lắp camera
+              </Link>
+              <Link
+                href="/bao-gia"
+                className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/10 px-6 py-3 font-bold text-white transition-colors hover:bg-white/15"
+              >
+                Xem bảng giá tham khảo
+              </Link>
+            </div>
+          </div>
+
+          <ul className="space-y-4">
+            {benefits.map((benefit) => (
+              <li key={benefit} className="flex items-start gap-3 font-body text-slate-200">
+                <span className="mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
+                <span className="text-base leading-7">{benefit}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
       </div>
-    </div>
+    </>
   );
 }

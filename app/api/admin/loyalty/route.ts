@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
@@ -9,21 +10,52 @@ export async function PATCH(request: Request) {
     if (!admin) return forbiddenResponse();
 
     const { userId, points, reason, setExact } = await request.json();
-    if (!userId || typeof points !== "number") {
+    const parsedPoints = typeof points === "number" ? points : Number.parseInt(String(points ?? ""), 10);
+    if (!userId || !Number.isFinite(parsedPoints)) {
       return NextResponse.json({ success: false, message: "userId và points bắt buộc." }, { status: 400 });
     }
 
-    const user = await prisma.user.update({
+    const previousUser = await prisma.user.findUnique({
       where: { id: userId },
-      data: { loyaltyPoints: setExact ? points : { increment: points } },
       select: { id: true, name: true, loyaltyPoints: true },
     });
 
-    console.log(`[Loyalty] Admin ${admin.name} awarded ${points} points to ${user.name}: ${reason || "N/A"}`);
+    if (!previousUser) {
+      return NextResponse.json({ success: false, message: "Không tìm thấy khách hàng." }, { status: 404 });
+    }
+
+    const nextLoyaltyPoints = setExact
+      ? Math.max(0, parsedPoints)
+      : Math.max(0, previousUser.loyaltyPoints + parsedPoints);
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { loyaltyPoints: nextLoyaltyPoints },
+      select: { id: true, name: true, loyaltyPoints: true },
+    });
+    await recordAuditLog({
+      action: setExact ? "LOYALTY_SET" : "LOYALTY_ADJUST",
+      actor: admin,
+      entity: "User",
+      entityId: user.id,
+      oldData: toAuditJson(previousUser || { id: userId }),
+      newData: toAuditJson({
+        ...user,
+        points: parsedPoints,
+        reason: reason || null,
+        setExact: Boolean(setExact),
+      }),
+      request,
+    });
+
+    console.log(`[Loyalty] Admin ${admin.name} changed ${parsedPoints} points for ${user.name}: ${reason || "N/A"}`);
 
     return NextResponse.json({ success: true, user });
   } catch (error) {
     console.error("Loyalty update error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không cập nhật được điểm khách hàng lúc này." },
+      { status: 500 }
+    );
   }
 }

@@ -1,26 +1,58 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import {
+  analyzeChatbotMessage,
+  chatbotServiceChoices,
+  getChatbotLeadSource,
+  getChatbotServiceLabel,
+  normalizeChatbotServiceId,
+  type ChatbotConversationMessage,
+  type ChatbotIntent,
+  type ChatbotResponsePlan,
+  type ChatbotServiceId,
+} from "@/lib/chatbot";
+import {
+  buildChatbotRuntimeFallbackReply,
+  CHATBOT_WIDGET_COPY,
+  CHATBOT_WIDGET_QUICK_PROMPTS,
+  getChatbotLeadActionLabel,
+  getChatbotLoadingCopy,
+  getChatbotZaloActionLabel,
+} from "@/lib/chatbot-content";
+import { siteConfig } from "@/lib/site";
+
+interface AssistantMeta {
+  intent: ChatbotIntent;
+  service: ChatbotServiceId | null;
+  serviceLabel: string | null;
+  shouldOfferLeadForm: boolean;
+  shouldOfferHumanSupport: boolean;
+  shouldSuggestServices: boolean;
+  usedFallback?: boolean;
+}
+
+interface MessageAction {
+  external?: boolean;
+  href?: string;
+  id: string;
+  kind: "link" | "prompt";
+  label: string;
+  prompt?: string;
+  tone: "primary" | "secondary";
+}
 
 interface Message {
-  id: string;
-  role: "user" | "assistant" | "system";
+  actions?: MessageAction[];
   content: string;
+  id: string;
+  meta?: AssistantMeta;
+  role: "user" | "assistant" | "system";
   timestamp: Date;
 }
 
-function toLookupText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeChatText(value: string): string {
+function normalizeChatText(value: string) {
   return value
     .replace(/\r\n/g, "\n")
     .replace(/^#{1,6}\s*/gm, "")
@@ -33,103 +65,170 @@ function normalizeChatText(value: string): string {
     .trim();
 }
 
-function includesAny(text: string, keywords: string[]): boolean {
-  return keywords.some((keyword) => text.includes(keyword));
+function buildLeadHref(service: ChatbotServiceId | null, userMessage: string) {
+  const params = new URLSearchParams();
+  const normalizedMessage = normalizeChatText(userMessage).slice(0, 180);
+
+  if (service && service !== "KHAC") {
+    params.set("service", service);
+  }
+
+  params.set("source", getChatbotLeadSource(service));
+
+  if (normalizedMessage) {
+    params.set("message", normalizedMessage);
+  }
+
+  return `/?${params.toString()}#quote`;
 }
 
-// FAQ: câu hỏi đơn giản, trả lời cố định (tiết kiệm quota)
-const FAQ_DATA = [
-  {
-    answer: "Giá đóng pin tuỳ thuộc vào loại cell, dung lượng và thiết bị. Pin máy khoan từ 350k-800k, pin xe đạp điện từ 2tr-5tr, pin loa kéo từ 200k-500k. Liên hệ 0987.443.258 để được báo giá chính xác!",
-    keywords: ["giá", "bao nhiêu", "chi phí", "tiền"],
-    requiredKeywords: ["pin", "đóng", "giá", "bao nhiêu"],
-  },
-  {
-    answer: "Minh Hồng bảo hành pin 6-12 tháng lỗi 1 đổi 1 tuỳ loại. Camera bảo hành 24 tháng phần cứng. Bảo dưỡng cân bằng cell miễn phí trọn đời!",
-    keywords: ["bảo hành", "warranty", "đổi trả", "lỗi 1 đổi 1"],
-    requiredKeywords: ["bảo hành"],
-  },
-  {
-    answer: "Có! Minh Hồng nhận lắp đặt camera an ninh cho nhà ở, cửa hàng, xưởng sản xuất. Khảo sát miễn phí tận nơi, thi công trong ngày. Gọi 0987.443.258!",
-    keywords: ["camera", "lắp đặt", "an ninh", "giám sát"],
-    requiredKeywords: ["camera", "lắp"],
-  },
-  {
-    answer: "Minh Hồng tại: Xã Đồng Dương, TP. Đà Nẵng. Mở cửa 6h-21h hàng ngày. Hotline: 0987.443.258. Nhận ship toàn quốc!",
-    keywords: ["địa chỉ", "ở đâu", "chỗ nào", "liên hệ", "số điện thoại", "hotline"],
-    requiredKeywords: ["địa chỉ", "ở đâu", "chỗ nào", "liên hệ", "hotline"],
-  },
-  {
-    answer: "Có! Minh Hồng chuyên đóng pin xe đạp điện, xe máy điện. Dùng cell Lithium Samsung/LG chính hãng. Bảo hành 12 tháng. Gọi 0987.443.258 để báo giá theo xe!",
-    keywords: ["xe điện", "xe đạp điện", "xe máy điện"],
-    requiredKeywords: ["xe điện", "xe đạp"],
-  },
-  {
-    answer: "Có! Minh Hồng nhận đóng pin cho đèn năng lượng mặt trời, lắp ráp đèn NLMT tại nhà. Pin lưu trữ năng lượng chất lượng cao, bền bỉ. Gọi 0987.443.258!",
-    keywords: ["đèn năng lượng", "mặt trời", "nlmt", "solar"],
-    requiredKeywords: ["đèn", "năng lượng"],
-  },
-  {
-    answer: "Minh Hồng nhận đóng pin loa kéo tất cả các hãng. Nâng cấp dung lượng, kéo dài thời gian sử dụng. Giá từ 200k-500k tuỳ loại. Gọi 0987.443.258!",
-    keywords: ["loa kéo", "loa bluetooth", "karaoke"],
-    requiredKeywords: ["loa"],
-  },
-  {
-    answer: "Có! Minh Hồng đóng pin kích đề ô tô, xe hơi. Pin lưu trữ, pin dự phòng dung lượng lớn. Đóng theo yêu cầu riêng. Liên hệ 0987.443.258!",
-    keywords: ["kích đề", "ô tô", "xe hơi", "dự phòng"],
-    requiredKeywords: ["kích đề", "ô tô"],
-  },
-  {
-    answer: "Có ạ! Minh Hồng nhận phục hồi và đóng mới pin laptop các hãng Dell, HP, Asus, Lenovo, Macbook. Thay cell chính hãng, bảo hành 6 tháng.",
-    keywords: ["laptop", "máy tính", "dell", "hp", "macbook", "asus", "lenovo"],
-    requiredKeywords: ["laptop", "máy tính"],
-  },
-];
+function getLatestServiceContext(messages: Message[]) {
+  const latestAssistantWithService = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.meta?.service);
 
-// Dấu hiệu câu hỏi MỞ → cần AI trả lời
-const OPEN_ENDED_SIGNALS = [
-  "là gì", "như thế nào", "tại sao", "vì sao", "giải thích",
-  "so sánh", "khác gì", "tốt hơn", "nên chọn", "tư vấn",
-  "có nên", "lợi ích", "ưu điểm", "nhược điểm", "tác dụng",
-  "hoạt động", "nguyên lý", "cách dùng", "hướng dẫn", "mấy loại",
-  "loại nào", "dùng được bao lâu", "bền không", "có tốt không",
-  "chia sẻ", "cho mình hỏi"
-];
+  return latestAssistantWithService?.meta?.service || null;
+}
 
-function classifyAndAnswer(userMessage: string): string | null {
-  const lookupMessage = toLookupText(userMessage);
+function buildConversationHistory(messages: Message[]): ChatbotConversationMessage[] {
+  return messages
+    .filter((message) => message.role !== "system")
+    .slice(-8)
+    .map((message) => ({
+      role: message.role,
+      content: normalizeChatText(message.content),
+      meta: message.meta
+        ? {
+            intent: message.meta.intent,
+            service: message.meta.service,
+          }
+        : undefined,
+    }));
+}
 
-  if (
-    (includesAny(lookupMessage, ["sac nhanh day", "nhanh het", "pin yeu", "tu hao", "bao ao"]) &&
-      includesAny(lookupMessage, ["pin", "binh", "cell", "sac", "dien"])) ||
-    includesAny(lookupMessage, ["phong pin", "pin phong", "khong nhan sac", "sut ap", "chai pin"])
-  ) {
-    return "Dấu hiệu này thường do pin chai cell, lệch cell hoặc mạch pin lỗi. Minh Hồng kiểm tra miễn phí rồi mới báo nên sửa hay đóng lại pin. Anh/chị gửi model hoặc gọi 0987.443.258 là bên em tư vấn nhanh.";
+function countRecentServiceAssistantMessages(messages: Message[], service: ChatbotServiceId | null) {
+  if (!service) {
+    return 0;
   }
 
-  // 1. Nếu tin nhắn quá ngắn (≤ 3 từ), FAQ có thể handle
-  // 2. Nếu có dấu hiệu mở → luôn dùng AI
-  const isOpenEnded = OPEN_ENDED_SIGNALS.some((signal) => lookupMessage.includes(toLookupText(signal)));
+  return messages
+    .filter((message) => message.role === "assistant" && message.meta?.service === service)
+    .slice(-3).length;
+}
 
-  if (isOpenEnded) {
-    return null; // → gửi AI
+function enhanceAssistantMeta(
+  meta: AssistantMeta | undefined,
+  options: {
+    serviceMomentum: number;
+  }
+): AssistantMeta | undefined {
+  if (!meta) {
+    return undefined;
   }
 
-  // 3. Tìm FAQ match: phải match ít nhất 1 requiredKeyword
-  for (const faq of FAQ_DATA) {
-    const normalizedRequired = faq.requiredKeywords.map((kw) => toLookupText(kw));
-    const normalizedKeywords = faq.keywords.map((kw) => toLookupText(kw));
-    const hasRequired = normalizedRequired.some((kw) => lookupMessage.includes(kw));
-    const keywordHits = normalizedKeywords.filter((kw) => lookupMessage.includes(kw)).length;
+  const shouldSoftOfferLeadForm =
+    Boolean(meta.service) &&
+    !meta.shouldOfferLeadForm &&
+    (meta.intent === "open_question" || Boolean(meta.usedFallback)) &&
+    options.serviceMomentum >= 1;
 
-    // Match nếu: có required keyword + ít nhất 1 keyword khác, HOẶC 2+ required keywords
-    if (hasRequired && (keywordHits >= 1 || lookupMessage.length < 25)) {
-      return faq.answer;
-    }
+  return {
+    ...meta,
+    shouldOfferLeadForm: meta.shouldOfferLeadForm || shouldSoftOfferLeadForm,
+  };
+}
+
+function toAssistantMeta(
+  value:
+    | (Partial<AssistantMeta> & { usedFallback?: boolean })
+    | (Partial<ChatbotResponsePlan> & { usedFallback?: boolean })
+    | null
+    | undefined,
+  fallbackService: ChatbotServiceId | null = null
+): AssistantMeta | undefined {
+  if (!value) return undefined;
+
+  const service =
+    normalizeChatbotServiceId(
+      typeof value.service === "string" ? value.service : fallbackService
+    ) || fallbackService;
+
+  return {
+    intent: (value.intent as ChatbotIntent | undefined) || "general",
+    service,
+    serviceLabel:
+      typeof value.serviceLabel === "string"
+        ? value.serviceLabel
+        : getChatbotServiceLabel(service),
+    shouldOfferLeadForm: Boolean(value.shouldOfferLeadForm),
+    shouldOfferHumanSupport: Boolean(value.shouldOfferHumanSupport),
+    shouldSuggestServices: Boolean(value.shouldSuggestServices),
+    usedFallback: Boolean(value.usedFallback),
+  };
+}
+
+function buildAssistantActions(meta: AssistantMeta | undefined, userMessage: string): MessageAction[] {
+  if (!meta) {
+    return [];
   }
 
-  // 4. Không match FAQ → gửi AI
-  return null;
+  if (meta.shouldSuggestServices) {
+    return chatbotServiceChoices.map((choice) => ({
+      id: `suggest-${choice.id.toLowerCase()}`,
+      kind: "prompt",
+      label: choice.label,
+      prompt: choice.prompt,
+      tone: "secondary",
+    }));
+  }
+
+  const actions: MessageAction[] = [];
+
+  if (meta.shouldOfferLeadForm) {
+    actions.push({
+      id: "lead-form",
+      kind: "link",
+      label: getChatbotLeadActionLabel(meta.intent, meta.usedFallback),
+      href: buildLeadHref(meta.service, userMessage),
+      tone: "primary",
+    });
+  }
+
+  if (meta.shouldOfferHumanSupport || (meta.shouldOfferLeadForm && Boolean(meta.service))) {
+    actions.push({
+      id: "zalo",
+      external: true,
+      href: siteConfig.zaloUrl,
+      kind: "link",
+      label: getChatbotZaloActionLabel(meta.shouldOfferHumanSupport),
+      tone: "secondary",
+    });
+  }
+
+  return actions;
+}
+
+function createAssistantMessage(
+  content: string,
+  meta?: AssistantMeta,
+  userMessage = ""
+): Message {
+  return {
+    actions: buildAssistantActions(meta, userMessage),
+    content: normalizeChatText(content),
+    id: (Date.now() + Math.random()).toString(),
+    meta,
+    role: "assistant",
+    timestamp: new Date(),
+  };
+}
+
+function getCurrentSourcePath() {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+
+  return `${window.location.pathname}${window.location.search}`;
 }
 
 export default function ChatbotWidget() {
@@ -138,13 +237,15 @@ export default function ChatbotWidget() {
     {
       id: "welcome",
       role: "assistant",
-      content: "Xin chào! 👋 Mình là trợ lý AI của Minh Hồng. Bạn cần tư vấn về đóng pin, đèn năng lượng mặt trời hay lắp camera ạ?",
+      content: CHATBOT_WIDGET_COPY.welcomeMessage,
       timestamp: new Date(),
     },
   ]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingMeta, setPendingMeta] = useState<AssistantMeta | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const loadingCopy = getChatbotLoadingCopy(pendingMeta?.intent, pendingMeta?.serviceLabel);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -154,137 +255,245 @@ export default function ChatbotWidget() {
     const text = (overrideText || inputValue).trim();
     if (!text || isLoading) return;
 
+    const normalizedUserText = normalizeChatText(text);
+    const serviceContext = getLatestServiceContext(messages);
+    const conversationHistory = buildConversationHistory(messages);
     const userMsg: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: normalizeChatText(text),
+      content: normalizedUserText,
       timestamp: new Date(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setInputValue("");
-    setIsLoading(true);
 
-    // Bước 1: Phân loại — FAQ hay AI?
-    const faqAnswer = classifyAndAnswer(text);
+    const localPlan = analyzeChatbotMessage(text, {
+      history: conversationHistory,
+      serviceContext,
+    });
 
-    if (faqAnswer) {
-      // Câu hỏi đơn giản → trả lời tức thì (MIỄN PHÍ, không tốn quota)
+    if (localPlan.localReply) {
+      const localReply = localPlan.localReply;
       setMessages((prev) => [
         ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: normalizeChatText(faqAnswer),
-          timestamp: new Date(),
-        },
+        createAssistantMessage(
+          localReply,
+          toAssistantMeta(localPlan, localPlan.service || serviceContext),
+          normalizedUserText
+        ),
       ]);
+      setPendingMeta(undefined);
       setIsLoading(false);
       return;
     }
 
-    // Bước 2: Câu hỏi mở/phức tạp → gửi AI API (tốn quota)
+    const responseMeta = enhanceAssistantMeta(
+      toAssistantMeta(localPlan, localPlan.service || serviceContext),
+      {
+        serviceMomentum: countRecentServiceAssistantMessages(
+          messages,
+          localPlan.service || serviceContext
+        ),
+      }
+    );
+
+    setPendingMeta(responseMeta);
+    setIsLoading(true);
+
     try {
-      const history = [...messages, userMsg]
-        .filter((m) => m.role !== "system")
-        .slice(-6)
-        .map((m) => ({ role: m.role, content: normalizeChatText(m.content) }));
+      const history = [...conversationHistory, { role: "user", content: normalizedUserText }];
 
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({
+          history,
+          message: text,
+          serviceContext: localPlan.service || serviceContext,
+          sourcePath: getCurrentSourcePath(),
+        }),
       });
 
       const data = await res.json();
+      const assistantMeta = enhanceAssistantMeta(
+        toAssistantMeta(data?.meta, localPlan.service || serviceContext),
+        {
+          serviceMomentum: countRecentServiceAssistantMessages(
+            messages,
+            localPlan.service || serviceContext
+          ),
+        }
+      );
 
       setMessages((prev) => [
         ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content:
-            normalizeChatText(data.reply) ||
-            "Xin lỗi, mình chưa hiểu câu hỏi. Bạn có thể gọi 0987.443.258 để được tư vấn trực tiếp nhé!",
-          timestamp: new Date(),
-        },
+        createAssistantMessage(
+          typeof data?.reply === "string"
+            ? data.reply
+            : buildChatbotRuntimeFallbackReply(localPlan.intent, localPlan.serviceLabel),
+          assistantMeta,
+          normalizedUserText
+        ),
       ]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: "Rất tiếc, hệ thống đang bận. Vui lòng gọi trực tiếp qua hotline 0987.443.258 để được hỗ trợ ngay ạ!",
-          timestamp: new Date(),
-        },
+        createAssistantMessage(
+          buildChatbotRuntimeFallbackReply(localPlan.intent, localPlan.serviceLabel)
+        ),
       ]);
     } finally {
+      setPendingMeta(undefined);
       setIsLoading(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       sendMessage();
     }
   };
 
+  const renderMessageActions = (message: Message) => {
+    if (!message.actions?.length) {
+      return null;
+    }
+
+    return (
+      <div data-testid="chatbot-message-actions" className="mt-2 flex max-w-[90%] flex-wrap gap-2">
+        {message.actions.map((action) => {
+          const baseClass =
+            action.tone === "primary"
+              ? "inline-flex items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-xs font-body font-semibold text-white transition-colors hover:bg-slate-800"
+              : "inline-flex items-center justify-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100";
+
+          if (action.kind === "prompt") {
+            return (
+              <button
+                key={action.id}
+                data-testid={`chatbot-action-${action.id}`}
+                onClick={() => sendMessage(action.prompt)}
+                className={baseClass}
+                type="button"
+              >
+                {action.label}
+              </button>
+            );
+          }
+
+          if (action.external) {
+            return (
+              <a
+                key={action.id}
+                data-testid={`chatbot-action-${action.id}`}
+                href={action.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={baseClass}
+                onClick={() => setIsOpen(false)}
+              >
+                {action.label}
+              </a>
+            );
+          }
+
+          return (
+            <Link
+              key={action.id}
+              data-testid={`chatbot-action-${action.id}`}
+              href={action.href || "/"}
+              className={baseClass}
+              onClick={() => setIsOpen(false)}
+            >
+              {action.label}
+            </Link>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <>
-      {/* Chat Panel */}
       {isOpen && (
-        <div className="fixed bottom-24 right-4 sm:right-6 z-50 w-[340px] sm:w-[380px] h-[500px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-fade-in-up">
-          {/* Header */}
-          <div className="bg-slate-900 px-5 py-4 flex items-center justify-between shrink-0">
+        <div
+          data-testid="chatbot-panel"
+          className="animate-fade-in-up fixed bottom-20 left-3 right-3 z-50 flex h-[min(78dvh,34rem)] max-h-[calc(100dvh-6rem)] flex-col overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-2xl sm:bottom-24 sm:left-auto sm:right-6 sm:h-[500px] sm:w-[380px] sm:max-w-[380px]"
+        >
+          <div className="flex shrink-0 items-center justify-between bg-slate-900 px-5 py-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-linear-to-r from-red-500 to-orange-500 flex items-center justify-center text-white font-bold text-sm">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-linear-to-r from-red-500 to-orange-500 text-sm font-bold text-white">
                 MH
               </div>
               <div>
-                <p className="font-heading font-bold text-white text-sm">Minh Hồng AI</p>
-                <p className="text-[10px] text-green-400 font-body flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full"></span> Trực tuyến
+                <p className="font-heading text-sm font-bold text-white">{CHATBOT_WIDGET_COPY.title}</p>
+                <p className="flex items-center gap-1 text-[10px] text-green-400 font-body">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span>{" "}
+                  {CHATBOT_WIDGET_COPY.onlineStatus}
                 </p>
               </div>
             </div>
             <button
               onClick={() => setIsOpen(false)}
-              className="text-slate-400 hover:text-white transition-colors"
+              className="text-slate-400 transition-colors hover:text-white"
               aria-label="Đóng chat"
+              type="button"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
-            {messages.map((msg) => (
+          <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4">
+            {messages.map((message) => (
               <div
-                key={msg.id}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                key={message.id}
+                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm font-body leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-slate-900 text-white rounded-br-sm"
-                      : "bg-white text-slate-700 border border-slate-200 rounded-bl-sm shadow-sm"
-                  }`}
+                  className={
+                    message.role === "user"
+                      ? "flex max-w-[80%] flex-col items-end"
+                      : "flex max-w-[90%] flex-col items-start"
+                  }
                 >
-                  {msg.content}
+                  <div
+                    data-testid={
+                      message.role === "assistant"
+                        ? "chatbot-assistant-message"
+                        : message.role === "user"
+                          ? "chatbot-user-message"
+                          : undefined
+                    }
+                    className={`px-4 py-2.5 text-sm leading-relaxed font-body ${
+                      message.role === "user"
+                        ? "rounded-2xl rounded-br-sm bg-slate-900 text-white"
+                        : "rounded-2xl rounded-bl-sm border border-slate-200 bg-white text-slate-700 shadow-sm"
+                    }`}
+                  >
+                    {message.content}
+                  </div>
+                  {message.role === "assistant" ? renderMessageActions(message) : null}
                 </div>
               </div>
             ))}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
-                  <div className="flex gap-1.5">
-                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce"></span>
-                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce animation-delay-150"></span>
-                    <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce animation-delay-300"></span>
+                <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                  <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-body font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"></span>
+                    {loadingCopy.headline}
+                  </div>
+                  <p className="text-sm leading-relaxed text-slate-600">
+                    {loadingCopy.detail}
+                  </p>
+                  <div className="mt-3 flex gap-1.5">
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300"></span>
+                    <span className="animation-delay-150 h-2 w-2 animate-bounce rounded-full bg-slate-300"></span>
+                    <span className="animation-delay-300 h-2 w-2 animate-bounce rounded-full bg-slate-300"></span>
                   </div>
                 </div>
               </div>
@@ -292,38 +501,41 @@ export default function ChatbotWidget() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Quick Actions */}
-          <div className="px-3 py-2 bg-white border-t border-slate-100 flex gap-2 overflow-x-auto shrink-0">
-            {["Giá đóng pin?", "Đèn NLMT", "Lắp camera", "Địa chỉ shop"].map((q) => (
-              <button
-                key={q}
-                onClick={() => sendMessage(q)}
-                className="shrink-0 text-xs font-body font-semibold px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors"
-              >
-                {q}
-              </button>
-            ))}
+          <div className="flex shrink-0 snap-x gap-2 overflow-x-auto border-t border-slate-100 bg-white px-3 py-2">
+            {CHATBOT_WIDGET_QUICK_PROMPTS.map((item) => (
+                <button
+                  key={item.label}
+                  onClick={() => sendMessage(item.prompt)}
+                  className="shrink-0 snap-start whitespace-nowrap rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
+                  type="button"
+                >
+                  {item.label}
+                </button>
+              )
+            )}
           </div>
 
-          {/* Input */}
-          <div className="px-3 py-3 bg-white border-t border-slate-100 shrink-0">
+          <div className="shrink-0 border-t border-slate-100 bg-white px-3 py-3">
             <div className="flex items-center gap-2">
               <input
+                data-testid="chatbot-input"
                 type="text"
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={(event) => setInputValue(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Nhập câu hỏi..."
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-body focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all"
+                placeholder={CHATBOT_WIDGET_COPY.inputPlaceholder}
+                className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-base font-body outline-none transition-all focus:border-red-500 focus:ring-2 focus:ring-red-500 sm:text-sm"
                 disabled={isLoading}
               />
               <button
+                data-testid="chatbot-send"
                 onClick={() => sendMessage()}
                 disabled={isLoading || !inputValue.trim()}
-                className="w-10 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white flex items-center justify-center transition-colors shrink-0"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
                 aria-label="Gửi tin nhắn"
+                type="button"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
               </button>
@@ -332,55 +544,57 @@ export default function ChatbotWidget() {
         </div>
       )}
 
-      {/* Floating Bubble */}
-      <div className="fixed bottom-6 right-4 sm:right-6 z-50 flex items-end gap-3">
-        {/* Tooltip label — visible when closed */}
+      <div className="fixed bottom-4 right-3 z-50 flex flex-col items-end gap-2 sm:bottom-6 sm:right-6">
         {!isOpen && (
-          <div className="mb-2 px-3 py-1.5 bg-slate-900 text-white text-xs font-body font-bold rounded-xl shadow-lg animate-fade-in-up whitespace-nowrap">
-            Hỏi AI tư vấn 🤖
-            <div className="absolute -right-1.5 bottom-3 w-3 h-3 bg-slate-900 rotate-45"></div>
+          <div className="animate-fade-in-up relative mr-1 hidden items-center gap-2 whitespace-nowrap rounded-full bg-slate-950 px-3.5 py-2 text-xs font-body font-bold text-white shadow-xl shadow-slate-900/20 sm:inline-flex">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70"></span>
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
+            </span>
+            {CHATBOT_WIDGET_COPY.floatingBadge}
+            <div className="absolute -bottom-1 right-6 h-3 w-3 rotate-45 bg-slate-950"></div>
           </div>
         )}
 
         <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="relative group rounded-full w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center shadow-lg hover:shadow-2xl transition-all transform hover:scale-110"
-          aria-label="Mở chatbot tư vấn AI"
-          style={{ background: "linear-gradient(135deg, #dc2626 0%, #ea580c 50%, #f59e0b 100%)" }}
+          data-testid="chatbot-toggle"
+          onClick={() => setIsOpen((current) => !current)}
+          className="chatbot-float-button group relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-orange-200 sm:h-16 sm:w-16"
+          aria-label="Mở AI tư vấn chuyên nghiệp"
+          style={{
+            background: "linear-gradient(135deg, #dc2626 0%, #ea580c 50%, #f59e0b 100%)",
+          }}
+          type="button"
         >
-          {/* Pulse glow ring */}
           {!isOpen && (
-            <span className="absolute inset-0 rounded-full animate-ping opacity-20" style={{ background: "linear-gradient(135deg, #dc2626, #f59e0b)" }}></span>
+            <>
+              <span className="chatbot-float-aura absolute inset-0 rounded-full"></span>
+              <span className="chatbot-float-ring absolute -inset-1 rounded-full border border-orange-300/70"></span>
+            </>
           )}
 
           {isOpen ? (
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="relative z-10 h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
           ) : (
-            /* Robot face icon */
-            <svg className="w-8 h-8 text-white drop-shadow-sm" viewBox="0 0 24 24" fill="none">
-              {/* Head */}
-              <rect x="4" y="6" width="16" height="14" rx="3" fill="white" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5"/>
-              {/* Antenna */}
-              <line x1="12" y1="6" x2="12" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <svg className="chatbot-float-icon relative z-10 h-7 w-7 text-white drop-shadow-sm sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none">
+              <rect x="4" y="6" width="16" height="14" rx="3" fill="white" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" />
+              <line x1="12" y1="6" x2="12" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               <circle cx="12" cy="2.5" r="1.5" fill="currentColor" />
-              {/* Eyes */}
               <circle cx="9" cy="12" r="1.8" fill="currentColor" />
               <circle cx="15" cy="12" r="1.8" fill="currentColor" />
-              {/* Smile */}
-              <path d="M9 16 C10 17.5, 14 17.5, 15 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
-              {/* Sparkle */}
-              <circle cx="9" cy="11.5" r="0.5" fill="white" opacity="0.8"/>
-              <circle cx="15" cy="11.5" r="0.5" fill="white" opacity="0.8"/>
+              <path d="M9 16 C10 17.5, 14 17.5, 15 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+              <circle cx="9" cy="11.5" r="0.5" fill="white" opacity="0.8" />
+              <circle cx="15" cy="11.5" r="0.5" fill="white" opacity="0.8" />
             </svg>
           )}
 
-          {/* Notification badge */}
           {!isOpen && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-5 w-5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-60"></span>
-              <span className="relative inline-flex items-center justify-center rounded-full h-5 w-5 bg-green-500 border-2 border-white text-[8px] text-white font-black">AI</span>
+            <span className="absolute -right-0.5 -top-0.5 z-20 flex h-5 min-w-5">
+              <span className="chatbot-ai-badge relative inline-flex h-5 min-w-5 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-emerald-500 px-1 text-[8px] font-black text-white shadow-md shadow-emerald-500/30">
+                AI
+              </span>
             </span>
           )}
         </button>

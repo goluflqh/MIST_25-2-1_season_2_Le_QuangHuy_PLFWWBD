@@ -3,6 +3,7 @@ import ContactsManagementClient from "./ContactsManagementClient";
 
 export default async function ContactsManagementPage() {
   const contacts = await prisma.contactRequest.findMany({
+    where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -12,6 +13,14 @@ export default async function ContactsManagementPage() {
       message: true,
       status: true,
       notes: true,
+      source: true,
+      sourcePath: true,
+      referrer: true,
+      utmSource: true,
+      utmMedium: true,
+      utmCampaign: true,
+      utmTerm: true,
+      utmContent: true,
       createdAt: true,
     },
   });

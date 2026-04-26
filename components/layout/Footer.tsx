@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { siteConfig } from "@/lib/site";
 
 export default function Footer() {
   return (
@@ -68,14 +69,14 @@ export default function Footer() {
                   </span>
                 </div>
               </div>
-              <p className="text-slate-400 font-body leading-relaxed mb-6 max-w-md">
-                Trung tâm gia công Pin Lithium chuyên nghiệp hàng đầu, bảo hành
-                dài hạn. Thi công và lắp đặt thiết bị Camera công nghệ cao chuẩn
-                quốc tế.
+              <p className="mb-6 max-w-md font-body leading-relaxed text-slate-400">
+                Xưởng tư vấn và thi công pin Lithium, pin lưu trữ, đèn năng lượng mặt trời
+                và camera tại Đà Nẵng. Ưu tiên kiểm tra trước, báo giá rõ và hỗ trợ sau
+                bàn giao.
               </p>
               <div className="flex gap-3">
                 <a
-                  href="https://www.facebook.com/profile.php?id=61580417924412"
+                  href={siteConfig.facebookUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-blue-600 hover:text-white transition-colors"
@@ -86,7 +87,7 @@ export default function Footer() {
                   </svg>
                 </a>
                 <a
-                  href="https://zalo.me/0987443258"
+                  href={siteConfig.zaloUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-blue-500 hover:text-white transition-colors"
@@ -95,7 +96,7 @@ export default function Footer() {
                   <span className="text-sm font-black">Zalo</span>
                 </a>
                 <a
-                  href="tel:0987443258"
+                  href={siteConfig.hotlineHref}
                   className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-green-600 hover:text-white transition-colors"
                   title="Gọi ngay"
                 >
@@ -149,20 +150,20 @@ export default function Footer() {
                 Liên Hệ Chuyên Viên
               </h4>
               <p className="text-slate-400 font-body mb-3">
-                Cơ sở tại: <a href="https://maps.app.goo.gl/gCtACM49w2sPEc5dA" target="_blank" rel="noopener noreferrer" className="text-white hover:text-primary transition-colors underline underline-offset-2"><strong>Xã Đồng Dương, TP. Đà Nẵng</strong></a>
+                Cơ sở tại: <a href={siteConfig.mapUrl} target="_blank" rel="noopener noreferrer" className="text-white hover:text-primary transition-colors underline underline-offset-2"><strong>{siteConfig.locationLabel}</strong></a>
               </p>
               <p className="text-slate-400 font-bold mb-2 flex items-center gap-2">
                 <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"></path>
                 </svg>
-                <a href="tel:0987443258" className="text-white hover:text-primary transition-colors">0987.443.258</a>
+                <a href={siteConfig.hotlineHref} className="text-white hover:text-primary transition-colors">{siteConfig.hotlineDisplay}</a>
               </p>
               <div className="flex gap-2 mt-3">
-                <a href="https://maps.app.goo.gl/gCtACM49w2sPEc5dA" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 text-white text-xs font-body font-bold rounded-lg hover:bg-slate-700 transition-colors">
-                  📍 Chỉ Đường
+                <a href={siteConfig.mapUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 text-white text-xs font-body font-bold rounded-lg hover:bg-slate-700 transition-colors">
+                  Chỉ Đường
                 </a>
-                <a href="https://zalo.me/0987443258" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-blue-600 text-white text-xs font-body font-bold rounded-lg hover:bg-blue-500 transition-colors">
-                  💬 Zalo
+                <a href={siteConfig.zaloUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-blue-600 text-white text-xs font-body font-bold rounded-lg hover:bg-blue-500 transition-colors">
+                  Chat Zalo
                 </a>
               </div>
             </div>

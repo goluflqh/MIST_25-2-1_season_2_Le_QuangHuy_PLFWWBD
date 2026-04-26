@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: minhhong-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-minhhong_next}
+      POSTGRES_USER: ${POSTGRES_USER:-minhhong}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-minhhong_local_dev}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - minhhong_postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-minhhong} -d ${POSTGRES_DB:-minhhong_next}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      target: migrator
+    profiles:
+      - migrate
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        AUTH_SECRET: ${AUTH_SECRET:-change-this-before-production}
+        DATABASE_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
+        DIRECT_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
+    container_name: minhhong-next-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      AUTH_SECRET: ${AUTH_SECRET:-change-this-before-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
+      AI_PROVIDER: ${AI_PROVIDER:-9router}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      NINE_ROUTER_BASE_URL: ${NINE_ROUTER_BASE_URL:-http://127.0.0.1:20128/v1}
+      NINE_ROUTER_MODEL: ${NINE_ROUTER_MODEL:-cx/gpt-5.2}
+      NINE_ROUTER_API_KEY: ${NINE_ROUTER_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  minhhong_postgres_prod_data:

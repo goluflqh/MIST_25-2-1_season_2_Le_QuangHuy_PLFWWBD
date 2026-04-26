@@ -9,7 +9,7 @@ export async function GET() {
     if (!session) return unauthorizedResponse();
 
     const warranties = await prisma.warranty.findMany({
-      where: { userId: session.user.id },
+      where: { userId: session.user.id, deletedAt: null },
       orderBy: { createdAt: "desc" },
     });
 

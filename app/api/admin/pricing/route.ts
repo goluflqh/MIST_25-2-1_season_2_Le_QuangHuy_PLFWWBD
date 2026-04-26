@@ -1,18 +1,43 @@
+import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
+import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
+import { getPublicActivePricingItems, PUBLIC_PRICING_TAG } from "@/lib/public-data";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
+
+function parseInteger(value: unknown, fallback: number) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizePricingData(body: Record<string, unknown>) {
+  const active = typeof body.active === "boolean" ? body.active : undefined;
+
+  return {
+    category: String(body.category || "PIN"),
+    name: String(body.name || "").trim(),
+    price: String(body.price || "").trim(),
+    unit: String(body.unit || "VNĐ").trim(),
+    description: typeof body.description === "string" && body.description.trim()
+      ? body.description.trim()
+      : null,
+    note: typeof body.note === "string" && body.note.trim() ? body.note.trim() : null,
+    sortOrder: parseInteger(body.sortOrder, 0),
+    ...(active === undefined ? {} : { active }),
+  };
+}
 
 // GET — List all pricing items (public)
 export async function GET() {
   try {
-    const items = await prisma.pricingItem.findMany({
-      where: { active: true },
-      orderBy: [{ category: "asc" }, { sortOrder: "asc" }],
-    });
+    const items = await getPublicActivePricingItems();
     return NextResponse.json({ success: true, items });
   } catch (error) {
     console.error("Pricing GET error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không tải được bảng giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -22,11 +47,23 @@ export async function POST(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const body = await request.json();
-    const item = await prisma.pricingItem.create({ data: body });
+    const item = await prisma.pricingItem.create({ data: normalizePricingData(body) });
+    await recordAuditLog({
+      action: "PRICING_CREATE",
+      actor: admin,
+      entity: "PricingItem",
+      entityId: item.id,
+      newData: toAuditJson(item),
+      request,
+    });
+    revalidateTag(PUBLIC_PRICING_TAG, "max");
     return NextResponse.json({ success: true, item });
   } catch (error) {
     console.error("Pricing POST error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không tạo được mục giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -36,11 +73,25 @@ export async function PATCH(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const { id, ...data } = await request.json();
-    const item = await prisma.pricingItem.update({ where: { id }, data });
+    const previousItem = await prisma.pricingItem.findUnique({ where: { id } });
+    const item = await prisma.pricingItem.update({ where: { id }, data: normalizePricingData(data) });
+    await recordAuditLog({
+      action: "PRICING_UPDATE",
+      actor: admin,
+      entity: "PricingItem",
+      entityId: item.id,
+      newData: toAuditJson(item),
+      oldData: toAuditJson(previousItem),
+      request,
+    });
+    revalidateTag(PUBLIC_PRICING_TAG, "max");
     return NextResponse.json({ success: true, item });
   } catch (error) {
     console.error("Pricing PATCH error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không cập nhật được mục giá lúc này." },
+      { status: 500 }
+    );
   }
 }
 
@@ -50,10 +101,22 @@ export async function DELETE(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const { id } = await request.json();
-    await prisma.pricingItem.delete({ where: { id } });
+    const deletedItem = await prisma.pricingItem.delete({ where: { id } });
+    await recordAuditLog({
+      action: "PRICING_DELETE",
+      actor: admin,
+      entity: "PricingItem",
+      entityId: deletedItem.id,
+      oldData: toAuditJson(deletedItem),
+      request,
+    });
+    revalidateTag(PUBLIC_PRICING_TAG, "max");
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Pricing DELETE error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không xoá được mục giá lúc này." },
+      { status: 500 }
+    );
   }
 }

@@ -1,0 +1,29 @@
+<svg width="960" height="720" viewBox="0 0 960 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="90" y1="72" x2="854" y2="640" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="720" rx="48" fill="url(#bg)"/>
+  <circle cx="802" cy="110" r="124" fill="#93C5FD" fill-opacity="0.16"/>
+  <circle cx="178" cy="588" r="146" fill="#60A5FA" fill-opacity="0.12"/>
+  <rect x="96" y="94" width="768" height="532" rx="32" fill="#0B1120" fill-opacity="0.72" stroke="#93C5FD" stroke-opacity="0.28" stroke-width="2"/>
+  <path d="M194 462L320 340L438 408L570 292L748 410V566H194V462Z" fill="#172554"/>
+  <path d="M300 366V246C300 208 330 178 368 178H560C598 178 628 208 628 246V366" stroke="#E0F2FE" stroke-width="18" stroke-linecap="round"/>
+  <rect x="256" y="264" width="154" height="110" rx="26" fill="#E0F2FE"/>
+  <circle cx="332" cy="320" r="34" fill="#1D4ED8"/>
+  <circle cx="332" cy="320" r="16" fill="#0F172A"/>
+  <rect x="512" y="264" width="154" height="110" rx="26" fill="#E0F2FE"/>
+  <circle cx="588" cy="320" r="34" fill="#1D4ED8"/>
+  <circle cx="588" cy="320" r="16" fill="#0F172A"/>
+  <rect x="674" y="204" width="118" height="246" rx="24" fill="#E2E8F0"/>
+  <rect x="690" y="234" width="86" height="152" rx="18" fill="#0F172A"/>
+  <circle cx="732" cy="420" r="10" fill="#93C5FD"/>
+  <rect x="132" y="126" width="188" height="42" rx="21" fill="#111827"/>
+  <text x="162" y="153" fill="#BFDBFE" font-family="Arial, sans-serif" font-size="24" font-weight="700">Home camera kit</text>
+  <rect x="132" y="562" width="184" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="160" y="588" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="22" font-weight="700">2 cams + app</text>
+  <rect x="628" y="562" width="186" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="654" y="588" fill="#93C5FD" font-family="Arial, sans-serif" font-size="22" font-weight="700">Night ready</text>
+</svg>

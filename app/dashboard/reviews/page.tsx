@@ -3,6 +3,7 @@ import AdminReviewsClient from "./AdminReviewsClient";
 
 export default async function AdminReviewsPage() {
   const reviews = await prisma.review.findMany({
+    where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

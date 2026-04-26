@@ -3,6 +3,7 @@ import AdminWarrantyClient from "./AdminWarrantyClient";
 
 export default async function AdminWarrantyPage() {
   const warranties = await prisma.warranty.findMany({
+    where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

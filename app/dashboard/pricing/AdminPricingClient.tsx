@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNotify } from "@/components/NotifyProvider";
 
 interface PricingItem {
@@ -29,8 +29,10 @@ const emptyItem = {
   unit: "VNĐ",
   description: "",
   note: "",
-  sortOrder: 0,
+  sortOrder: "0",
 };
+
+type PricingSortMode = "category" | "name" | "order";
 
 function sortItems(items: PricingItem[]) {
   return [...items].sort((left, right) => {
@@ -44,6 +46,15 @@ function sortItems(items: PricingItem[]) {
   });
 }
 
+function sanitizeIntegerText(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function parseIntegerField(value: string, fallback: number) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export default function AdminPricingClient({ initialItems }: { initialItems: PricingItem[] }) {
   const { showToast, showConfirm } = useNotify();
   const [items, setItems] = useState<PricingItem[]>(initialItems);
@@ -53,11 +64,56 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [sortMode, setSortMode] = useState<PricingSortMode>("category");
+
+  const metrics = useMemo(() => {
+    const activeItems = items.filter((item) => item.active).length;
+    const categoriesInUse = new Set(items.map((item) => item.category)).size;
+    const itemsWithNotes = items.filter((item) => item.note || item.description).length;
+
+    return { activeItems, categoriesInUse, itemsWithNotes };
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return items
+      .filter((item) => {
+        const categoryLabel = categories.find((category) => category.key === item.category)?.label || item.category;
+        const matchesCategory = categoryFilter === "all" || item.category === categoryFilter;
+        const matchesSearch = query.length === 0
+          || item.name.toLowerCase().includes(query)
+          || item.price.toLowerCase().includes(query)
+          || item.unit.toLowerCase().includes(query)
+          || (item.description || "").toLowerCase().includes(query)
+          || (item.note || "").toLowerCase().includes(query)
+          || categoryLabel.toLowerCase().includes(query);
+
+        return matchesCategory && matchesSearch;
+      })
+      .sort((first, second) => {
+        if (sortMode === "name") return first.name.localeCompare(second.name, "vi");
+        if (sortMode === "order") return first.sortOrder - second.sortOrder;
+        return sortItems([first, second])[0].id === first.id ? -1 : 1;
+      });
+  }, [categoryFilter, items, searchQuery, sortMode]);
+
+  const resetFilters = () => {
+    setSearchQuery("");
+    setCategoryFilter("all");
+    setSortMode("category");
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const method = editingId ? "PATCH" : "POST";
-    const body = editingId ? { id: editingId, ...formData } : formData;
+    const payload = {
+      ...formData,
+      sortOrder: parseIntegerField(formData.sortOrder, 0),
+    };
+    const body = editingId ? { id: editingId, ...payload } : payload;
 
     setIsSaving(true);
     setFormError(null);
@@ -103,7 +159,7 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
       unit: item.unit,
       description: item.description || "",
       note: item.note || "",
-      sortOrder: item.sortOrder,
+      sortOrder: String(item.sortOrder),
     });
     setEditingId(item.id);
     setFormError(null);
@@ -138,23 +194,91 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
   };
 
   return (
-    <div className="space-y-6 animate-fade-in-up">
-      <div className="flex items-center justify-between">
+    <div data-testid="dashboard-pricing-crm" className="space-y-6 animate-fade-in-up">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Bảng giá dịch vụ</p>
           <h2 className="font-heading font-extrabold text-xl text-slate-900">Quản Lý Bảng Giá</h2>
-          <p className="font-body text-sm text-slate-500">{items.length} mục · sửa ở đây → tự cập nhật trang /bao-gia</p>
+          <p className="font-body text-sm text-slate-500">
+            {items.length} mục · sửa ở đây → tự cập nhật trang /bao-gia
+          </p>
         </div>
-        <button
-          onClick={() => {
-            setShowForm(!showForm);
-            setEditingId(null);
-            setFormData(emptyItem);
-            setFormError(null);
-          }}
-          className="px-4 py-2 bg-red-600 text-white rounded-xl font-body font-bold text-sm hover:bg-red-700 transition-colors"
-        >
-          + Thêm Mới
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={resetFilters}
+            className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
+          >
+            Xoá bộ lọc
+          </button>
+          <button
+            onClick={() => {
+              setShowForm(!showForm);
+              setEditingId(null);
+              setFormData(emptyItem);
+              setFormError(null);
+            }}
+            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-red-700"
+          >
+            + Thêm Mới
+          </button>
+        </div>
+      </div>
+
+      <div data-testid="dashboard-pricing-metrics" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Mục đang hiển thị</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.activeItems}</p>
+        </div>
+        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+          <p className="font-body text-xs uppercase tracking-wider text-blue-700">Nhóm dịch vụ</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-blue-700">{metrics.categoriesInUse}</p>
+        </div>
+        <div className="rounded-2xl border border-green-100 bg-green-50 p-5">
+          <p className="font-body text-xs uppercase tracking-wider text-green-700">Có mô tả/ghi chú</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-green-700">{metrics.itemsWithNotes}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Kết quả lọc</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{filteredItems.length}</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(2,minmax(0,1fr))]">
+          <input
+            data-testid="dashboard-pricing-search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Tìm tên, giá, mô tả, ghi chú"
+            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          />
+          <select
+            data-testid="dashboard-pricing-category-filter"
+            value={categoryFilter}
+            onChange={(event) => setCategoryFilter(event.target.value)}
+            title="Lọc nhóm bảng giá"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          >
+            <option value="all">Tất cả nhóm</option>
+            {categories.map((category) => (
+              <option key={category.key} value={category.key}>{category.label}</option>
+            ))}
+          </select>
+          <select
+            data-testid="dashboard-pricing-sort"
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value as PricingSortMode)}
+            title="Sắp xếp bảng giá"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          >
+            <option value="category">Nhóm + thứ tự</option>
+            <option value="order">Thứ tự nhỏ nhất</option>
+            <option value="name">Tên A-Z</option>
+          </select>
+        </div>
+        <p data-testid="dashboard-pricing-result-count" className="mt-3 font-body text-xs text-slate-400">
+          Hiển thị {filteredItems.length} / {items.length} mục
+        </p>
       </div>
 
       {showForm && (
@@ -173,7 +297,14 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
             <input value={formData.price} onChange={(event) => setFormData({ ...formData, price: event.target.value })} placeholder="Giá (VD: 350.000 - 500.000)" className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm" required />
             <input value={formData.description || ""} onChange={(event) => setFormData({ ...formData, description: event.target.value })} placeholder="Mô tả (tuỳ chọn)" className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm" />
             <input value={formData.note || ""} onChange={(event) => setFormData({ ...formData, note: event.target.value })} placeholder="Ghi chú (tuỳ chọn)" className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm" />
-            <input type="number" value={formData.sortOrder} onChange={(event) => setFormData({ ...formData, sortOrder: parseInt(event.target.value, 10) || 0 })} placeholder="Thứ tự" className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm" />
+            <input
+              type="text"
+              inputMode="numeric"
+              value={formData.sortOrder}
+              onChange={(event) => setFormData({ ...formData, sortOrder: sanitizeIntegerText(event.target.value) })}
+              placeholder="Thứ tự"
+              className="px-4 py-3 rounded-xl border border-slate-200 font-body text-sm"
+            />
           </div>
           <div className="flex gap-2">
             <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-red-600 text-white rounded-xl font-body font-bold text-sm disabled:bg-slate-300">
@@ -184,37 +315,50 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
         </form>
       )}
 
-      {categories.map((category) => {
-        const categoryItems = items.filter((item) => item.category === category.key);
-        if (categoryItems.length === 0) return null;
+      {filteredItems.length === 0 ? (
+        <div className="rounded-2xl border border-slate-100 bg-white p-10 text-center shadow-sm">
+          <p className="font-body text-sm text-slate-400">Không có mục giá nào khớp bộ lọc.</p>
+        </div>
+      ) : (
+        categories.map((category) => {
+          const categoryItems = filteredItems.filter((item) => item.category === category.key);
+          if (categoryItems.length === 0) return null;
 
-        return (
-          <div key={category.key}>
-            <h3 className="font-body font-bold text-sm text-slate-600 mb-2 flex items-center gap-2">{category.label} ({categoryItems.length})</h3>
-            <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
-              {categoryItems.map((item) => (
-                <div key={item.id} className={`px-5 py-3.5 flex items-center gap-4 border-b border-slate-50 last:border-0 ${deletingId === item.id ? "opacity-60" : "hover:bg-slate-50/50"}`}>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-body font-semibold text-sm text-slate-800">{item.name}</p>
-                    {item.description && <p className="font-body text-xs text-slate-400">{item.description}</p>}
+          return (
+            <div key={category.key}>
+              <h3 className="font-body font-bold text-sm text-slate-600 mb-2 flex items-center gap-2">
+                {category.label} ({categoryItems.length})
+              </h3>
+              <div className="overflow-hidden rounded-xl border border-slate-100 bg-white">
+                {categoryItems.map((item) => (
+                  <div
+                    key={item.id}
+                    data-testid="dashboard-pricing-item"
+                    className={`flex items-center gap-4 border-b border-slate-50 px-5 py-3.5 last:border-0 ${deletingId === item.id ? "opacity-60" : "hover:bg-slate-50/50"}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-body text-sm font-semibold text-slate-800">{item.name}</p>
+                      {item.description && <p className="font-body text-xs text-slate-400">{item.description}</p>}
+                      {item.note && <p className="font-body text-[10px] text-slate-300">{item.note}</p>}
+                    </div>
+                    <span className="shrink-0 font-heading text-sm font-bold text-red-600">{item.price} {item.unit}</span>
+                    <div className="flex shrink-0 gap-1">
+                      <button onClick={() => startEdit(item)} className="rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Sửa</button>
+                      <button
+                        onClick={() => deleteItem(item.id)}
+                        disabled={deletingId === item.id}
+                        className="rounded-lg bg-red-50 px-2 py-1 text-[10px] font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                      >
+                        {deletingId === item.id ? "..." : "Xoá"}
+                      </button>
+                    </div>
                   </div>
-                  <span className="font-heading font-bold text-red-600 text-sm shrink-0">{item.price} {item.unit}</span>
-                  <div className="flex gap-1 shrink-0">
-                    <button onClick={() => startEdit(item)} className="px-2 py-1 text-[10px] font-bold bg-blue-50 text-blue-700 rounded-lg">Sửa</button>
-                    <button
-                      onClick={() => deleteItem(item.id)}
-                      disabled={deletingId === item.id}
-                      className="px-2 py-1 text-[10px] font-bold bg-red-50 text-red-500 rounded-lg disabled:bg-slate-100 disabled:text-slate-300"
-                    >
-                      {deletingId === item.id ? "..." : "Xoá"}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </div>
   );
 }

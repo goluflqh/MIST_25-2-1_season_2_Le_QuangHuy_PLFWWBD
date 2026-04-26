@@ -1,127 +1,155 @@
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
+
+const serviceCards = [
+  {
+    accentSurface: "border-red-100 bg-red-50 text-primary",
+    chips: ["Máy khoan", "Xe điện", "Đèn/quạt pin"],
+    description:
+      "Đóng mới hoặc phục hồi pin cho máy khoan, xe điện, loa kéo, đèn/quạt dùng pin và các bộ nguồn theo thông số riêng.",
+    href: "/dich-vu/dong-pin",
+    imageAlt: "Các bộ pin máy công cụ 18V và mạch điều khiển đang được phục hồi.",
+    imageSrc: "/showcase/generated/product-battery-tool-packs-v2.png",
+    iconPath:
+      "M9 17v-6a3 3 0 013-3h7m-9 9h9M5 21h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
+    kicker: "Đóng pin theo tải",
+    quoteHref: "/?service=DONG_PIN&source=homepage-services-dong-pin#quote",
+    quoteLabel: "Nhận tư vấn đóng pin",
+    title: "Đóng pin Lithium",
+  },
+  {
+    accentSurface: "border-amber-100 bg-amber-50 text-amber-700",
+    chips: ["Sân vườn", "Cổng nhà"],
+    description:
+      "Tư vấn đèn pha, tấm pin rời, hộp pin và vị trí lắp cho cổng nhà, sân vườn hoặc khu vực khó kéo điện.",
+    href: "/dich-vu/den-nang-luong",
+    imageAlt: "Bộ đèn pha năng lượng mặt trời, tấm pin và remote điều khiển.",
+    imageSrc: "/showcase/generated/product-solar-floodlight-kit-v2.png",
+    iconPath:
+      "M12 3v2m0 14v2m9-9h-2M5 12H3m14.364 6.364l-1.414-1.414M8.05 8.05L6.636 6.636m10.728 0L15.95 8.05M8.05 15.95l-1.414 1.414M16 12a4 4 0 11-8 0 4 4 0 018 0z",
+    kicker: "Chiếu sáng tiết kiệm",
+    quoteHref: "/?service=DEN_NLMT&source=homepage-services-den-nlmt#quote",
+    quoteLabel: "Nhận tư vấn NLMT",
+    title: "Đèn năng lượng",
+  },
+  {
+    accentSurface: "border-emerald-100 bg-emerald-50 text-emerald-700",
+    chips: ["Lưu điện", "Kích đề"],
+    description:
+      "Thiết kế pin lưu trữ, bộ kích đề và nguồn dự phòng theo công suất xả, thời gian dùng và giới hạn an toàn.",
+    href: "/dich-vu/pin-luu-tru",
+    imageAlt: "Bộ pin lưu trữ LiFePO4, cell và mạch BMS trên bàn kỹ thuật.",
+    imageSrc: "/showcase/generated/product-storage-lifepo4-bank-v2.png",
+    iconPath:
+      "M13 10V3L4 14h7v7l9-11h-7z",
+    kicker: "Lưu điện ổn định",
+    quoteHref: "/?service=PIN_LUU_TRU&source=homepage-services-pin-luu-tru#quote",
+    quoteLabel: "Thiết kế cấu hình lưu trữ",
+    title: "Pin lưu trữ & kích đề",
+  },
+  {
+    accentSurface: "border-sky-100 bg-sky-50 text-sky-700",
+    chips: ["Gia đình", "Cửa hàng"],
+    description:
+      "Khảo sát camera Wi-Fi/PTZ, camera đa ống kính hoặc đầu ghi cho nhà ở và cửa hàng để xem lại thuận tiện.",
+    href: "/dich-vu/camera",
+    imageAlt: "Camera an ninh 4 mắt dạng một cụm camera đa ống kính kèm điện thoại xem từ xa.",
+    imageSrc: "/showcase/generated/product-camera-four-eye-shop-v3.png",
+    iconPath:
+      "M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h7a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z",
+    kicker: "An ninh dễ quản lý",
+    quoteHref: "/?service=CAMERA&source=homepage-services-camera#quote",
+    quoteLabel: "Yêu cầu khảo sát camera",
+    title: "Camera an ninh",
+  },
+] as const;
 
 export default function Services() {
   return (
-    <section id="services" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 relative z-10">
-      <div className="text-center mb-16 max-w-3xl mx-auto">
-        <h2 className="font-heading font-extrabold text-4xl text-textMain mb-6">Dịch Vụ Trọng Tâm</h2>
-        <div className="w-24 h-1 bg-gradient-to-r from-primary to-secondary mx-auto mb-6 rounded-full"></div>
-        <p className="font-body text-slate-600 text-lg">
-          Tập trung chuyên môn cao nhất vào hai mảng dịch vụ chính, nhằm mang lại chất lượng và sự an tâm tuyệt đối cho khách hàng.
+    <section id="services" className="relative z-10 mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-14 lg:px-8">
+      <div className="mx-auto mb-8 max-w-3xl text-center sm:mb-10">
+        <span className="inline-flex rounded-full border border-red-100 bg-red-50 px-3 py-1 text-sm font-semibold text-primary">
+          Dịch vụ trọng tâm
+        </span>
+        <h2 className="mt-4 text-pretty font-heading text-[1.75rem] font-extrabold leading-tight text-textMain sm:text-4xl">
+          Chọn nhanh theo thiết bị cần sửa, lắp hoặc cấp nguồn.
+        </h2>
+        <p className="mt-4 font-body text-base leading-7 text-slate-600 sm:text-lg">
+          Từ pin máy khoan, xe điện, đèn năng lượng, camera cửa hàng đến bộ nguồn dự phòng,
+          Minh Hồng hỏi thiết bị, công suất và vị trí dùng trước khi báo phương án.
         </p>
       </div>
 
-      <div className="flex flex-col gap-12">
-        {/* Service 1: Đóng Pin (Left Image, Right Content) */}
-        <div className="glass-panel rounded-3xl overflow-hidden flex flex-col md:flex-row hover:shadow-2xl transition-shadow duration-500 group border-l-4 border-l-primary">
-          <div className="md:w-5/12 h-64 md:h-auto relative overflow-hidden">
-            <Image
-              src="https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80"
-              alt="Đóng Pin Chuyên Nghiệp"
-              fill
-              sizes="(max-width: 768px) 100vw, 42vw"
-              className="object-cover group-hover:scale-105 transition-transform duration-700"
-            />
-            <div className="absolute top-4 left-4 bg-primary text-white text-xs font-bold px-3 py-1 rounded-full uppercase shadow-lg backdrop-blur-md">
-              🔋 Năng Lượng
-            </div>
-          </div>
-          <div className="md:w-7/12 p-8 md:p-12 flex flex-col justify-center">
-            <h3 className="font-heading font-bold text-3xl text-textMain mb-4">
-              Chuyên Đóng Pin <span className="text-primary">Lithium Cao Cấp</span>
-            </h3>
-            <p className="font-body text-slate-600 mb-6 text-lg">
-              Cam kết sử dụng Cell pin chuẩn chính hãng, mạch bảo vệ BMS thông minh. Phục hồi 100% sinh lực thiết bị.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-              <div className="flex items-start gap-3">
-                <span className="bg-red-100 text-primary p-1.5 rounded-lg shrink-0 mt-0.5">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+      <div className="grid gap-6 md:grid-cols-2">
+        {serviceCards.map((service) => (
+          <article
+            key={service.title}
+            className="group flex h-full flex-col overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white shadow-[0_22px_70px_-48px_rgba(15,23,42,0.38)] transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_28px_90px_-46px_rgba(15,23,42,0.38)] sm:rounded-[1.5rem]"
+          >
+            <div className="relative h-40 overflow-hidden bg-slate-100 sm:h-52">
+              <Image
+                src={service.imageSrc}
+                alt={service.imageAlt}
+                fill
+                unoptimized
+                sizes="(max-width: 768px) 100vw, 50vw"
+                className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+              />
+              <div className="absolute inset-x-3 top-3 flex items-center justify-between gap-3 sm:inset-x-4 sm:top-4">
+                <div
+                  className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border bg-white/90 shadow-sm backdrop-blur ${service.accentSurface}`}
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.8"
+                      d={service.iconPath}
+                    />
                   </svg>
+                </div>
+                <span className="rounded-full border border-white/70 bg-white/85 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur">
+                  {service.kicker}
                 </span>
-                <span className="font-body font-medium text-slate-700">Pin Xe Điện, Loa Kéo</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <span className="bg-red-100 text-primary p-1.5 rounded-lg shrink-0 mt-0.5">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"></path>
-                  </svg>
-                </span>
-                <span className="font-body font-medium text-slate-700">Pin Máy Công Cụ Cầm Tay</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <span className="bg-red-100 text-primary p-1.5 rounded-lg shrink-0 mt-0.5">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
-                  </svg>
-                </span>
-                <span className="font-body font-medium text-slate-700">Pin Lưu Trữ, Kích Đề</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <span className="bg-red-100 text-primary p-1.5 rounded-lg shrink-0 mt-0.5">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
-                  </svg>
-                </span>
-                <span className="font-body font-medium text-slate-700">Pin Đèn Năng Lượng</span>
               </div>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 font-body text-sm font-bold text-slate-700 text-center mb-6">
-              ĐẶC BIỆT: Nhận đóng bình thủ công theo mọi yêu cầu thông số của khách!
+            <div className="flex flex-1 flex-col p-4 sm:p-6">
+              <h3 className="font-heading text-[1.45rem] font-extrabold leading-tight text-slate-900 sm:text-[1.9rem]">
+                {service.title}
+              </h3>
+              <p className="mt-3 font-body text-sm leading-7 text-slate-600 sm:text-base">
+                {service.description}
+              </p>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                {service.chips.map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href={service.quoteHref}
+                  className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-primary"
+                >
+                  {service.quoteLabel}
+                </Link>
+                <Link
+                  href={service.href}
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition-colors hover:border-primary hover:text-primary"
+                >
+                  Xem chi tiết
+                </Link>
+              </div>
             </div>
-
-            <Link href="/bao-gia" className="w-max bg-slate-900 hover:bg-primary text-white font-body font-bold py-3 px-8 rounded-xl transition-colors ring-1 ring-slate-900 hover:ring-0 inline-block">
-              Tham khảo Bảng Giá Nhỏ
-            </Link>
-          </div>
-        </div>
-
-        {/* Service 2: Camera (Right Image, Left Content) */}
-        <div className="glass-panel rounded-3xl overflow-hidden flex flex-col md:flex-row-reverse hover:shadow-2xl transition-shadow duration-500 group border-r-4 border-r-blue-500">
-          <div className="md:w-5/12 h-64 md:h-auto relative overflow-hidden">
-            <Image
-              src="https://images.unsplash.com/photo-1558002038-1055907df827?auto=format&fit=crop&q=80&w=800"
-              alt="Lắp Đặt Camera An Ninh"
-              fill
-              sizes="(max-width: 768px) 100vw, 42vw"
-              className="object-cover group-hover:scale-105 transition-transform duration-700"
-            />
-            <div className="absolute top-4 right-4 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase shadow-lg backdrop-blur-md">
-              🎥 An Ninh
-            </div>
-          </div>
-          <div className="md:w-7/12 p-8 md:p-12 flex flex-col justify-center">
-            <h3 className="font-heading font-bold text-3xl text-textMain mb-4">
-              Lắp Đặt <span className="text-blue-600">Camera An Ninh</span> Uy Tín
-            </h3>
-            <p className="font-body text-slate-600 mb-6 text-lg">
-              Khảo sát tận nơi, tư vấn góc nhìn không điểm mù. Hệ thống chạy ổn định 24/7, đàm thoại 2 chiều và quay đêm siêu chuẩn.
-            </p>
-
-            <ul className="font-body text-slate-700 mb-8 space-y-3 font-medium">
-              <li className="flex items-center gap-3">
-                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> 
-                <b>Bảo hành kỹ thuật tận nơi 12 - 24 tháng.</b>
-              </li>
-              <li className="flex items-center gap-3">
-                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> 
-                Cài đặt ứng dụng xem trên điện thoại miễn phí.
-              </li>
-              <li className="flex items-center gap-3">
-                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> 
-                Giải pháp dành cho cửa hàng, kho bãi và gia đình.
-              </li>
-            </ul>
-
-            <Link href="/#quote" className="w-max bg-white hover:bg-slate-50 text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-8 rounded-xl transition-colors inline-block">
-              Yêu Cầu Khảo Sát Tận Nơi
-            </Link>
-          </div>
-        </div>
+          </article>
+        ))}
       </div>
     </section>
   );

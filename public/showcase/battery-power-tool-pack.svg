@@ -1,0 +1,29 @@
+<svg width="960" height="720" viewBox="0 0 960 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="88" x2="848" y2="640" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111827"/>
+      <stop offset="1" stop-color="#7C2D12"/>
+    </linearGradient>
+    <linearGradient id="tool" x1="260" y1="148" x2="676" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FB923C"/>
+      <stop offset="1" stop-color="#EF4444"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="720" rx="48" fill="url(#bg)"/>
+  <circle cx="782" cy="106" r="124" fill="#F59E0B" fill-opacity="0.14"/>
+  <circle cx="160" cy="602" r="154" fill="#EF4444" fill-opacity="0.12"/>
+  <rect x="96" y="94" width="768" height="532" rx="32" fill="#0F172A" fill-opacity="0.74" stroke="#FDBA74" stroke-opacity="0.24" stroke-width="2"/>
+  <path d="M284 258H482C506 258 526 278 526 302V382H360C318 382 284 348 284 306V258Z" fill="url(#tool)"/>
+  <rect x="362" y="382" width="108" height="162" rx="20" fill="#1F2937"/>
+  <rect x="454" y="284" width="184" height="82" rx="24" fill="#FDE68A"/>
+  <rect x="610" y="252" width="42" height="146" rx="16" fill="#E5E7EB"/>
+  <rect x="670" y="242" width="40" height="166" rx="16" fill="#9CA3AF"/>
+  <rect x="390" y="414" width="54" height="108" rx="16" fill="#FDBA74"/>
+  <path d="M248 486H724" stroke="#475569" stroke-width="10" stroke-linecap="round"/>
+  <rect x="208" y="160" width="156" height="42" rx="21" fill="#111827"/>
+  <text x="240" y="187" fill="#FDE68A" font-family="Arial, sans-serif" font-size="24" font-weight="700">21V / 6Ah</text>
+  <rect x="150" y="564" width="212" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="176" y="590" fill="#E5E7EB" font-family="Arial, sans-serif" font-size="22" font-weight="700">Power tool pack</text>
+  <rect x="594" y="564" width="206" height="40" rx="20" fill="#111827" fill-opacity="0.9"/>
+  <text x="620" y="590" fill="#FDBA74" font-family="Arial, sans-serif" font-size="22" font-weight="700">High drain cells</text>
+</svg>

@@ -1,86 +1,291 @@
-import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
+import JsonLd from "@/components/seo/JsonLd";
+import { ServiceGuidanceSection } from "@/components/service/ServiceGuidanceSection";
+import { ServiceLocalTrustSection } from "@/components/service/ServiceLocalTrustSection";
+import { ServicePreviewCatalog } from "@/components/service/ServicePreviewCatalog";
+import { solarPreviewItems } from "@/lib/service-previews";
+import { buildMarketingMetadata, siteConfig } from "@/lib/site";
+import { buildBreadcrumbJsonLd, buildServiceJsonLd } from "@/lib/structured-data";
 
-export const metadata: Metadata = {
-  title: "Đèn Năng Lượng Mặt Trời | Minh Hồng",
-  description: "Đóng pin, lắp ráp đèn năng lượng mặt trời tại nhà. Pin lưu trữ NLMT chất lượng cao, bền bỉ.",
-};
+export const metadata = buildMarketingMetadata({
+  title: "Đèn Năng Lượng Mặt Trời Đà Nẵng",
+  description:
+    "Tư vấn, lắp đặt và thay pin đèn năng lượng mặt trời tại Đà Nẵng cho sân, cổng, lối đi và khu vực cần chiếu sáng tự động.",
+  path: "/dich-vu/den-nang-luong",
+});
+
+const heroPoints = [
+  "Tính theo thời lượng sáng và vị trí lắp thật",
+  "Ưu tiên pin thay được và bảo trì dễ về sau",
+  "Chỉ đề xuất NLMT ở nơi thật sự phù hợp",
+] as const;
 
 const features = [
-  { icon: "☀️", title: "Pin Đèn NLMT", desc: "Đóng mới & thay cell pin đèn năng lượng mặt trời mọi loại" },
-  { icon: "🔋", title: "Pin Lưu Trữ", desc: "Pin lưu trữ năng lượng mặt trời cho hệ thống điện gia đình" },
-  { icon: "🏠", title: "Lắp Tại Nhà", desc: "Thi công lắp đặt đèn NLMT sân vườn, đường đi, cổng nhà" },
-  { icon: "💡", title: "Đèn Pha LED", desc: "Đèn pha năng lượng mặt trời công suất lớn cho sân bãi, kho" },
-];
+  {
+    description: "Giải pháp chiếu sáng nhẹ, đẹp và ít bảo trì cho khu vực thường xuyên đi lại.",
+    iconPath:
+      "M12 3v2m0 14v2m9-9h-2M5 12H3m14.364 6.364l-1.414-1.414M8.05 8.05L6.636 6.636m10.728 0L15.95 8.05M8.05 15.95l-1.414 1.414",
+    title: "Đèn sân vườn & lối đi",
+  },
+  {
+    description: "Bố trí đèn đủ sáng cho cổng, biển số nhà hoặc khu vực cần đi lại buổi tối.",
+    iconPath:
+      "M3 10l9-7 9 7v10a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V10z",
+    title: "Đèn cổng & khu ra vào",
+  },
+  {
+    description: "Giải pháp tăng cường ánh sáng cho sân bãi, kho nhỏ hoặc vị trí cần rọi tập trung hơn.",
+    iconPath:
+      "M7 8h10l2 12H5L7 8zm5-5v5",
+    title: "Đèn pha công suất vừa",
+  },
+  {
+    description: "Thay pin, xử lý hộp lưu trữ hoặc tư vấn lại bộ đèn khi hệ cũ đã xuống cấp.",
+    iconPath:
+      "M13 10V3L4 14h7v7l9-11h-7z",
+    title: "Pin & hộp lưu trữ",
+  },
+] as const;
 
 const benefits = [
-  "Tiết kiệm điện 100% — hoạt động hoàn toàn bằng năng lượng mặt trời",
-  "Tự động bật/tắt theo ánh sáng, không cần đi dây điện",
-  "Pin Lithium chính hãng, tuổi thọ 3-5 năm",
-  "Chống nước IP65-IP67, chịu mưa gió khắc nghiệt",
-  "Bảo hành pin 6-12 tháng, bảo dưỡng trọn đời",
-];
+  "Chỉ tư vấn dùng NLMT ở những vị trí thật sự phù hợp để khách tránh kỳ vọng sai.",
+  "Giải thích trước về thời lượng sáng, mùa mưa và khả năng thay pin về sau.",
+  "Ưu tiên cấu hình đủ sáng, dễ bảo trì và dễ thay linh kiện khi cần.",
+  "Khảo sát và cân lại công suất theo khu vực sử dụng thực tế thay vì chốt theo quảng cáo.",
+] as const;
+
+const guidanceSteps = [
+  {
+    title: "Hỏi vị trí và thời lượng sáng",
+    description: "Xác nhận khu vực cần chiếu sáng, mức sáng mong muốn và số giờ cần dùng mỗi đêm.",
+  },
+  {
+    title: "Kiểm tra điều kiện nắng",
+    description: "Cân hướng đặt tấm pin, độ che bóng, mùa mưa và khả năng bảo trì về sau.",
+  },
+  {
+    title: "Chọn bộ đèn đủ dùng",
+    description: "Đề xuất công suất, pin và cách lắp theo nhu cầu thật thay vì chỉ nhìn thông số quảng cáo.",
+  },
+] as const;
+
+const priceFactors = [
+  "Công suất đèn, dung lượng pin và loại tấm pin đi kèm.",
+  "Vị trí lắp, độ cao, hướng nắng và mức che bóng trong ngày.",
+  "Nhu cầu sáng liên tục, cảm biến, remote hoặc chế độ tự động.",
+  "Thay pin hệ cũ hay lắp mới toàn bộ bộ đèn và phụ kiện.",
+] as const;
+
+const serviceFaqs = [
+  {
+    question: "Đèn năng lượng mặt trời có báo giá cố định được không?",
+    answer:
+      "Chỉ nên xem là tham khảo. Giá phụ thuộc công suất, pin, vị trí nắng và thời lượng sáng khách cần.",
+  },
+  {
+    question: "Bảng giá trên web có phải dữ liệu mới nhất không?",
+    answer:
+      "Website lấy theo các mục báo giá đang được bật. Khi admin cập nhật trong dashboard, giao diện public sẽ hiển thị theo dữ liệu mới.",
+  },
+] as const;
+
+const localTrustCases = [
+  {
+    title: "Sân, cổng cần sáng tự động mỗi tối",
+    situation:
+      "Khách muốn giảm dây điện nhưng vẫn cần đủ sáng để đi lại và quan sát khu vực ra vào.",
+    decision: "cân công suất đèn, hướng tấm pin và chế độ sáng theo số giờ dùng thật.",
+  },
+  {
+    title: "Đèn cũ xuống pin hoặc sáng yếu",
+    situation:
+      "Bộ đèn vẫn dùng được nhưng thời lượng sáng giảm, hộp pin hoặc cell đã xuống cấp.",
+    decision: "kiểm tra pin, mạch và hộp lưu trữ trước khi quyết định thay pin hay đổi bộ mới.",
+  },
+  {
+    title: "Khu vực khó kéo điện",
+    situation:
+      "Lối đi, sân vườn hoặc góc xa nguồn điện cần giải pháp gọn và ít bảo trì.",
+    decision: "chỉ đề xuất NLMT khi vị trí đủ nắng và khách hiểu rõ giới hạn mùa mưa.",
+  },
+] as const;
+
+const prepareItems = [
+  "Ảnh vị trí muốn lắp và hướng nắng trong ngày.",
+  "Mức sáng mong muốn: đi lại nhẹ, chiếu cổng hay rọi sân rộng.",
+  "Số giờ cần sáng mỗi đêm và có cần cảm biến/chế độ tự động không.",
+  "Tình trạng bộ đèn cũ nếu đang cần thay pin hoặc sửa lại.",
+] as const;
 
 export default function SolarLightPage() {
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 animate-fade-in-up">
-      {/* Hero */}
-      <div className="bg-white rounded-3xl shadow-xl p-8 md:p-12 mb-12 border border-slate-100 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-300 opacity-15 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2"></div>
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-orange-400 opacity-10 rounded-full blur-2xl transform -translate-x-1/4 translate-y-1/2"></div>
-
-        <div className="relative z-10 max-w-3xl">
-          <span className="inline-block py-1 px-3 rounded-full bg-yellow-50 text-yellow-700 font-body font-semibold text-sm mb-4 border border-yellow-200">
-            ☀️ Năng Lượng Xanh
+    <>
+      <JsonLd
+        data={[
+          buildServiceJsonLd("solar"),
+          buildBreadcrumbJsonLd([
+            { name: "Trang chủ", path: "/" },
+            { name: "Dịch vụ", path: "/dich-vu" },
+            { name: "Đèn năng lượng mặt trời", path: "/dich-vu/den-nang-luong" },
+          ]),
+        ]}
+      />
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
+      <section className="relative mb-14 overflow-hidden rounded-[1.75rem] border border-amber-100 bg-[linear-gradient(135deg,#fffbeb,#ffffff_54%,#fff7ed)] p-6 shadow-[0_30px_90px_-48px_rgba(15,23,42,0.42)] md:p-10">
+        <div className="relative z-10 grid gap-8 lg:grid-cols-[1fr_0.82fr] lg:items-center">
+          <div>
+          <span className="inline-flex items-center gap-2 rounded-full border border-amber-100 bg-amber-50 px-4 py-1.5 text-sm font-semibold text-amber-700">
+            Đèn năng lượng mặt trời
           </span>
-          <h1 className="font-heading font-extrabold text-4xl md:text-5xl text-slate-900 mb-6 leading-tight">
-            Đèn <span className="text-yellow-600">Năng Lượng Mặt Trời</span> & Pin Lưu Trữ
+          <h1 className="mt-5 bg-linear-to-r from-amber-700 via-orange-600 to-primary bg-clip-text font-heading text-3xl font-extrabold leading-tight text-transparent md:text-6xl">
+            Đèn sáng đúng chỗ, tiết kiệm đúng cách.
           </h1>
-          <p className="font-body text-slate-600 text-lg mb-8 leading-relaxed">
-            Minh Hồng chuyên đóng pin, thay cell và lắp đặt đèn năng lượng mặt trời cho gia đình, sân vườn, cổng ngõ, kho bãi. Sử dụng cell Lithium chính hãng, đảm bảo độ sáng và tuổi thọ vượt trội.
+          <p className="mt-4 max-w-3xl font-body text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
+            Minh Hồng tập trung vào những vị trí thật sự hợp dùng NLMT như sân, cổng và lối đi.
+            Mục tiêu là đủ sáng, dùng ổn định và dễ thay pin hoặc nâng cấp khi hệ cũ xuống cấp.
           </p>
-          <Link
-            href="/bao-gia"
-            className="inline-block bg-yellow-500 hover:bg-yellow-600 text-white font-heading font-bold py-3 px-8 rounded-xl transition-colors shadow-md hover:shadow-lg"
-          >
-            Nhận Báo Giá Ngay
-          </Link>
-        </div>
-      </div>
 
-      {/* Features Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        {features.map((f) => (
-          <div key={f.title} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md hover:border-yellow-200 transition-all">
-            <div className="text-3xl mb-3">{f.icon}</div>
-            <h3 className="font-heading font-bold text-slate-900 mb-2">{f.title}</h3>
-            <p className="font-body text-sm text-slate-500">{f.desc}</p>
+          <div className="mt-7 hidden gap-3 sm:grid sm:grid-cols-3">
+            {heroPoints.map((point) => (
+              <div key={point} className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">
+                {point}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* Benefits */}
-      <div className="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-3xl p-8 md:p-12 border border-yellow-100">
-        <h2 className="font-heading font-extrabold text-2xl text-slate-900 mb-6">Tại Sao Chọn Đèn NLMT?</h2>
-        <ul className="space-y-4">
-          {benefits.map((b, i) => (
-            <li key={i} className="flex items-start gap-3 font-body text-slate-700">
-              <svg className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-              </svg>
-              {b}
-            </li>
-          ))}
-        </ul>
-        <div className="mt-8 flex flex-wrap gap-4">
-          <a href="tel:0987443258" className="inline-flex items-center gap-2 bg-slate-900 text-white font-body font-bold py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors">
-            📞 Gọi 0987.443.258
-          </a>
-          <Link href="/bao-gia" className="inline-flex items-center gap-2 bg-white text-slate-900 border-2 border-slate-200 font-body font-bold py-3 px-6 rounded-xl hover:border-slate-300 transition-colors">
-            📋 Yêu Cầu Báo Giá
-          </Link>
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:mt-8 sm:flex sm:flex-row">
+            <Link
+              href="/?service=DEN_NLMT&source=service-den-nlmt#quote"
+              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3.5 text-sm font-bold text-white transition-colors hover:bg-primary sm:px-8 sm:text-lg"
+            >
+              Tư vấn
+            </Link>
+            <a
+              href={siteConfig.hotlineHref}
+              className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-bold text-textMain transition-colors hover:border-primary hover:text-primary sm:px-8 sm:text-lg"
+            >
+              Gọi ngay
+            </a>
+          </div>
+          </div>
+
+          <div className="overflow-hidden rounded-[1.5rem] border border-white bg-white shadow-[0_24px_80px_-48px_rgba(217,119,6,0.38)]">
+            <div className="relative h-56 bg-slate-100 sm:h-96">
+              <Image
+                src="/showcase/generated/hero-solar-install-v2.png"
+                alt="Đèn pha năng lượng mặt trời và tấm pin rời lắp ở cổng nhà."
+                fill
+                priority
+                unoptimized
+                sizes="(max-width: 1024px) 100vw, 38vw"
+                className="object-cover"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3 p-4">
+              <div className="rounded-2xl bg-amber-50 px-4 py-3">
+                <p className="text-xs font-semibold text-amber-700">Tính theo</p>
+                <p className="mt-1 font-heading text-lg font-bold text-slate-900">Giờ sáng</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold text-slate-500">Ưu tiên</p>
+                <p className="mt-1 font-heading text-lg font-bold text-slate-900">Dễ bảo trì</p>
+              </div>
+            </div>
+          </div>
         </div>
+      </section>
+
+      <ServicePreviewCatalog
+        accent="yellow"
+        eyebrow="Mẫu hệ đèn tiêu biểu"
+        title="Các giải pháp chiếu sáng NLMT"
+        description="Tham khảo nhanh các bộ đèn và hệ pin lưu trữ được dùng nhiều. Minh Hồng vẫn sẽ cân lại công suất, thời lượng sáng và cách bảo trì theo nhu cầu thật."
+        items={solarPreviewItems}
+      />
+
+      <section className="mb-16 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        {features.map((feature) => (
+          <article
+            key={feature.title}
+            className="rounded-[1.9rem] border border-slate-200 bg-white p-6 shadow-[0_22px_70px_-50px_rgba(15,23,42,0.32)]"
+          >
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-100 bg-amber-50 text-amber-700">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                  d={feature.iconPath}
+                />
+              </svg>
+            </div>
+            <h2 className="mt-5 font-body text-lg font-semibold text-slate-900">{feature.title}</h2>
+            <p className="mt-2 font-body text-sm leading-7 text-slate-600">{feature.description}</p>
+          </article>
+        ))}
+      </section>
+
+      <ServiceGuidanceSection
+        accent="yellow"
+        faqs={serviceFaqs}
+        priceFactors={priceFactors}
+        quoteHref="/?service=DEN_NLMT&source=service-den-nlmt-guidance#quote"
+        serviceName="Đèn năng lượng mặt trời"
+        steps={guidanceSteps}
+      />
+
+      <ServiceLocalTrustSection
+        accent="yellow"
+        cases={localTrustCases}
+        prepareItems={prepareItems}
+        quoteHref="/?service=DEN_NLMT&source=service-den-nlmt-local-trust#quote"
+        serviceName="đèn năng lượng mặt trời"
+      />
+
+      <section className="relative overflow-hidden rounded-[2.25rem] bg-slate-900 px-6 py-10 text-white md:px-10 md:py-12">
+        <div className="absolute right-0 top-0 h-full w-1/2 bg-linear-to-l from-primary/12 to-transparent"></div>
+
+        <div className="relative z-10 grid gap-8 lg:grid-cols-[0.92fr_1fr] lg:items-center">
+          <div>
+            <h2 className="font-heading text-3xl font-extrabold md:text-4xl">
+              Khi nào nên chọn giải pháp NLMT
+            </h2>
+            <p className="mt-4 font-body text-base leading-7 text-slate-300 md:text-lg">
+              Tốt nhất khi khu vực lắp khó kéo điện, cần chiếu sáng tự động và chấp nhận cấu
+              hình theo mức nắng, mùa mưa và thời lượng dùng thật.
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/?service=DEN_NLMT&source=service-den-nlmt#quote"
+                className="inline-flex items-center justify-center rounded-2xl bg-primary px-6 py-3 font-bold text-white transition-colors hover:bg-red-500"
+              >
+                Gửi nhu cầu chiếu sáng
+              </Link>
+              <Link
+                href="/bao-gia"
+                className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/10 px-6 py-3 font-bold text-white transition-colors hover:bg-white/15"
+              >
+                Xem bảng giá tham khảo
+              </Link>
+            </div>
+          </div>
+
+          <ul className="space-y-4">
+            {benefits.map((benefit) => (
+              <li key={benefit} className="flex items-start gap-3 font-body text-slate-200">
+                <span className="mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
+                <span className="text-base leading-7">{benefit}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
       </div>
-    </div>
+    </>
   );
 }

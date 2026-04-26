@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNotify } from "@/components/NotifyProvider";
 
 interface UserData {
@@ -14,18 +14,36 @@ interface UserData {
   _count: { contactRequests: number; reviews: number };
 }
 
+type TierKey = "diamond" | "gold" | "silver" | "bronze";
+type RoleFilter = "all" | "CUSTOMER" | "ADMIN";
+type TierFilter = "all" | TierKey;
+type SortMode = "newest" | "points" | "engagement" | "name";
+
 const getTier = (points: number) => {
-  if (points >= 500) return { label: "💎 Kim Cương", color: "bg-yellow-100 text-yellow-700" };
-  if (points >= 200) return { label: "🥇 Vàng", color: "bg-slate-200 text-slate-700" };
-  if (points >= 50) return { label: "🥈 Bạc", color: "bg-orange-100 text-orange-700" };
-  return { label: "🥉 Đồng", color: "bg-slate-100 text-slate-500" };
+  if (points >= 500) return { key: "diamond" as const, label: "💎 Kim Cương", color: "bg-yellow-100 text-yellow-700" };
+  if (points >= 200) return { key: "gold" as const, label: "🥇 Vàng", color: "bg-slate-200 text-slate-700" };
+  if (points >= 50) return { key: "silver" as const, label: "🥈 Bạc", color: "bg-orange-100 text-orange-700" };
+  return { key: "bronze" as const, label: "🥉 Đồng", color: "bg-slate-100 text-slate-500" };
 };
+
+function getEngagementScore(user: UserData) {
+  return user._count.contactRequests + user._count.reviews;
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString("vi-VN");
+}
 
 function generateTempPassword() {
   const chars = "abcdefghkmnpqrstuvwxyz23456789";
   let code = "";
   for (let index = 0; index < 6; index += 1) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
+}
+
+function sanitizeSignedIntegerText(value: string) {
+  const sign = value.trimStart().startsWith("-") ? "-" : "";
+  return sign + value.replace(/\D/g, "");
 }
 
 export default function AdminUsersClient({ initialUsers }: { initialUsers: UserData[] }) {
@@ -39,10 +57,62 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
   const [resettingPointsId, setResettingPointsId] = useState<string | null>(null);
   const [resettingPasswordId, setResettingPasswordId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const [tierFilter, setTierFilter] = useState<TierFilter>("all");
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
+
+  const metrics = useMemo(() => {
+    const customers = users.filter((user) => user.role !== "ADMIN");
+    const totalPoints = customers.reduce((sum, user) => sum + user.loyaltyPoints, 0);
+    const engagedCustomers = customers.filter((user) => getEngagementScore(user) > 0).length;
+    const vipCustomers = customers.filter((user) => user.loyaltyPoints >= 200).length;
+
+    return {
+      customers: customers.length,
+      admins: users.length - customers.length,
+      totalPoints,
+      engagedCustomers,
+      vipCustomers,
+    };
+  }, [users]);
+
+  const filteredUsers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return users
+      .filter((user) => {
+        const tier = getTier(user.loyaltyPoints);
+        const matchesRole = roleFilter === "all" || user.role === roleFilter;
+        const matchesTier = tierFilter === "all" || tier.key === tierFilter;
+        const matchesSearch = query.length === 0
+          || user.name.toLowerCase().includes(query)
+          || user.phone.toLowerCase().includes(query)
+          || user.referralCode.toLowerCase().includes(query);
+
+        return matchesRole && matchesTier && matchesSearch;
+      })
+      .sort((first, second) => {
+        if (sortMode === "points") return second.loyaltyPoints - first.loyaltyPoints;
+        if (sortMode === "engagement") return getEngagementScore(second) - getEngagementScore(first);
+        if (sortMode === "name") return first.name.localeCompare(second.name, "vi");
+        return new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime();
+      });
+  }, [roleFilter, searchQuery, sortMode, tierFilter, users]);
+
+  const resetFilters = () => {
+    setSearchQuery("");
+    setRoleFilter("all");
+    setTierFilter("all");
+    setSortMode("newest");
+  };
 
   const addPoints = async (userId: string) => {
     const points = parseInt(pointsAdd, 10);
-    if (!points || Number.isNaN(points)) return;
+    if (Number.isNaN(points) || points === 0) {
+      showToast("Nhập số điểm cần cộng hoặc trừ.", "error");
+      return;
+    }
 
     setSavingPointsId(userId);
 
@@ -168,149 +238,420 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
   }
 
   return (
-    <div className="space-y-6 animate-fade-in-up">
-      <div>
-        <h2 className="font-heading font-extrabold text-xl text-slate-900">Khách Hàng Đã Đăng Ký</h2>
-        <p className="font-body text-sm text-slate-500">{users.length} tài khoản</p>
+    <div data-testid="dashboard-users-crm" className="space-y-6 animate-fade-in-up">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Hồ sơ khách hàng</p>
+          <h2 className="font-heading font-extrabold text-xl text-slate-900">Khách Hàng & Điểm Thưởng</h2>
+          <p className="font-body text-sm text-slate-500">
+            {metrics.customers} khách hàng · {metrics.admins} quản trị viên · {metrics.totalPoints} điểm đang lưu hành
+          </p>
+        </div>
+        <button
+          onClick={resetFilters}
+          className="self-start rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200 lg:self-auto"
+        >
+          Xoá bộ lọc
+        </button>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div data-testid="dashboard-users-metrics" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Khách hàng</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.customers}</p>
+        </div>
+        <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5">
+          <p className="font-body text-xs uppercase tracking-wider text-yellow-700">VIP từ hạng vàng</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-yellow-700">{metrics.vipCustomers}</p>
+        </div>
+        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+          <p className="font-body text-xs uppercase tracking-wider text-blue-700">Đã tương tác</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-blue-700">{metrics.engagedCustomers}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Điểm thưởng</p>
+          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.totalPoints}</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(0,1fr))]">
+          <input
+            data-testid="dashboard-users-search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Tìm theo tên, SĐT, mã giới thiệu"
+            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          />
+          <select
+            data-testid="dashboard-users-role-filter"
+            value={roleFilter}
+            onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}
+            title="Lọc vai trò"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          >
+            <option value="all">Tất cả vai trò</option>
+            <option value="CUSTOMER">Khách hàng</option>
+            <option value="ADMIN">Quản trị viên</option>
+          </select>
+          <select
+            data-testid="dashboard-users-tier-filter"
+            value={tierFilter}
+            onChange={(event) => setTierFilter(event.target.value as TierFilter)}
+            title="Lọc hạng điểm thưởng"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          >
+            <option value="all">Tất cả hạng</option>
+            <option value="diamond">Kim cương</option>
+            <option value="gold">Vàng</option>
+            <option value="silver">Bạc</option>
+            <option value="bronze">Đồng</option>
+          </select>
+          <select
+            data-testid="dashboard-users-sort"
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value as SortMode)}
+            title="Sắp xếp khách hàng"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+          >
+            <option value="newest">Mới đăng ký</option>
+            <option value="points">Điểm cao nhất</option>
+            <option value="engagement">Tương tác nhiều</option>
+            <option value="name">Tên A-Z</option>
+          </select>
+        </div>
+        <p data-testid="dashboard-users-result-count" className="mt-3 font-body text-xs text-slate-400">
+          Hiển thị {filteredUsers.length} / {users.length} tài khoản
+        </p>
+      </div>
+
+      <div className="space-y-3 lg:hidden">
+        {filteredUsers.length === 0 ? (
+          <div className="rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
+            <p className="font-body text-sm text-slate-400">Không có tài khoản nào khớp bộ lọc.</p>
+          </div>
+        ) : (
+          filteredUsers.map((user) => {
+            const tier = getTier(user.loyaltyPoints);
+            const engagementScore = getEngagementScore(user);
+            const isBusy = savingPointsId === user.id
+              || resettingPointsId === user.id
+              || resettingPasswordId === user.id
+              || deletingUserId === user.id;
+
+            return (
+              <div
+                key={user.id}
+                data-testid="dashboard-user-card"
+                className={`rounded-2xl border border-slate-100 bg-white p-4 shadow-sm ${isBusy ? "opacity-70" : ""}`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-600">
+                    {user.name.charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate font-body text-sm font-bold text-slate-900">{user.name}</p>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${user.role === "ADMIN" ? "bg-red-50 text-red-500" : "bg-slate-100 text-slate-500"}`}>
+                        {user.role === "ADMIN" ? "Admin" : "Khách"}
+                      </span>
+                    </div>
+                    <p className="font-body text-xs text-slate-500">{user.phone}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Hạng</p>
+                    <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${tier.color}`}>
+                      {tier.label}
+                    </span>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Tương tác</p>
+                    <p className="font-body text-sm font-bold text-slate-800">{engagementScore}</p>
+                    <p className="font-body text-[10px] text-slate-400">
+                      {user._count.contactRequests} YC · {user._count.reviews} review
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày ĐK</p>
+                    <p className="font-body text-xs font-semibold text-slate-700">{formatDate(user.createdAt)}</p>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã GT</p>
+                    <code className="font-body text-[10px] font-bold text-slate-500">{user.referralCode || "—"}</code>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-xl border border-slate-100 p-3">
+                  <p className="mb-2 font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Điểm thưởng</p>
+                  {editingPoints === user.id ? (
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={pointsAdd}
+                        onChange={(event) => setPointsAdd(sanitizeSignedIntegerText(event.target.value))}
+                        className="min-h-10 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none"
+                        placeholder="+50 hoặc -10"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => addPoints(user.id)}
+                        disabled={savingPointsId === user.id}
+                        className="rounded-lg bg-green-100 px-3 py-2 text-xs font-bold text-green-700 disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        {savingPointsId === user.id ? "..." : "Lưu"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingPoints(null)}
+                        disabled={savingPointsId === user.id}
+                        className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500 disabled:text-slate-300"
+                      >
+                        Huỷ
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingPoints(user.id);
+                        setPointsAdd("");
+                      }}
+                      className="w-full rounded-lg bg-slate-900 px-3 py-2 text-left font-body text-sm font-bold text-white"
+                    >
+                      {user.loyaltyPoints} điểm ±
+                    </button>
+                  )}
+                </div>
+
+                {user.role !== "ADMIN" ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => resetPassword(user.id, user.name)}
+                      disabled={resettingPasswordId === user.id}
+                      className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600 disabled:bg-slate-100 disabled:text-slate-300"
+                    >
+                      {resettingPasswordId === user.id ? "..." : "Tạo MK tạm"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => resetPoints(user.id, user.name)}
+                      disabled={resettingPointsId === user.id}
+                      className="rounded-lg bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-700 disabled:bg-slate-100 disabled:text-slate-300"
+                    >
+                      {resettingPointsId === user.id ? "..." : "Reset điểm"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteUser(user.id, user.name)}
+                      disabled={deletingUserId === user.id}
+                      className="rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                    >
+                      {deletingUserId === user.id ? "..." : "Xoá tài khoản"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {resetPwId === user.id && tempCode ? (
+                  <div className="mt-3 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+                    <code className="font-mono text-sm font-bold text-green-700">{tempCode}</code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(tempCode);
+                        showToast("Đã sao chép!", "success");
+                      }}
+                      className="ml-auto text-xs font-bold text-green-700"
+                    >
+                      Sao chép
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetPwId(null);
+                        setTempCode("");
+                      }}
+                      className="text-xs font-bold text-slate-400"
+                    >
+                      Ẩn
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm lg:block">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="text-left px-4 py-3 font-body font-bold text-slate-500 text-xs uppercase">Tên</th>
-                <th className="text-left px-4 py-3 font-body font-bold text-slate-500 text-xs uppercase">SĐT</th>
-                <th className="text-left px-4 py-3 font-body font-bold text-slate-500 text-xs uppercase">Hạng</th>
-                <th className="text-left px-4 py-3 font-body font-bold text-slate-500 text-xs uppercase">Điểm</th>
-                <th className="text-left px-4 py-3 font-body font-bold text-slate-500 text-xs uppercase">YC</th>
-                <th className="text-left px-4 py-3 font-body font-bold text-slate-500 text-xs uppercase">Ngày ĐK</th>
-                <th className="text-left px-4 py-3 font-body font-bold text-slate-500 text-xs uppercase"></th>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Tên</th>
+                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">SĐT</th>
+                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Hạng</th>
+                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Điểm</th>
+                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500" title="Tổng yêu cầu và đánh giá của khách">
+                  Tương tác
+                  <span className="block text-[10px] font-semibold normal-case text-slate-400">YC + review</span>
+                </th>
+                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Mã GT</th>
+                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Ngày ĐK</th>
+                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {users.map((user) => {
-                const tier = getTier(user.loyaltyPoints);
-                const isBusy = savingPointsId === user.id
-                  || resettingPointsId === user.id
-                  || resettingPasswordId === user.id
-                  || deletingUserId === user.id;
+              {filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center font-body text-sm text-slate-400">
+                    Không có tài khoản nào khớp bộ lọc.
+                  </td>
+                </tr>
+              ) : (
+                filteredUsers.map((user) => {
+                  const tier = getTier(user.loyaltyPoints);
+                  const engagementScore = getEngagementScore(user);
+                  const isBusy = savingPointsId === user.id
+                    || resettingPointsId === user.id
+                    || resettingPasswordId === user.id
+                    || deletingUserId === user.id;
 
-                return (
-                  <tr key={user.id} className={`transition-colors ${isBusy ? "bg-slate-50/70" : "hover:bg-slate-50/50"}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">{user.name.charAt(0)}</div>
-                        <div>
-                          <span className="font-body font-semibold text-slate-800 block">{user.name}</span>
-                          <span className={`text-[10px] font-bold ${user.role === "ADMIN" ? "text-red-500" : "text-slate-400"}`}>
-                            {user.role === "ADMIN" ? "Admin" : "Khách"}
-                          </span>
+                  return (
+                    <tr
+                      key={user.id}
+                      data-testid="dashboard-user-row"
+                      className={`transition-colors ${isBusy ? "bg-slate-50/70" : "hover:bg-slate-50/50"}`}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">
+                            {user.name.charAt(0)}
+                          </div>
+                          <div>
+                            <span className="block font-body font-semibold text-slate-800">{user.name}</span>
+                            <span className={`text-[10px] font-bold ${user.role === "ADMIN" ? "text-red-500" : "text-slate-400"}`}>
+                              {user.role === "ADMIN" ? "Admin" : "Khách"}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-body text-slate-600 text-xs">{user.phone}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${tier.color}`}>{tier.label}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {editingPoints === user.id ? (
-                        <div className="flex gap-1">
-                          <input
-                            type="number"
-                            value={pointsAdd}
-                            onChange={(event) => setPointsAdd(event.target.value)}
-                            className="w-16 px-2 py-1 text-xs border border-slate-200 rounded-lg outline-none"
-                            placeholder="+50"
-                            autoFocus
-                          />
-                          <button
-                            onClick={() => addPoints(user.id)}
-                            disabled={savingPointsId === user.id}
-                            className="px-2 py-1 text-[10px] font-bold bg-green-100 text-green-700 rounded-lg disabled:bg-slate-100 disabled:text-slate-400"
-                          >
-                            {savingPointsId === user.id ? "..." : "✓"}
-                          </button>
-                          <button
-                            onClick={() => setEditingPoints(null)}
-                            disabled={savingPointsId === user.id}
-                            className="px-2 py-1 text-[10px] font-bold bg-slate-100 text-slate-500 rounded-lg disabled:text-slate-300"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setEditingPoints(user.id);
-                            setPointsAdd("");
-                          }}
-                          className="font-body font-bold text-slate-800 hover:text-red-600 transition-colors text-xs"
-                        >
-                          {user.loyaltyPoints} <span className="text-[10px] text-slate-400">±</span>
-                        </button>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 font-body text-slate-600 text-xs">{user._count.contactRequests}</td>
-                    <td className="px-4 py-3 font-body text-slate-400 text-[10px]">{new Date(user.createdAt).toLocaleDateString("vi-VN")}</td>
-                    <td className="px-4 py-3">
-                      {user.role !== "ADMIN" && (
-                        <div className="space-y-1">
+                      </td>
+                      <td className="px-4 py-3 font-body text-xs text-slate-600">{user.phone}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${tier.color}`}>{tier.label}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {editingPoints === user.id ? (
                           <div className="flex gap-1">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={pointsAdd}
+                              onChange={(event) => setPointsAdd(sanitizeSignedIntegerText(event.target.value))}
+                              className="min-h-9 w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none"
+                              placeholder="+50"
+                              autoFocus
+                            />
                             <button
-                              onClick={() => resetPassword(user.id, user.name)}
-                              disabled={resettingPasswordId === user.id}
-                              title="Tạo MK tạm"
-                              className="px-2 py-1 text-[10px] font-bold bg-blue-50 text-blue-500 rounded-lg hover:bg-blue-100 disabled:bg-slate-100 disabled:text-slate-300"
+                              onClick={() => addPoints(user.id)}
+                              disabled={savingPointsId === user.id}
+                              className="rounded-lg bg-green-100 px-2 py-1 text-[10px] font-bold text-green-700 disabled:bg-slate-100 disabled:text-slate-400"
                             >
-                              {resettingPasswordId === user.id ? "..." : "🔑"}
+                              {savingPointsId === user.id ? "..." : "✓"}
                             </button>
                             <button
-                              onClick={() => resetPoints(user.id, user.name)}
-                              disabled={resettingPointsId === user.id}
-                              title="Reset điểm"
-                              className="px-2 py-1 text-[10px] font-bold bg-yellow-50 text-yellow-600 rounded-lg hover:bg-yellow-100 disabled:bg-slate-100 disabled:text-slate-300"
+                              onClick={() => setEditingPoints(null)}
+                              disabled={savingPointsId === user.id}
+                              className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500 disabled:text-slate-300"
                             >
-                              {resettingPointsId === user.id ? "..." : "🔄"}
-                            </button>
-                            <button
-                              onClick={() => deleteUser(user.id, user.name)}
-                              disabled={deletingUserId === user.id}
-                              title="Xoá tài khoản"
-                              className="px-2 py-1 text-[10px] font-bold bg-red-50 text-red-500 rounded-lg hover:bg-red-100 disabled:bg-slate-100 disabled:text-slate-300"
-                            >
-                              {deletingUserId === user.id ? "..." : "🗑️"}
+                              ✕
                             </button>
                           </div>
-                          {resetPwId === user.id && tempCode && (
-                            <div className="flex items-center gap-1 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
-                              <code className="text-xs font-mono font-bold text-green-700">{tempCode}</code>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setEditingPoints(user.id);
+                              setPointsAdd("");
+                            }}
+                            className="font-body text-xs font-bold text-slate-800 transition-colors hover:text-red-600"
+                          >
+                            {user.loyaltyPoints} <span className="text-[10px] text-slate-400">±</span>
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-body text-xs text-slate-600">
+                        {engagementScore} <span className="text-slate-300">({user._count.contactRequests} YC · {user._count.reviews} review)</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <code className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                          {user.referralCode || "—"}
+                        </code>
+                      </td>
+                      <td className="px-4 py-3 font-body text-[10px] text-slate-400">{formatDate(user.createdAt)}</td>
+                      <td className="px-4 py-3">
+                        {user.role !== "ADMIN" && (
+                          <div className="space-y-1">
+                            <div className="flex gap-1">
                               <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(tempCode);
-                                  showToast("Đã sao chép!", "success");
-                                }}
-                                className="text-[9px] font-bold text-green-600 hover:text-green-800 ml-auto"
+                                onClick={() => resetPassword(user.id, user.name)}
+                                disabled={resettingPasswordId === user.id}
+                                title="Tạo MK tạm"
+                                className="rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-500 hover:bg-blue-100 disabled:bg-slate-100 disabled:text-slate-300"
                               >
-                                📋
+                                {resettingPasswordId === user.id ? "..." : "🔑"}
                               </button>
                               <button
-                                onClick={() => {
-                                  setResetPwId(null);
-                                  setTempCode("");
-                                }}
-                                className="text-[9px] font-bold text-slate-400 hover:text-slate-600"
+                                onClick={() => resetPoints(user.id, user.name)}
+                                disabled={resettingPointsId === user.id}
+                                title="Reset điểm"
+                                className="rounded-lg bg-yellow-50 px-2 py-1 text-[10px] font-bold text-yellow-600 hover:bg-yellow-100 disabled:bg-slate-100 disabled:text-slate-300"
                               >
-                                ✕
+                                {resettingPointsId === user.id ? "..." : "🔄"}
+                              </button>
+                              <button
+                                onClick={() => deleteUser(user.id, user.name)}
+                                disabled={deletingUserId === user.id}
+                                title="Xoá tài khoản"
+                                className="rounded-lg bg-red-50 px-2 py-1 text-[10px] font-bold text-red-500 hover:bg-red-100 disabled:bg-slate-100 disabled:text-slate-300"
+                              >
+                                {deletingUserId === user.id ? "..." : "🗑️"}
                               </button>
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                            {resetPwId === user.id && tempCode && (
+                              <div className="flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-2 py-1">
+                                <code className="font-mono text-xs font-bold text-green-700">{tempCode}</code>
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(tempCode);
+                                    showToast("Đã sao chép!", "success");
+                                  }}
+                                  className="ml-auto text-[9px] font-bold text-green-600 hover:text-green-800"
+                                >
+                                  📋
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setResetPwId(null);
+                                    setTempCode("");
+                                  }}
+                                  className="text-[9px] font-bold text-slate-400 hover:text-slate-600"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

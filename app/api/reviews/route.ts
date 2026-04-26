@@ -1,49 +1,70 @@
 import { NextResponse } from "next/server";
+import {
+  createErrorResponse,
+  createInvalidJsonResponse,
+  logApiError,
+  readJsonBody,
+} from "@/lib/api-route";
 import { prisma } from "@/lib/prisma";
+import { getPublicApprovedReviews } from "@/lib/public-data";
 import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
+import { sanitizeText } from "@/lib/sanitize";
 
-// GET /api/reviews — Public: get approved reviews
 export async function GET() {
   try {
-    const reviews = await prisma.review.findMany({
-      where: { approved: true },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: { user: { select: { name: true } } },
-    });
+    const reviews = await getPublicApprovedReviews();
     return NextResponse.json({ success: true, reviews });
   } catch (error) {
-    console.error("Reviews GET error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    logApiError("Reviews GET error", error);
+    return createErrorResponse({
+      status: 500,
+      message: "Không tải được đánh giá lúc này.",
+    });
   }
 }
 
-// POST /api/reviews — User submits a review (requires login)
 export async function POST(request: Request) {
   try {
     const session = await getCurrentSession();
     if (!session) return unauthorizedResponse("Phiên hết hạn.");
 
-    const body = await request.json();
-    const { rating, comment, service } = body;
+    const body = await readJsonBody(request);
+    if (!body) {
+      return createInvalidJsonResponse();
+    }
 
-    if (!rating || !comment || rating < 1 || rating > 5) {
-      return NextResponse.json({ success: false, message: "Vui lòng nhập đủ đánh giá (1-5 sao) và bình luận." }, { status: 400 });
+    const ratingValue =
+      typeof body.rating === "number" ? body.rating : Number(body.rating ?? 0);
+    const comment = sanitizeText(typeof body.comment === "string" ? body.comment : "").slice(0, 500);
+    const service = sanitizeText(typeof body.service === "string" ? body.service : "").slice(0, 40);
+
+    if (!Number.isFinite(ratingValue) || !comment || ratingValue < 1 || ratingValue > 5) {
+      return createErrorResponse({
+        status: 400,
+        message: "Vui lòng nhập đủ đánh giá (1-5 sao) và bình luận.",
+      });
     }
 
     const review = await prisma.review.create({
       data: {
         userId: session.user.id,
-        rating: Math.min(5, Math.max(1, Math.round(rating))),
-        comment: comment.trim().slice(0, 500),
+        rating: Math.min(5, Math.max(1, Math.round(ratingValue))),
+        comment,
         service: service || "KHAC",
-        approved: false, // Admin duyệt trước khi hiển thị
+        approved: false,
       },
     });
 
-    return NextResponse.json({ success: true, message: "Đánh giá đã gửi! Sẽ hiển thị sau khi được duyệt.", review });
+    return NextResponse.json({
+      success: true,
+      message: "Đánh giá đã gửi! Sẽ hiển thị sau khi được duyệt.",
+      review,
+    });
   } catch (error) {
-    console.error("Review POST error:", error);
-    return NextResponse.json({ success: false, message: "Lỗi hệ thống." }, { status: 500 });
+    logApiError("Review POST error", error);
+    return createErrorResponse({
+      status: 500,
+      message: "Lỗi hệ thống.",
+    });
   }
 }

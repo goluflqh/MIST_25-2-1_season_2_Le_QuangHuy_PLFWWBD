@@ -10,7 +10,7 @@ export async function GET() {
 
     // Find requests by phone number
     const requests = await prisma.contactRequest.findMany({
-      where: { phone: session.user.phone },
+      where: { phone: session.user.phone, deletedAt: null },
       orderBy: { createdAt: "desc" },
     });
 

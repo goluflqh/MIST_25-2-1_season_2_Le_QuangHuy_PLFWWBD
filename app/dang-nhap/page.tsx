@@ -1,9 +1,11 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { PasswordVisibilityToggle } from "@/components/auth/PasswordVisibilityToggle";
+import { siteConfig } from "@/lib/site";
 
 function formatRetryAfter(totalSeconds: number) {
   const seconds = Math.max(totalSeconds, 0);
@@ -19,14 +21,24 @@ function formatRetryAfter(totalSeconds: number) {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { setUser } = useAuth();
+  const { user, setUser } = useAuth();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [retryAfterSec, setRetryAfterSec] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    const targetPath = user.role === "ADMIN" ? "/dashboard" : "/tai-khoan";
+    router.replace(targetPath);
+  }, [router, user]);
 
   useEffect(() => {
     if (retryAfterSec <= 0) {
@@ -77,7 +89,10 @@ export default function LoginPage() {
         setNotice(data.warning || "");
         setRetryAfterSec(typeof data.retryAfterSec === "number" ? data.retryAfterSec : 0);
 
-        if ((typeof data.retryAfterSec === "number" && data.retryAfterSec > 0) || data.remainingAttempts <= 1) {
+        if (
+          (typeof data.retryAfterSec === "number" && data.retryAfterSec > 0) ||
+          data.remainingAttempts <= 1
+        ) {
           setShowForgot(true);
         }
 
@@ -89,10 +104,7 @@ export default function LoginPage() {
       setUser(data.user ?? null);
 
       const targetPath = data.user?.role === "ADMIN" ? "/dashboard" : "/tai-khoan";
-      startTransition(() => {
-        router.replace(targetPath);
-        router.refresh();
-      });
+      router.replace(targetPath);
     } catch {
       setError("Lỗi kết nối. Vui lòng thử lại.");
     } finally {
@@ -103,7 +115,10 @@ export default function LoginPage() {
   const isSubmitDisabled = isLoading || retryAfterSec > 0;
 
   return (
-    <div className="max-w-md mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in-up">
+    <div
+      data-testid="login-page"
+      className="max-w-md mx-auto px-4 sm:px-6 lg:px-8 py-20 animate-fade-in-up"
+    >
       <div className="bg-white rounded-3xl shadow-xl p-8 relative overflow-hidden border border-slate-100">
         <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 opacity-50 rounded-full blur-2xl transform translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
 
@@ -113,24 +128,33 @@ export default function LoginPage() {
         </div>
 
         {error && (
-          <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-body text-center">
+          <div
+            data-testid="login-error"
+            className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-body text-center"
+          >
             {error}
           </div>
         )}
 
         {(notice || retryAfterSec > 0) && (
-          <div className="mb-6 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm font-body text-center">
+          <div
+            data-testid="login-notice"
+            className="mb-6 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm font-body text-center"
+          >
             {retryAfterSec > 0
               ? `Bạn có thể thử lại sau ${formatRetryAfter(retryAfterSec)}. Trong lúc chờ, bạn có thể dùng mục "Quên mật khẩu" bên dưới để được hỗ trợ nhanh hơn.`
               : notice}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
+        <form data-testid="login-form" onSubmit={handleSubmit} className="space-y-6 relative z-10">
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2 font-body">Số Điện Thoại</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2 font-body">
+              Số Điện Thoại
+            </label>
             <input
               type="tel"
+              data-testid="login-phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none font-body"
@@ -149,18 +173,29 @@ export default function LoginPage() {
                 Quên mật khẩu?
               </button>
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none font-body"
-              placeholder="••••••••"
-              disabled={isSubmitDisabled}
-            />
+            <div className="relative">
+              <input
+                type={isPasswordVisible ? "text" : "password"}
+                data-testid="login-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 pr-12 font-body outline-none transition-all focus:border-red-500 focus:ring-2 focus:ring-red-500"
+                placeholder="••••••••"
+                disabled={isSubmitDisabled}
+                autoComplete="current-password"
+              />
+              <PasswordVisibilityToggle
+                testId="login-password-toggle"
+                isVisible={isPasswordVisible}
+                onToggle={() => setIsPasswordVisible((current) => !current)}
+                disabled={isSubmitDisabled}
+              />
+            </div>
           </div>
 
           <button
             type="submit"
+            data-testid="login-submit"
             disabled={isSubmitDisabled}
             className="w-full py-3.5 px-4 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-xl font-heading font-bold shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 disabled:transform-none"
           >
@@ -173,22 +208,28 @@ export default function LoginPage() {
         </form>
 
         {showForgot && (
-          <div className="mt-6 p-4 rounded-xl bg-yellow-50 border border-yellow-200 relative z-10">
+          <div
+            data-testid="login-forgot-help"
+            className="mt-6 p-4 rounded-xl bg-yellow-50 border border-yellow-200 relative z-10"
+          >
             <h3 className="font-heading font-bold text-sm text-slate-800 mb-2">🔑 Quên Mật Khẩu?</h3>
             <p className="font-body text-xs text-slate-600 mb-3">
               Liên hệ trực tiếp cửa hàng để được hỗ trợ đặt lại mật khẩu:
             </p>
             <div className="space-y-2">
-              <a href="tel:0987443258" className="flex items-center gap-2 text-sm font-body font-bold text-red-600 hover:text-red-700">
-                📞 Gọi: 0987.443.258
+              <a
+                href={siteConfig.hotlineHref}
+                className="flex items-center gap-2 text-sm font-body font-bold text-red-600 hover:text-red-700"
+              >
+                📞 Gọi: {siteConfig.hotlineDisplay}
               </a>
               <a
-                href="https://zalo.me/0987443258"
+                href={siteConfig.zaloUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-sm font-body font-bold text-blue-600 hover:text-blue-700"
               >
-                💬 Nhắn Zalo: 0987.443.258
+                💬 Nhắn Zalo: {siteConfig.hotlineDisplay}
               </a>
             </div>
             <p className="font-body text-[10px] text-slate-400 mt-2">

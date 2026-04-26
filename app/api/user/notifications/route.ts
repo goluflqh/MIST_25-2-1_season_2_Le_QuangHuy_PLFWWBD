@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getNotificationCountForUser } from "@/lib/notifications";
 import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
 
 // GET /api/user/notifications?lastSeen=ISO — new notifications since lastSeen
@@ -10,30 +10,11 @@ export async function GET(request: Request) {
 
     const user = session.user;
     const url = new URL(request.url);
-    const lastSeen = url.searchParams.get("lastSeen");
-    const lastSeenDate = lastSeen ? new Date(lastSeen) : new Date(0);
+    const total = await getNotificationCountForUser(user, {
+      lastSeen: url.searchParams.get("lastSeen"),
+    });
 
-    if (user.role === "ADMIN") {
-      const [pendingContacts, pendingReviews] = await Promise.all([
-        prisma.contactRequest.count({ where: { status: "PENDING", createdAt: { gt: lastSeenDate } } }),
-        prisma.review.count({ where: { approved: false, createdAt: { gt: lastSeenDate } } }),
-      ]);
-      return NextResponse.json({ success: true, total: pendingContacts + pendingReviews, role: user.role });
-    } else {
-      // User: count requests where admin changed status
-      // Match by userId OR phone number (backwards compat for old records with NULL userId)
-      const updatedRequests = await prisma.contactRequest.count({
-        where: {
-          OR: [
-            { userId: user.id },
-            { phone: user.phone },
-          ],
-          status: { not: "PENDING" },
-          updatedAt: { gt: lastSeenDate },
-        },
-      });
-      return NextResponse.json({ success: true, total: updatedRequests, role: user.role });
-    }
+    return NextResponse.json({ success: true, total, role: user.role });
   } catch (error) {
     console.error("User notifications error:", error);
     return NextResponse.json({ success: false }, { status: 500 });

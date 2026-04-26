@@ -2,14 +2,14 @@ export default function Partners() {
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 mb-16 overflow-hidden">
       <div className="text-center mb-10">
-        <p className="font-body text-slate-400 font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-3">
+        <p className="flex items-center justify-center gap-3 font-body text-sm font-semibold text-slate-500">
           <span className="w-12 h-px bg-slate-200"></span> Đối tác & Công nghệ
           thiết bị chính hãng <span className="w-12 h-px bg-slate-200"></span>
         </p>
       </div>
 
       <div className="relative flex overflow-hidden group mask-image-fade">
-        <div className="animate-marquee flex whitespace-nowrap items-center gap-16 md:gap-24 py-4 pr-16 md:pr-24 group-hover:[animation-play-state:paused] transition-all duration-300">
+        <div className="flex items-center gap-16 whitespace-nowrap py-4 pr-16 transition-transform duration-300 md:animate-marquee md:gap-24 md:pr-24 md:group-hover:[animation-play-state:paused]">
           <div className="text-3xl md:text-4xl font-black font-heading tracking-tighter text-blue-700 flex items-center shrink-0">
             SAMSUNG{" "}
             <span className="text-xs ml-1 font-sans text-white font-bold bg-blue-700 px-1.5 py-0.5 rounded">
@@ -35,7 +35,7 @@ export default function Partners() {
 
         {/* Duplicate for seamless scroll */}
         <div
-          className="animate-marquee absolute top-0 flex whitespace-nowrap items-center gap-16 md:gap-24 py-4 pr-16 md:pr-24 group-hover:[animation-play-state:paused] transition-all duration-300"
+          className="absolute top-0 hidden items-center gap-24 whitespace-nowrap py-4 pr-24 transition-transform duration-300 md:flex md:animate-marquee md:group-hover:[animation-play-state:paused]"
           aria-hidden="true"
         >
           <div className="text-3xl md:text-4xl font-black font-heading tracking-tighter text-blue-700 flex items-center shrink-0">

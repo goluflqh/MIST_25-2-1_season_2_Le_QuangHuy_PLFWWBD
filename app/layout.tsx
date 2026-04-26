@@ -1,48 +1,73 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, DM_Sans } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import ChatbotWidget from "@/components/ChatbotWidget";
+import { getNotificationCountForUser } from "@/lib/notifications";
 import { getCurrentSessionUser } from "@/lib/session";
+import { defaultOpenGraphImage, siteConfig, siteUrl } from "@/lib/site";
+import "@fontsource/space-grotesk/latin-400.css";
+import "@fontsource/space-grotesk/latin-500.css";
+import "@fontsource/space-grotesk/latin-600.css";
+import "@fontsource/space-grotesk/latin-700.css";
+import "@fontsource/space-grotesk/vietnamese-400.css";
+import "@fontsource/space-grotesk/vietnamese-500.css";
+import "@fontsource/space-grotesk/vietnamese-600.css";
+import "@fontsource/space-grotesk/vietnamese-700.css";
+import "@fontsource/dm-sans/latin-400.css";
+import "@fontsource/dm-sans/latin-500.css";
+import "@fontsource/dm-sans/latin-600.css";
+import "@fontsource/dm-sans/latin-700.css";
+import "@fontsource/dm-sans/latin-ext-400.css";
+import "@fontsource/dm-sans/latin-ext-500.css";
+import "@fontsource/dm-sans/latin-ext-600.css";
+import "@fontsource/dm-sans/latin-ext-700.css";
 import "./globals.css";
 
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space-grotesk",
-  subsets: ["vietnamese", "latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin", "latin-ext"],
-  weight: ["400", "500", "700"],
-});
-
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
-    default: "Minh Hồng - Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
-    template: "%s | Minh Hồng",
+    default: `${siteConfig.name} - ${siteConfig.tagline}`,
+    template: `%s | ${siteConfig.name}`,
   },
-  description:
-    "Trung tâm đóng pin Lithium, pin lưu trữ, đèn năng lượng mặt trời và lắp đặt camera an ninh uy tín tại Đà Nẵng.",
+  description: siteConfig.description,
   keywords: [
     "đóng pin lithium",
     "lắp camera",
     "đèn năng lượng mặt trời",
     "pin lưu trữ",
-    "Minh Hồng",
+    siteConfig.name,
     "điện máy",
   ],
-  openGraph: {
-    title: "Minh Hồng - Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
-    description:
-      "Chuyên đóng pin Lithium, pin lưu trữ, đèn năng lượng và lắp camera an ninh tại Đà Nẵng.",
-    type: "website",
-    locale: "vi_VN",
-    siteName: "Minh Hồng",
+  alternates: {
+    canonical: "/",
   },
-  robots: { index: true, follow: true },
+  openGraph: {
+    title: `${siteConfig.name} - ${siteConfig.tagline}`,
+    description: siteConfig.ogDescription,
+    url: "/",
+    type: "website",
+    locale: siteConfig.locale,
+    siteName: siteConfig.name,
+    images: [defaultOpenGraphImage],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${siteConfig.name} - ${siteConfig.tagline}`,
+    description: siteConfig.ogDescription,
+    images: [defaultOpenGraphImage.url],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
 };
 
 export default async function RootLayout({
@@ -51,11 +76,14 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const currentUser = await getCurrentSessionUser();
+  const initialNotificationCount = currentUser
+    ? await getNotificationCountForUser(currentUser)
+    : 0;
 
   return (
     <html lang="vi" className="scroll-smooth scroll-pt-32" data-scroll-behavior="smooth">
       <body
-        className={`${spaceGrotesk.variable} ${dmSans.variable} antialiased bg-slate-50 font-body text-slate-800 flex flex-col min-h-screen`}
+        className="flex min-h-screen flex-col bg-[#fffdfa] font-body text-slate-800 antialiased"
       >
         <AuthProvider
           key={currentUser ? `${currentUser.id}:${currentUser.role}:${currentUser.name}` : "guest"}
@@ -65,15 +93,13 @@ export default async function RootLayout({
               : null
           }
         >
-          <div className="fixed inset-0 overflow-hidden pointer-events-none z-[-1]">
-            <div className="absolute top-0 right-0 -mr-32 -mt-32 w-96 h-96 rounded-full bg-red-100 blur-3xl opacity-50 mix-blend-multiply"></div>
-            <div className="absolute top-[20%] left-0 -ml-32 w-80 h-80 rounded-full bg-yellow-100 blur-3xl opacity-50 mix-blend-multiply"></div>
-          </div>
+          <div className="pointer-events-none fixed inset-0 z-[-1] bg-[linear-gradient(180deg,#fff7ed_0%,#fffdfa_36%,#f8fafc_100%)]" />
 
-          <div className="fixed bg-orange-300 w-80 h-80 bottom-[20%] left-[20%] animate-blob animate-delay-[4000ms] rounded-[40%_60%_70%_30%/40%_50%_60%_50%] opacity-20 blur-3xl pointer-events-none z-[-1]"></div>
-
-          <Header />
-          <main className="flex-grow pt-[100px]">{children}</main>
+          <Header
+            initialNotificationCount={initialNotificationCount}
+            initialNotificationUserId={currentUser?.id ?? null}
+          />
+          <main className="flex-grow pt-[96px] sm:pt-[108px]">{children}</main>
           <Footer />
           <ChatbotWidget />
         </AuthProvider>
