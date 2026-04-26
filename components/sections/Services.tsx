@@ -9,7 +9,7 @@ const serviceCards = [
       "Đóng mới hoặc phục hồi pin cho máy khoan, xe điện, loa kéo, đèn/quạt dùng pin và các bộ nguồn theo thông số riêng.",
     href: "/dich-vu/dong-pin",
     imageAlt: "Các bộ pin máy công cụ 18V và mạch điều khiển đang được phục hồi.",
-    imageSrc: "/showcase/generated/product-battery-tool-packs-v2.png",
+    imageSrc: "/showcase/generated/product-battery-tool-packs-v2.webp",
     iconPath:
       "M9 17v-6a3 3 0 013-3h7m-9 9h9M5 21h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
     kicker: "Đóng pin theo tải",
@@ -24,7 +24,7 @@ const serviceCards = [
       "Tư vấn đèn pha, tấm pin rời, hộp pin và vị trí lắp cho cổng nhà, sân vườn hoặc khu vực khó kéo điện.",
     href: "/dich-vu/den-nang-luong",
     imageAlt: "Bộ đèn pha năng lượng mặt trời, tấm pin và remote điều khiển.",
-    imageSrc: "/showcase/generated/product-solar-floodlight-kit-v2.png",
+    imageSrc: "/showcase/generated/product-solar-floodlight-kit-v2.webp",
     iconPath:
       "M12 3v2m0 14v2m9-9h-2M5 12H3m14.364 6.364l-1.414-1.414M8.05 8.05L6.636 6.636m10.728 0L15.95 8.05M8.05 15.95l-1.414 1.414M16 12a4 4 0 11-8 0 4 4 0 018 0z",
     kicker: "Chiếu sáng tiết kiệm",
@@ -39,7 +39,7 @@ const serviceCards = [
       "Thiết kế pin lưu trữ, bộ kích đề và nguồn dự phòng theo công suất xả, thời gian dùng và giới hạn an toàn.",
     href: "/dich-vu/pin-luu-tru",
     imageAlt: "Bộ pin lưu trữ LiFePO4, cell và mạch BMS trên bàn kỹ thuật.",
-    imageSrc: "/showcase/generated/product-storage-lifepo4-bank-v2.png",
+    imageSrc: "/showcase/generated/product-storage-lifepo4-bank-v2.webp",
     iconPath:
       "M13 10V3L4 14h7v7l9-11h-7z",
     kicker: "Lưu điện ổn định",
@@ -54,7 +54,7 @@ const serviceCards = [
       "Khảo sát camera Wi-Fi/PTZ, camera đa ống kính hoặc đầu ghi cho nhà ở và cửa hàng để xem lại thuận tiện.",
     href: "/dich-vu/camera",
     imageAlt: "Camera an ninh 4 mắt dạng một cụm camera đa ống kính kèm điện thoại xem từ xa.",
-    imageSrc: "/showcase/generated/product-camera-four-eye-shop-v3.png",
+    imageSrc: "/showcase/generated/product-camera-four-eye-shop-v3.webp",
     iconPath:
       "M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h7a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z",
     kicker: "An ninh dễ quản lý",

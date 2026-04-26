@@ -48,7 +48,7 @@ export function getAbsoluteUrl(path: string) {
 }
 
 export const defaultOpenGraphImage = {
-  url: "/showcase/generated/hero-battery-workbench-v2.png",
+  url: "/showcase/generated/hero-battery-workbench-v2.webp",
   alt: `${siteConfig.name} - ${siteConfig.tagline}`,
 } as const;
 

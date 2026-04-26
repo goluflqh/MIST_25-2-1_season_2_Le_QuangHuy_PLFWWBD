@@ -173,7 +173,7 @@ export default function CameraServicePage() {
           <div className="overflow-hidden rounded-[1.5rem] border border-white bg-white shadow-[0_24px_80px_-48px_rgba(2,132,199,0.38)]">
             <div className="relative h-56 bg-slate-100 sm:h-96">
               <Image
-                src="/showcase/generated/hero-camera-install-v2.png"
+                src="/showcase/generated/hero-camera-install-v2.webp"
                 alt="Camera an ninh Wi-Fi ngoài trời được lắp ở mặt tiền cửa hàng."
                 fill
                 priority

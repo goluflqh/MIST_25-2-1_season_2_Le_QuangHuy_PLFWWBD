@@ -174,7 +174,7 @@ export default function BatteryServicePage() {
           <div className="overflow-hidden rounded-[1.5rem] border border-white bg-white shadow-[0_24px_80px_-48px_rgba(127,29,29,0.5)]">
             <div className="relative h-56 bg-slate-100 sm:h-96">
               <Image
-                src="/showcase/generated/hero-battery-workbench-v2.png"
+                src="/showcase/generated/hero-battery-workbench-v2.webp"
                 alt="Bàn kỹ thuật đóng pin Lithium với cell, mạch BMS và pin máy công cụ."
                 fill
                 priority

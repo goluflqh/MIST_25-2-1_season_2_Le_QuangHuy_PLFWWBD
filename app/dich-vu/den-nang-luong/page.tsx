@@ -173,7 +173,7 @@ export default function SolarLightPage() {
           <div className="overflow-hidden rounded-[1.5rem] border border-white bg-white shadow-[0_24px_80px_-48px_rgba(217,119,6,0.38)]">
             <div className="relative h-56 bg-slate-100 sm:h-96">
               <Image
-                src="/showcase/generated/hero-solar-install-v2.png"
+                src="/showcase/generated/hero-solar-install-v2.webp"
                 alt="Đèn pha năng lượng mặt trời và tấm pin rời lắp ở cổng nhà."
                 fill
                 priority
