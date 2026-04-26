@@ -65,6 +65,24 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("login-page")).toBeVisible();
   });
 
+  test("auth forms can reveal and hide password text", async ({ page }) => {
+    await page.goto("/dang-nhap");
+    await page.getByTestId("login-password").fill("admin123");
+    await expect(page.getByTestId("login-password")).toHaveAttribute("type", "password");
+    await page.getByTestId("login-password-toggle").click();
+    await expect(page.getByTestId("login-password")).toHaveAttribute("type", "text");
+    await page.getByTestId("login-password-toggle").click();
+    await expect(page.getByTestId("login-password")).toHaveAttribute("type", "password");
+
+    await page.goto("/dang-ky");
+    await page.getByTestId("register-password").fill("123456");
+    await expect(page.getByTestId("register-password")).toHaveAttribute("type", "password");
+    await page.getByTestId("register-password-toggle").click();
+    await expect(page.getByTestId("register-password")).toHaveAttribute("type", "text");
+    await page.getByTestId("register-password-toggle").click();
+    await expect(page.getByTestId("register-password")).toHaveAttribute("type", "password");
+  });
+
   test("guest can register a new account, land on account page and log out", async ({ page, request }) => {
     test.setTimeout(120_000);
 

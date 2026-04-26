@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { PasswordVisibilityToggle } from "@/components/auth/PasswordVisibilityToggle";
 import { siteConfig } from "@/lib/site";
 
 function formatRetryAfter(totalSeconds: number) {
@@ -27,6 +28,7 @@ export default function LoginPage() {
   const [notice, setNotice] = useState("");
   const [retryAfterSec, setRetryAfterSec] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
 
   useEffect(() => {
@@ -171,15 +173,24 @@ export default function LoginPage() {
                 Quên mật khẩu?
               </button>
             </label>
-            <input
-              type="password"
-              data-testid="login-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none font-body"
-              placeholder="••••••••"
-              disabled={isSubmitDisabled}
-            />
+            <div className="relative">
+              <input
+                type={isPasswordVisible ? "text" : "password"}
+                data-testid="login-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 pr-12 font-body outline-none transition-all focus:border-red-500 focus:ring-2 focus:ring-red-500"
+                placeholder="••••••••"
+                disabled={isSubmitDisabled}
+                autoComplete="current-password"
+              />
+              <PasswordVisibilityToggle
+                testId="login-password-toggle"
+                isVisible={isPasswordVisible}
+                onToggle={() => setIsPasswordVisible((current) => !current)}
+                disabled={isSubmitDisabled}
+              />
+            </div>
           </div>
 
           <button

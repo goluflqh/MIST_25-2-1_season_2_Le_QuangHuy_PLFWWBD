@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { PasswordVisibilityToggle } from "@/components/auth/PasswordVisibilityToggle";
 
 function validatePhone(phone: string): string | null {
   const cleaned = phone.replace(/\s|-/g, "");
@@ -26,6 +27,7 @@ function RegisterPageContent() {
   const [error, setError] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [referrerName, setReferrerName] = useState("");
 
   useEffect(() => {
@@ -183,15 +185,24 @@ function RegisterPageContent() {
             <label className="block text-sm font-semibold text-slate-700 mb-2 font-body">
               Mật Khẩu
             </label>
-            <input
-              type="password"
-              data-testid="register-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none font-body"
-              placeholder="Ít nhất 6 ký tự..."
-              disabled={isLoading}
-            />
+            <div className="relative">
+              <input
+                type={isPasswordVisible ? "text" : "password"}
+                data-testid="register-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 pr-12 font-body outline-none transition-all focus:border-red-500 focus:ring-2 focus:ring-red-500"
+                placeholder="Ít nhất 6 ký tự..."
+                disabled={isLoading}
+                autoComplete="new-password"
+              />
+              <PasswordVisibilityToggle
+                testId="register-password-toggle"
+                isVisible={isPasswordVisible}
+                onToggle={() => setIsPasswordVisible((current) => !current)}
+                disabled={isLoading}
+              />
+            </div>
             {password.length > 0 && password.length < 6 && (
               <p className="text-xs text-red-500 font-body mt-1">
                 Cần thêm {6 - password.length} ký tự nữa
