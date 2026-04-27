@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 
@@ -14,6 +14,7 @@ interface WarrantyData {
   startDate: string;
   endDate: string;
   notes: string | null;
+  serviceOrderId?: string | null;
 }
 
 type WarrantyStatusFilter = "all" | "valid" | "expiring" | "expired";
@@ -69,23 +70,50 @@ function isVietnameseDateText(value: string) {
   return /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value.trim());
 }
 
+function addMonths(date: Date, months: number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function formatDateInput(value: Date) {
+  return value.toLocaleDateString("vi-VN");
+}
+
+function defaultWarrantyEndDateText() {
+  return formatDateInput(addMonths(new Date(), 6));
+}
+
 export default function AdminWarrantyClient({
   initialWarranties,
 }: {
   initialWarranties: WarrantyData[];
 }) {
   const { showToast, showConfirm } = useNotify();
+  const formRef = useRef<HTMLFormElement>(null);
+  const firstFieldRef = useRef<HTMLInputElement>(null);
   const [warranties, setWarranties] = useState<WarrantyData[]>(initialWarranties);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
+    customerName: "",
     productName: "",
     customerPhone: "",
     service: "DONG_PIN",
+    endDate: defaultWarrantyEndDateText(),
+    notes: "",
+  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editData, setEditData] = useState({
+    customerName: "",
+    customerPhone: "",
     endDate: "",
     notes: "",
+    productName: "",
+    service: "DONG_PIN",
   });
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [savingEditId, setSavingEditId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<WarrantyStatusFilter>("all");
@@ -145,11 +173,29 @@ export default function AdminWarrantyClient({
     setSortMode("endingSoon");
   };
 
+  const toggleCreateForm = () => {
+    const shouldOpen = !showForm;
+    setShowForm(shouldOpen);
+    setError("");
+
+    if (shouldOpen) {
+      setFormData((prev) => ({
+        ...prev,
+        endDate: prev.endDate || defaultWarrantyEndDateText(),
+      }));
+      window.setTimeout(() => {
+        formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        firstFieldRef.current?.focus({ preventScroll: true });
+      }, 0);
+    }
+  };
+
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
 
     const payload = {
+      customerName: formData.customerName.trim(),
       productName: formData.productName.trim(),
       customerPhone: formData.customerPhone.trim(),
       service: formData.service,
@@ -157,8 +203,8 @@ export default function AdminWarrantyClient({
       notes: formData.notes.trim(),
     };
 
-    if (!payload.productName || !payload.customerPhone || !payload.endDate) {
-      const message = "Vui lòng nhập tên sản phẩm, số điện thoại khách và ngày hết hạn.";
+    if (!payload.customerName || !payload.productName || !payload.customerPhone || !payload.endDate) {
+      const message = "Vui lòng nhập tên khách, sản phẩm, số điện thoại và ngày hết hạn.";
       setError(message);
       showToast(message, "error");
       return;
@@ -197,7 +243,14 @@ export default function AdminWarrantyClient({
         ...prev,
       ]);
       setShowForm(false);
-      setFormData({ productName: "", customerPhone: "", service: "DONG_PIN", endDate: "", notes: "" });
+      setFormData({
+        customerName: "",
+        productName: "",
+        customerPhone: "",
+        service: "DONG_PIN",
+        endDate: defaultWarrantyEndDateText(),
+        notes: "",
+      });
       showToast("Tạo phiếu bảo hành thành công!", "success");
     } catch {
       const message = "Không thể tạo phiếu bảo hành lúc này.";
@@ -205,6 +258,54 @@ export default function AdminWarrantyClient({
       showToast(message, "error");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const startEdit = (warranty: WarrantyData) => {
+    setEditingId(warranty.id);
+    setEditData({
+      customerName: warranty.customerName,
+      customerPhone: warranty.customerPhone,
+      endDate: formatDateInput(new Date(warranty.endDate)),
+      notes: warranty.notes || "",
+      productName: warranty.productName,
+      service: warranty.service,
+    });
+  };
+
+  const saveEdit = async (id: string) => {
+    setSavingEditId(id);
+    try {
+      const response = await fetch("/api/admin/warranty", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...editData }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        showToast(data.message || "Chưa sửa được phiếu bảo hành.", "error");
+        return;
+      }
+
+      setWarranties((prev) =>
+        prev.map((warranty) =>
+          warranty.id === id
+            ? {
+                ...warranty,
+                ...data.warranty,
+                endDate: new Date(data.warranty.endDate).toISOString(),
+                startDate: new Date(data.warranty.startDate).toISOString(),
+              }
+            : warranty
+        )
+      );
+      setEditingId(null);
+      showToast("Đã sửa phiếu bảo hành.", "success");
+    } catch {
+      showToast("Kết nối bị gián đoạn khi sửa bảo hành.", "error");
+    } finally {
+      setSavingEditId(null);
     }
   };
 
@@ -253,10 +354,8 @@ export default function AdminWarrantyClient({
             Xoá bộ lọc
           </button>
           <button
-            onClick={() => {
-              setShowForm(!showForm);
-              setError("");
-            }}
+            aria-expanded={showForm}
+            onClick={toggleCreateForm}
             className="rounded-xl bg-red-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-red-700"
           >
             + Tạo Phiếu Bảo Hành
@@ -334,18 +433,28 @@ export default function AdminWarrantyClient({
       </div>
 
       {showForm && (
-        <form onSubmit={handleCreate} className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
+        <form ref={formRef} onSubmit={handleCreate} className="scroll-mt-28 bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
           <div>
             <h3 className="font-heading font-bold text-slate-900">Tạo Phiếu Bảo Hành</h3>
             <p className="mt-1 font-body text-sm text-slate-500">
-              Mã bảo hành sẽ tự tạo khi lưu, dạng MH-BH-ngày tạo-mã ngẫu nhiên. Quản trị viên chỉ cần nhập thông tin khách và sản phẩm.
-            </p>
-            <p className="mt-1 font-body text-xs text-slate-400">
-              Số điện thoại khách phải trùng với tài khoản đã đăng ký trên hệ thống.
+              Mã bảo hành sẽ tự tạo khi lưu. Ngày hết hạn mặc định là 6 tháng kể từ hôm nay và admin có thể sửa trước khi lưu.
             </p>
           </div>
           {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 font-body">{error}</div>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label className="space-y-1.5">
+              <span className="font-body text-xs font-bold text-slate-600">Tên khách</span>
+              <input
+                ref={firstFieldRef}
+                name="warrantyCustomerName"
+                value={formData.customerName}
+                onChange={(event) => setFormData({ ...formData, customerName: event.target.value })}
+                placeholder="Ví dụ: Nguyễn Văn A"
+                autoComplete="off"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 font-body text-sm outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100"
+                required
+              />
+            </label>
             <label className="space-y-1.5">
               <span className="font-body text-xs font-bold text-slate-600">Tên sản phẩm</span>
               <input
@@ -442,36 +551,111 @@ export default function AdminWarrantyClient({
                   data-testid="dashboard-warranty-card"
                   className={`rounded-xl border bg-white p-5 shadow-sm ${status.border} ${deletingId === warranty.id ? "opacity-60" : ""}`}
                 >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <code className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold">{warranty.serialNo}</code>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${status.color}`}>
-                          {status.label}
-                        </span>
-                        <span className="font-body text-xs text-slate-400">
-                          {serviceLabels[warranty.service] || warranty.service}
-                        </span>
+                  {editingId === warranty.id ? (
+                    <div className="space-y-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <input
+                          value={editData.customerName}
+                          onChange={(event) => setEditData({ ...editData, customerName: event.target.value })}
+                          placeholder="Tên khách"
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                        />
+                        <input
+                          value={editData.customerPhone}
+                          onChange={(event) => setEditData({ ...editData, customerPhone: event.target.value })}
+                          placeholder="Số điện thoại"
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                        />
+                        <input
+                          value={editData.productName}
+                          onChange={(event) => setEditData({ ...editData, productName: event.target.value })}
+                          placeholder="Sản phẩm"
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                        />
+                        <select
+                          value={editData.service}
+                          onChange={(event) => setEditData({ ...editData, service: event.target.value })}
+                          title="Dịch vụ"
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                        >
+                          {Object.entries(serviceLabels).map(([key, value]) => (
+                            <option key={key} value={key}>{value}</option>
+                          ))}
+                        </select>
+                        <input
+                          value={editData.endDate}
+                          onChange={(event) => setEditData({ ...editData, endDate: event.target.value })}
+                          placeholder="Ngày hết hạn, ví dụ 30/10/2026"
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                        />
+                        <input
+                          value={editData.notes}
+                          onChange={(event) => setEditData({ ...editData, notes: event.target.value })}
+                          placeholder="Ghi chú"
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                        />
                       </div>
-                      <p className="mt-1 font-body text-sm font-semibold text-slate-800">{warranty.productName}</p>
-                      <p className="font-body text-xs text-slate-500">{warranty.customerName} · {warranty.customerPhone}</p>
-                      <div className="mt-2 flex flex-wrap gap-2 font-body text-[10px] text-slate-400">
-                        <span>Tạo: {formatDate(warranty.startDate)}</span>
-                        <span>BH đến: {formatDate(warranty.endDate)}</span>
-                        <span>{timelineCopy}</span>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingId(null)}
+                          disabled={savingEditId === warranty.id}
+                          className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 disabled:text-slate-300"
+                        >
+                          Huỷ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveEdit(warranty.id)}
+                          disabled={savingEditId === warranty.id}
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:bg-slate-200 disabled:text-slate-400"
+                        >
+                          {savingEditId === warranty.id ? "Đang lưu..." : "Lưu sửa"}
+                        </button>
                       </div>
-                      {warranty.notes && (
-                        <p className="mt-2 line-clamp-2 font-body text-xs text-slate-500">{warranty.notes}</p>
-                      )}
                     </div>
-                    <button
-                      onClick={() => deleteWarranty(warranty.id)}
-                      disabled={deletingId === warranty.id}
-                      className="shrink-0 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
-                    >
-                      {deletingId === warranty.id ? "..." : "Xoá"}
-                    </button>
-                  </div>
+                  ) : (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <code className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold">{warranty.serialNo}</code>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${status.color}`}>
+                            {status.label}
+                          </span>
+                          <span className="font-body text-xs text-slate-400">
+                            {serviceLabels[warranty.service] || warranty.service}
+                          </span>
+                        </div>
+                        <p className="mt-1 font-body text-sm font-semibold text-slate-800">{warranty.productName}</p>
+                        <p className="font-body text-xs text-slate-500">{warranty.customerName} · {warranty.customerPhone}</p>
+                        <div className="mt-2 flex flex-wrap gap-2 font-body text-[10px] text-slate-400">
+                          <span>Tạo: {formatDate(warranty.startDate)}</span>
+                          <span>BH đến: {formatDate(warranty.endDate)}</span>
+                          <span>{timelineCopy}</span>
+                          {warranty.serviceOrderId ? <span>Từ đơn dịch vụ</span> : null}
+                        </div>
+                        {warranty.notes && (
+                          <p className="mt-2 line-clamp-2 font-body text-xs text-slate-500">{warranty.notes}</p>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(warranty)}
+                          className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                        >
+                          Sửa
+                        </button>
+                        <button
+                          onClick={() => deleteWarranty(warranty.id)}
+                          disabled={deletingId === warranty.id}
+                          className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                        >
+                          {deletingId === warranty.id ? "..." : "Xoá"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })

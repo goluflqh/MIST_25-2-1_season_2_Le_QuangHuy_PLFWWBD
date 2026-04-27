@@ -9,6 +9,7 @@ interface NavCounts { contacts: number; reviews: number; }
 const navItems = [
   { href: "/dashboard", label: "Tổng Quan", icon: "M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" },
   { href: "/dashboard/contacts", label: "Yêu Cầu Tư Vấn", icon: "M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2m-4-1v8m0 0l3-3m-3 3L9 8", countKey: "contacts" as const },
+  { href: "/dashboard/orders", label: "Đơn Dịch Vụ", icon: "M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2zm2 4h6" },
   { href: "/dashboard/users", label: "Khách Hàng", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" },
   { href: "/dashboard/reviews", label: "Đánh Giá", icon: "M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z", countKey: "reviews" as const },
   { href: "/dashboard/pricing", label: "Bảng Giá", icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
@@ -108,22 +109,34 @@ export default function AdminSidebar({ initialCounts }: { initialCounts: NavCoun
   }, [enableBackgroundPolling]);
 
   const toggleMobileMenu = () => {
-    setMobileMenuState((prev) => ({
-      open: !(prev.pathname === pathname && prev.open),
-      pathname,
-    }));
+    const nextOpen = !mobileOpen;
+    if (nextOpen) {
+      window.dispatchEvent(new Event("mh:admin-menu-open"));
+    }
+    setMobileMenuState({ open: nextOpen, pathname });
   };
 
   const closeMobileMenu = () => {
     setMobileMenuState({ open: false, pathname });
   };
 
+  useEffect(() => {
+    const closeAdminMenu = () => {
+      setMobileMenuState({ open: false, pathname });
+    };
+
+    window.addEventListener("mh:public-menu-open", closeAdminMenu);
+    return () => {
+      window.removeEventListener("mh:public-menu-open", closeAdminMenu);
+    };
+  }, [pathname]);
+
   return (
     <>
       {/* Mobile hamburger button */}
       <button
         onClick={toggleMobileMenu}
-        className="md:hidden fixed top-3 left-3 z-50 w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center shadow-lg"
+        className="md:hidden fixed top-3 left-3 z-[70] w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center shadow-lg"
         aria-label="Toggle admin menu"
       >
         {mobileOpen ? (
@@ -135,7 +148,7 @@ export default function AdminSidebar({ initialCounts }: { initialCounts: NavCoun
 
       {/* Mobile overlay + sidebar */}
       {mobileOpen && (
-        <div className="md:hidden fixed inset-0 z-40">
+        <div className="md:hidden fixed inset-0 z-[60]">
           <div className="absolute inset-0 bg-black/50" onClick={closeMobileMenu} />
           <aside className="absolute left-0 top-0 bottom-0 w-64 bg-slate-900 text-white flex flex-col animate-fade-in">
             <SidebarNav pathname={pathname} counts={counts} />

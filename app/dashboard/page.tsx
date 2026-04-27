@@ -2,6 +2,7 @@ import { getChatbotDashboardMetrics } from "@/lib/chatbot-metrics";
 import { getLeadSourceLabel } from "@/lib/lead-sources";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
+import DashboardOrdersButton from "./DashboardOrdersButton";
 
 const OPEN_STATUSES = ["PENDING", "CONTACTED", "IN_PROGRESS"] as const;
 const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -43,6 +44,14 @@ function getPercent(value: number, total: number) {
 
 function formatDate(value: Date) {
   return value.toLocaleDateString("vi-VN");
+}
+
+function formatMoney(value: number) {
+  return `${value.toLocaleString("vi-VN")}đ`;
+}
+
+function getMonthLabel(value: Date) {
+  return value.toLocaleDateString("vi-VN", { month: "2-digit", year: "2-digit" });
 }
 
 function getChatbotIntentLabel(intent: string | null) {
@@ -91,6 +100,7 @@ export default async function DashboardPage() {
     serviceGroups,
     sourceGroups,
     chatbotMetrics,
+    serviceOrders,
   ] = await Promise.all([
     prisma.contactRequest.count({ where: activeContactWhere }),
     prisma.contactRequest.count({ where: { ...activeContactWhere, status: "PENDING" } }),
@@ -139,6 +149,23 @@ export default async function DashboardPage() {
       _count: { _all: true },
     }),
     getChatbotDashboardMetrics(),
+    prisma.serviceOrder.findMany({
+      where: { deletedAt: null },
+      orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        orderCode: true,
+        customerName: true,
+        customerPhone: true,
+        productName: true,
+        service: true,
+        status: true,
+        orderDate: true,
+        quotedPrice: true,
+        paidAmount: true,
+      },
+      take: 500,
+    }),
   ]);
 
   const openContacts = pendingContacts + contactedContacts + inProgressContacts;
@@ -161,6 +188,69 @@ export default async function DashboardPage() {
   const topSources = sourceGroups
     .sort((a, b) => b._count._all - a._count._all)
     .slice(0, 4);
+
+  const financialSummary = serviceOrders.reduce(
+    (summary, order) => {
+      const quoted = order.quotedPrice || 0;
+      const paid = order.paidAmount || 0;
+      const debt = Math.max(quoted - paid, 0);
+
+      summary.quoted += quoted;
+      summary.paid += paid;
+      summary.debt += debt;
+      if (debt > 0) summary.debtOrders += 1;
+      if (["RECEIVED", "CHECKING", "QUOTED", "IN_PROGRESS"].includes(order.status)) {
+        summary.openOrders += 1;
+      }
+      return summary;
+    },
+    { debt: 0, debtOrders: 0, openOrders: 0, paid: 0, quoted: 0 }
+  );
+  const collectionRate = getPercent(financialSummary.paid, financialSummary.quoted);
+  const monthBuckets = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      label: getMonthLabel(date),
+      paid: 0,
+      quoted: 0,
+    };
+  });
+  const monthLookup = new Map(monthBuckets.map((bucket) => [bucket.key, bucket]));
+  serviceOrders.forEach((order) => {
+    const date = order.orderDate;
+    const key = `${date.getFullYear()}-${date.getMonth()}`;
+    const bucket = monthLookup.get(key);
+    if (!bucket) return;
+    bucket.paid += order.paidAmount || 0;
+    bucket.quoted += order.quotedPrice || 0;
+  });
+  const maxMonthlyPaid = Math.max(...monthBuckets.map((bucket) => bucket.paid), 1);
+  const serviceMoneyRows = Object.entries(
+    serviceOrders.reduce<Record<string, { debt: number; paid: number; quoted: number }>>((summary, order) => {
+      const quoted = order.quotedPrice || 0;
+      const paid = order.paidAmount || 0;
+      const debt = Math.max(quoted - paid, 0);
+      const current = summary[order.service] || { debt: 0, paid: 0, quoted: 0 };
+      summary[order.service] = {
+        debt: current.debt + debt,
+        paid: current.paid + paid,
+        quoted: current.quoted + quoted,
+      };
+      return summary;
+    }, {})
+  )
+    .sort(([, first], [, second]) => second.quoted - first.quoted)
+    .slice(0, 5);
+  const maxServiceQuoted = Math.max(...serviceMoneyRows.map(([, value]) => value.quoted), 1);
+  const topDebtOrders = serviceOrders
+    .map((order) => ({
+      ...order,
+      debt: Math.max((order.quotedPrice || 0) - (order.paidAmount || 0), 0),
+    }))
+    .filter((order) => order.debt > 0)
+    .sort((first, second) => second.debt - first.debt)
+    .slice(0, 5);
 
   return (
     <div data-testid="dashboard-page" className="space-y-6 animate-fade-in-up">
@@ -239,6 +329,118 @@ export default async function DashboardPage() {
           <p className="mt-1 font-body text-xs text-slate-500">{activePricingItems} mục giá đang bật</p>
         </Link>
       </div>
+
+      <section data-testid="dashboard-finance-overview" className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="font-heading text-lg font-bold text-slate-900">Tài Chính Đơn Dịch Vụ</h3>
+            <p className="font-body text-sm text-slate-500">
+              Theo dõi tiền đã báo, đã thu và công nợ từ các đơn Minh Hồng đã nhập vào hệ thống.
+            </p>
+          </div>
+          <DashboardOrdersButton />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+            <p className="font-body text-xs uppercase tracking-wider text-slate-400">Giá trị đã báo</p>
+            <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{formatMoney(financialSummary.quoted)}</p>
+          </div>
+          <div className="rounded-2xl border border-green-100 bg-green-50 p-5">
+            <p className="font-body text-xs uppercase tracking-wider text-green-700">Đã thu</p>
+            <p className="mt-1 font-heading text-2xl font-extrabold text-green-700">{formatMoney(financialSummary.paid)}</p>
+          </div>
+          <div className="rounded-2xl border border-red-100 bg-red-50 p-5">
+            <p className="font-body text-xs uppercase tracking-wider text-red-700">Còn phải thu</p>
+            <p className="mt-1 font-heading text-2xl font-extrabold text-red-700">{formatMoney(financialSummary.debt)}</p>
+          </div>
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+            <p className="font-body text-xs uppercase tracking-wider text-blue-700">Tỉ lệ thu</p>
+            <p className="mt-1 font-heading text-2xl font-extrabold text-blue-700">{collectionRate}%</p>
+            <p className="mt-1 font-body text-xs text-blue-700">{financialSummary.debtOrders} đơn còn nợ</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-3">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h4 className="font-heading font-bold text-slate-900">Tiền Thu 6 Tháng Gần Đây</h4>
+                <p className="font-body text-xs text-slate-400">Cột cao hơn nghĩa là tháng đó thu tiền tốt hơn.</p>
+              </div>
+              <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-body font-bold text-green-700">
+                {formatMoney(Math.max(...monthBuckets.map((bucket) => bucket.paid), 0))}
+              </span>
+            </div>
+            <div className="flex h-56 items-end gap-3">
+              {monthBuckets.map((bucket) => (
+                <div key={bucket.key} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+                  <div className="flex h-40 w-full items-end rounded-xl bg-slate-50 px-2 pb-2">
+                    <div
+                      className="w-full rounded-lg bg-gradient-to-t from-green-600 to-emerald-300"
+                      style={{ height: `${Math.max(6, Math.round((bucket.paid / maxMonthlyPaid) * 100))}%` }}
+                      title={`Đã thu ${formatMoney(bucket.paid)}`}
+                    />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-body text-[11px] font-bold text-slate-600">{bucket.label}</p>
+                    <p className="font-body text-[10px] text-slate-400">{formatMoney(bucket.paid)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
+            <h4 className="font-heading font-bold text-slate-900">Giá Trị Theo Dịch Vụ</h4>
+            <div className="mt-4 space-y-3">
+              {serviceMoneyRows.length === 0 ? (
+                <p className="font-body text-sm text-slate-400">Chưa có dữ liệu tài chính theo dịch vụ.</p>
+              ) : (
+                serviceMoneyRows.map(([service, value]) => (
+                  <div key={service}>
+                    <div className="mb-1 flex items-center justify-between gap-3">
+                      <span className="truncate font-body text-xs font-bold text-slate-700">
+                        {serviceLabels[service] || service}
+                      </span>
+                      <span className="font-body text-xs text-slate-400">{formatMoney(value.quoted)}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-slate-900"
+                        style={{ width: `${Math.max(4, Math.round((value.quoted / maxServiceQuoted) * 100))}%` }}
+                      />
+                    </div>
+                    {value.debt > 0 ? (
+                      <p className="mt-1 font-body text-[10px] text-red-500">Còn phải thu {formatMoney(value.debt)}</p>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {topDebtOrders.length > 0 ? (
+          <div className="rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h4 className="font-heading font-bold text-slate-900">Đơn Còn Phải Thu Nhiều</h4>
+              <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-body font-bold text-red-700">
+                {topDebtOrders.length} đơn ưu tiên
+              </span>
+            </div>
+            <div className="grid gap-2 lg:grid-cols-5">
+              {topDebtOrders.map((order) => (
+                <Link key={order.id} href="/dashboard/orders" className="rounded-xl border border-slate-100 bg-slate-50 p-3 transition-colors hover:bg-red-50">
+                  <p className="truncate font-body text-xs font-bold text-slate-800">{order.customerName}</p>
+                  <p className="truncate font-body text-[11px] text-slate-400">{order.productName}</p>
+                  <p className="mt-2 font-heading text-sm font-extrabold text-red-600">{formatMoney(order.debt)}</p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3 bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
