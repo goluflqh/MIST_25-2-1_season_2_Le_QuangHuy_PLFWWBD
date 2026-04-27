@@ -33,7 +33,9 @@ export const metadata: Metadata = {
   description: siteConfig.description,
   keywords: [
     "đóng pin lithium",
-    "lắp camera",
+    "sửa pin lithium",
+    "đóng pin xe điện",
+    "lắp camera an ninh Đà Nẵng",
     "đèn năng lượng mặt trời",
     "pin lưu trữ",
     siteConfig.name,

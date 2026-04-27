@@ -39,10 +39,25 @@ interface WarrantyInfo {
   notes: string | null;
 }
 
+interface ServiceOrderInfo {
+  id: string;
+  orderCode: string;
+  service: string;
+  productName: string;
+  status: string;
+  orderDateLabel: string;
+  quotedPrice: number | null;
+  paidAmount: number;
+  warrantyEndDateLabel: string | null;
+  notes: string | null;
+}
+
 interface WarrantyLookupData {
+  id: string;
   serialNo: string;
   productName: string;
   customerName: string;
+  customerPhone: string;
   service: string;
   startDate: string;
   endDate: string;
@@ -83,6 +98,16 @@ const statusConfig: Record<string, { label: string; color: string }> = {
   CANCELLED: { label: "Đã huỷ", color: "bg-red-100 text-red-700" },
 };
 
+const orderStatusConfig: Record<string, { label: string; color: string }> = {
+  RECEIVED: { label: "Mới nhận", color: "bg-slate-100 text-slate-700" },
+  CHECKING: { label: "Đang kiểm tra", color: "bg-amber-100 text-amber-700" },
+  QUOTED: { label: "Đã báo giá", color: "bg-blue-100 text-blue-700" },
+  IN_PROGRESS: { label: "Đang làm", color: "bg-orange-100 text-orange-700" },
+  COMPLETED: { label: "Hoàn thành", color: "bg-green-100 text-green-700" },
+  DELIVERED: { label: "Đã giao", color: "bg-emerald-100 text-emerald-700" },
+  CANCELLED: { label: "Đã huỷ", color: "bg-red-100 text-red-700" },
+};
+
 const requestStages = [
   { key: "PENDING", label: "Tiếp nhận" },
   { key: "CONTACTED", label: "Liên hệ" },
@@ -120,6 +145,11 @@ function getWarrantyRemainingLabel(endDate: string, isActive: boolean) {
   if (!isActive || days <= 0) return "Đã hết hạn";
   if (days === 1) return "Còn 1 ngày";
   return `Còn ${days} ngày`;
+}
+
+function formatMoney(value: number | null | undefined) {
+  if (!value) return "0đ";
+  return `${value.toLocaleString("vi-VN")}đ`;
 }
 
 function getLoyaltyTier(points: number) {
@@ -167,25 +197,25 @@ function formatClientVietnamDateTime(date: Date) {
 }
 
 function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
-  const [lookupSerial, setLookupSerial] = useState("");
-  const [lookupResult, setLookupResult] = useState<WarrantyLookupData | null>(null);
+  const [lookupQuery, setLookupQuery] = useState("");
+  const [lookupResults, setLookupResults] = useState<WarrantyLookupData[]>([]);
   const [lookupMessage, setLookupMessage] = useState<FeedbackMessage | null>(null);
   const [isLookingUp, setIsLookingUp] = useState(false);
 
   const lookupWarranty = async (event: FormEvent) => {
     event.preventDefault();
-    const serial = lookupSerial.trim();
-    if (!serial) {
-      setLookupMessage({ text: "Nhập số serial cần tra cứu.", type: "error" });
+    const query = lookupQuery.trim();
+    if (!query) {
+      setLookupMessage({ text: "Nhập số serial hoặc số điện thoại cần tra cứu.", type: "error" });
       return;
     }
 
     setIsLookingUp(true);
     setLookupMessage(null);
-    setLookupResult(null);
+    setLookupResults([]);
 
     try {
-      const response = await fetch(`/api/warranty/lookup?serial=${encodeURIComponent(serial)}`);
+      const response = await fetch(`/api/warranty/lookup?query=${encodeURIComponent(query)}`);
       const data = await response.json();
 
       if (!response.ok || !data.success) {
@@ -196,8 +226,12 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
         return;
       }
 
-      setLookupResult(data.warranty);
-      setLookupMessage({ text: "Đã tìm thấy thông tin bảo hành.", type: "success" });
+      const results = Array.isArray(data.warranties) ? data.warranties : data.warranty ? [data.warranty] : [];
+      setLookupResults(results);
+      setLookupMessage({
+        text: results.length > 1 ? `Đã tìm thấy ${results.length} phiếu bảo hành.` : "Đã tìm thấy thông tin bảo hành.",
+        type: "success",
+      });
     } catch {
       setLookupMessage({ text: "Kết nối bị gián đoạn khi tra cứu bảo hành.", type: "error" });
     } finally {
@@ -211,7 +245,7 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
         <div>
           <h3 className="font-heading font-bold text-slate-900">🛡️ Phiếu Bảo Hành</h3>
           <p className="font-body text-xs text-slate-400">
-            Theo dõi hạn bảo hành và tra cứu nhanh bằng số serial.
+            Theo dõi hạn bảo hành và tra cứu nhanh bằng số serial hoặc số điện thoại.
           </p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-body font-bold text-slate-500">
@@ -223,7 +257,7 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
           <p className="font-body text-sm font-semibold text-slate-600">Chưa có phiếu bảo hành gắn với tài khoản.</p>
           <p className="font-body text-xs text-slate-400 mt-1">
-            Nếu đã có serial, bạn vẫn có thể tra cứu trực tiếp bên dưới.
+            Nếu đã có serial hoặc số điện thoại mua hàng, bạn vẫn có thể tra cứu trực tiếp bên dưới.
           </p>
         </div>
       ) : (
@@ -269,14 +303,14 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
 
       <form onSubmit={lookupWarranty} className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
         <label className="block font-body text-xs font-bold text-slate-500 mb-2">
-          Tra cứu bằng serial
+          Tra cứu bằng serial hoặc số điện thoại
         </label>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
-            data-testid="account-warranty-serial"
-            value={lookupSerial}
-            onChange={(event) => setLookupSerial(event.target.value)}
-            placeholder="Ví dụ: MH-BH-001"
+            data-testid="account-warranty-query"
+            value={lookupQuery}
+            onChange={(event) => setLookupQuery(event.target.value)}
+            placeholder="Ví dụ: MH-BH-001 hoặc 0912345678"
             className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body outline-none focus:ring-2 focus:ring-red-500"
           />
           <button
@@ -301,30 +335,101 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
             {lookupMessage.text}
           </div>
         ) : null}
-        {lookupResult ? (
-          <div data-testid="account-warranty-result" className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-body text-sm font-bold text-slate-800">{lookupResult.productName}</p>
-                <p className="font-body text-xs text-slate-400">
-                  {serviceLabels[lookupResult.service] || lookupResult.service} · {lookupResult.customerName}
+        {lookupResults.length > 0 ? (
+          <div data-testid="account-warranty-result" className="mt-3 space-y-2">
+            {lookupResults.map((lookupResult) => (
+              <div key={lookupResult.id || lookupResult.serialNo} className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <code className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                      {lookupResult.serialNo}
+                    </code>
+                    <p className="mt-1 font-body text-sm font-bold text-slate-800">{lookupResult.productName}</p>
+                    <p className="font-body text-xs text-slate-400">
+                      {serviceLabels[lookupResult.service] || lookupResult.service} · {lookupResult.customerName}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-[10px] font-body font-bold ${
+                      lookupResult.isValid ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {lookupResult.isValid ? "Còn hiệu lực" : "Hết hạn"}
+                  </span>
+                </div>
+                <p className="mt-2 font-body text-xs text-slate-500">
+                  Hết hạn: {new Date(lookupResult.endDate).toLocaleDateString("vi-VN")} ·{" "}
+                  {getWarrantyRemainingLabel(lookupResult.endDate, lookupResult.isValid)}
                 </p>
               </div>
-              <span
-                className={`rounded-full px-2.5 py-1 text-[10px] font-body font-bold ${
-                  lookupResult.isValid ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                }`}
-              >
-                {lookupResult.isValid ? "Còn hiệu lực" : "Hết hạn"}
-              </span>
-            </div>
-            <p className="mt-2 font-body text-xs text-slate-500">
-              Hết hạn: {new Date(lookupResult.endDate).toLocaleDateString("vi-VN")} ·{" "}
-              {getWarrantyRemainingLabel(lookupResult.endDate, lookupResult.isValid)}
-            </p>
+            ))}
           </div>
         ) : null}
       </form>
+    </div>
+  );
+}
+
+function ServiceOrderCards({ orders }: { orders: ServiceOrderInfo[] }) {
+  return (
+    <div data-testid="account-service-orders" className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between mb-4">
+        <div>
+          <h3 className="font-heading font-bold text-slate-900">🧾 Lịch Sử Dịch Vụ</h3>
+          <p className="font-body text-xs text-slate-400">
+            Các đơn Minh Hồng đã xác nhận hiển thị trong tài khoản của bạn.
+          </p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-body font-bold text-slate-500">
+          {orders.length} đơn
+        </span>
+      </div>
+
+      {orders.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
+          <p className="font-body text-sm font-semibold text-slate-600">Chưa có đơn dịch vụ được hiển thị.</p>
+          <p className="font-body text-xs text-slate-400 mt-1">
+            Nếu bạn từng làm dịch vụ trước đây, cửa hàng có thể đối chiếu và gắn lại theo số điện thoại.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {orders.map((order) => {
+            const status = orderStatusConfig[order.status] || orderStatusConfig.RECEIVED;
+            const remaining = Math.max((order.quotedPrice || 0) - order.paidAmount, 0);
+
+            return (
+              <div key={order.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="rounded bg-white px-2 py-0.5 text-xs font-bold text-slate-700">
+                        {order.orderCode}
+                      </code>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${status.color}`}>
+                        {status.label}
+                      </span>
+                    </div>
+                    <p className="mt-1 font-body text-sm font-semibold text-slate-800">{order.productName}</p>
+                    <p className="font-body text-xs text-slate-400">
+                      {serviceLabels[order.service] || order.service} · {order.orderDateLabel}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2 font-body text-[10px] text-slate-500">
+                      <span>Giá báo: {formatMoney(order.quotedPrice)}</span>
+                      <span>Đã thu: {formatMoney(order.paidAmount)}</span>
+                      {remaining > 0 ? <span>Còn lại: {formatMoney(remaining)}</span> : null}
+                      {order.warrantyEndDateLabel ? <span>BH đến: {order.warrantyEndDateLabel}</span> : null}
+                    </div>
+                    {order.notes ? (
+                      <p className="mt-2 font-body text-xs text-slate-500">{order.notes}</p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -611,22 +716,22 @@ function RewardsSection({
 function AccountHero({
   initialUser,
   isLoggingOut,
-  loyaltyTier,
   requestCount,
+  serviceOrderCount,
   warrantyCount,
   onLogout,
 }: {
   initialUser: UserInfo;
   isLoggingOut: boolean;
-  loyaltyTier: ReturnType<typeof getLoyaltyTier>;
   requestCount: number;
+  serviceOrderCount: number;
   warrantyCount: number;
   onLogout: () => void;
 }) {
   const accountStats = [
     { label: "Yêu cầu đã gửi", value: requestCount, helper: requestCount > 0 ? "Đang được theo dõi" : "Chưa có yêu cầu" },
+    { label: "Đơn dịch vụ", value: serviceOrderCount, helper: serviceOrderCount > 0 ? "Đã gắn với tài khoản" : "Chưa có đơn hiển thị" },
     { label: "Phiếu bảo hành", value: warrantyCount, helper: warrantyCount > 0 ? "Gắn với tài khoản" : "Có thể tra serial" },
-    { label: "Hạng thành viên", value: loyaltyTier.label, helper: loyaltyTier.next },
   ];
 
   return (
@@ -885,6 +990,7 @@ interface AccountPageClientProps {
   dataWarning?: string | null;
   initialCoupons: CouponInfo[];
   initialRequests: ServiceRequest[];
+  initialServiceOrders: ServiceOrderInfo[];
   initialUser: UserInfo;
   initialWarranties: WarrantyInfo[];
 }
@@ -893,6 +999,7 @@ export default function AccountPageClient({
   dataWarning,
   initialCoupons,
   initialRequests,
+  initialServiceOrders,
   initialUser,
   initialWarranties,
 }: AccountPageClientProps) {
@@ -912,7 +1019,6 @@ export default function AccountPageClient({
   const [reviewFeedback, setReviewFeedback] = useState<FeedbackMessage | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [loyaltyPoints, setLoyaltyPoints] = useState(initialUser.loyaltyPoints);
-  const loyaltyTier = getLoyaltyTier(loyaltyPoints);
   const canSubmitRequest = formData.service.length > 0;
   const canSubmitReview = reviewData.service.length > 0 && reviewData.comment.trim().length > 0;
 
@@ -1087,8 +1193,8 @@ export default function AccountPageClient({
       <AccountHero
         initialUser={initialUser}
         isLoggingOut={isLoggingOut}
-        loyaltyTier={loyaltyTier}
         requestCount={requests.length}
+        serviceOrderCount={initialServiceOrders.length}
         warrantyCount={initialWarranties.length}
         onLogout={handleLogout}
       />
@@ -1302,6 +1408,7 @@ export default function AccountPageClient({
         ) : null}
       </div>
 
+      <ServiceOrderCards orders={initialServiceOrders} />
       <WarrantyCards warranties={initialWarranties} />
       <RewardsSection
         initialCoupons={initialCoupons}

@@ -163,13 +163,13 @@ test.describe("Auth, account and dashboard smoke", () => {
       timeout: 15_000,
     });
 
-    await page.getByTestId("account-warranty-serial").fill(`MH-MISSING-${Date.now()}`);
+    await page.getByTestId("account-warranty-query").fill(`MH-MISSING-${Date.now()}`);
     await page.getByTestId("account-warranty-lookup").click();
     await expect(page.getByTestId("account-warranty-lookup")).toBeEnabled({ timeout: 15_000 });
     await expect(page.getByTestId("account-warranty-message")).toContainText("Không tìm thấy", {
       timeout: 15_000,
     });
-    await page.getByTestId("account-warranty-serial").fill(serialNo);
+    await page.getByTestId("account-warranty-query").fill(serialNo);
     await page.getByTestId("account-warranty-lookup").click();
     await expect(page.getByTestId("account-warranty-result")).toContainText("Pin test Phase 5");
 
@@ -309,6 +309,10 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("dashboard-crm-overview")).toBeVisible();
     await expect(page.getByTestId("dashboard-action-queue")).toBeVisible();
     await expect(page.getByTestId("dashboard-chatbot-health")).toBeVisible();
+
+    await page.getByTestId("dashboard-open-orders").click();
+    await expect(page).toHaveURL(/\/dashboard\/orders/, { timeout: AUTH_REDIRECT_TIMEOUT });
+    await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
   });
 
   test("admin can scan and filter the customer CRM list", async ({ page }) => {
@@ -515,6 +519,7 @@ test.describe("Auth, account and dashboard smoke", () => {
         message: "Lead CRM e2e can be found by search and source filters.",
         source: "chatbot-camera",
         sourcePath: "/e2e/crm",
+        referrer: "http://localhost:3001/e2e/crm",
         utmSource: "crm-e2e",
       },
     });
@@ -534,6 +539,10 @@ test.describe("Auth, account and dashboard smoke", () => {
       await expect(page.getByTestId("dashboard-contacts-result-count")).toContainText("1 /");
       await expect(page.getByTestId("dashboard-contact-card")).toHaveCount(1);
       await expect(page.getByText(name)).toBeVisible();
+      await expect(page.getByText("Kênh quảng cáo: crm-e2e")).toHaveCount(0);
+      await expect(page.getByText("Trang khách mở: Đường dẫn /e2e/crm")).toHaveCount(0);
+      await expect(page.getByText("Trang giới thiệu: localhost")).toHaveCount(0);
+      await expect(page.getByText("Nguồn: Chatbot tư vấn camera")).toBeVisible();
 
       await page.getByTestId("dashboard-contacts-source-filter").selectOption("chatbot-camera");
       await expect(page.getByText(name)).toBeVisible();
@@ -560,6 +569,15 @@ test.describe("Auth, account and dashboard smoke", () => {
 
       await page.getByTestId("dashboard-contacts-search").fill(`missing-${unique}`);
       await expect(page.getByTestId("dashboard-contacts-empty")).toBeVisible();
+
+      await page.getByTestId("dashboard-contacts-search").fill(phone);
+      await expect(page.getByTestId("dashboard-contact-card")).toHaveCount(1);
+      await page.getByTestId("dashboard-contact-detail-open").click();
+      await expect(drawer).toBeVisible();
+      await drawer.getByTestId("dashboard-contact-create-order").click();
+      await expect(page).toHaveURL(/\/dashboard\/orders\?.*source=CONTACT/, { timeout: AUTH_REDIRECT_TIMEOUT });
+      await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+      await expect(page.getByTestId("dashboard-order-customer-name-input")).toHaveValue(name);
     } finally {
       if (contactId) {
         try {

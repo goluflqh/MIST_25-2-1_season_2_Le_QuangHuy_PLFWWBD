@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 
@@ -79,6 +79,8 @@ const couponFormDefaults = {
 
 export default function AdminCouponsClient({ initialCoupons }: { initialCoupons: CouponData[] }) {
   const { showToast, showConfirm } = useNotify();
+  const formRef = useRef<HTMLFormElement>(null);
+  const firstFieldRef = useRef<HTMLInputElement>(null);
   const [coupons, setCoupons] = useState<CouponData[]>(initialCoupons);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(couponFormDefaults);
@@ -139,6 +141,19 @@ export default function AdminCouponsClient({ initialCoupons }: { initialCoupons:
     setSearchQuery("");
     setStatusFilter("all");
     setSortMode("recommended");
+  };
+
+  const toggleCreateForm = () => {
+    const shouldOpen = !showForm;
+    setShowForm(shouldOpen);
+    setFormError(null);
+
+    if (shouldOpen) {
+      window.setTimeout(() => {
+        formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        firstFieldRef.current?.focus({ preventScroll: true });
+      }, 0);
+    }
   };
 
   const handleCreate = async (event: React.FormEvent) => {
@@ -251,10 +266,8 @@ export default function AdminCouponsClient({ initialCoupons }: { initialCoupons:
             Xoá bộ lọc
           </button>
           <button
-            onClick={() => {
-              setShowForm(!showForm);
-              setFormError(null);
-            }}
+            aria-expanded={showForm}
+            onClick={toggleCreateForm}
             className="rounded-xl bg-red-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-red-700"
           >
             + Tạo Mã
@@ -323,7 +336,7 @@ export default function AdminCouponsClient({ initialCoupons }: { initialCoupons:
       </div>
 
       {showForm && (
-        <form onSubmit={handleCreate} className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
+        <form ref={formRef} onSubmit={handleCreate} className="scroll-mt-28 bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
           <div>
             <h3 className="font-heading font-bold text-slate-900">Tạo Mã Giảm Giá</h3>
             <p className="mt-1 font-body text-sm text-slate-500">
@@ -339,6 +352,7 @@ export default function AdminCouponsClient({ initialCoupons }: { initialCoupons:
             <label className="space-y-1.5">
               <span className="font-body text-xs font-bold text-slate-600">Mã khách nhập</span>
               <input
+                ref={firstFieldRef}
                 data-testid="dashboard-coupon-code-input"
                 name="couponCode"
                 value={formData.code}

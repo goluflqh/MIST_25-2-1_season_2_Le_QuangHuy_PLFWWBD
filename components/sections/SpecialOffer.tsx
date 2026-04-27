@@ -1,3 +1,5 @@
+import { siteConfig } from "@/lib/site";
+
 export default function SpecialOffer() {
   const points = [
     {
@@ -68,7 +70,7 @@ export default function SpecialOffer() {
               </div>
             </div>
             <a
-              href="https://maps.app.goo.gl/gCtACM49w2sPEc5dA"
+              href={siteConfig.mapUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-yellow-400 px-6 py-3.5 text-center font-heading text-base font-black text-slate-900 transition-colors hover:bg-yellow-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yellow-200"

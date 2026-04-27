@@ -148,11 +148,28 @@ export default function Header({
     setServicesMenuState({ open: false, pathname });
   };
 
+  useEffect(() => {
+    const closePublicMenu = () => {
+      if (servicesCloseTimerRef.current !== null) {
+        window.clearTimeout(servicesCloseTimerRef.current);
+        servicesCloseTimerRef.current = null;
+      }
+      setMobileMenuState({ open: false, pathname });
+      setServicesMenuState({ open: false, pathname });
+    };
+
+    window.addEventListener("mh:admin-menu-open", closePublicMenu);
+    return () => {
+      window.removeEventListener("mh:admin-menu-open", closePublicMenu);
+    };
+  }, [pathname]);
+
   const toggleMobileMenu = () => {
-    setMobileMenuState((prev) => ({
-      open: !(prev.pathname === pathname && prev.open),
-      pathname,
-    }));
+    const nextOpen = !isMobileMenuOpen;
+    if (nextOpen) {
+      window.dispatchEvent(new Event("mh:public-menu-open"));
+    }
+    setMobileMenuState({ open: nextOpen, pathname });
   };
 
   const handleLogout = async () => {

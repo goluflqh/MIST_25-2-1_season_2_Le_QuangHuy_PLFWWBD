@@ -10,7 +10,7 @@ const serviceSchemas = {
     path: "/dich-vu/dong-pin",
     serviceType: "Đóng pin Lithium",
     description:
-      "Đóng mới và phục hồi pin Lithium theo tải thực tế cho xe điện, máy công cụ, loa kéo và bộ pin theo thông số riêng tại Đà Nẵng.",
+      "Đóng pin xe điện, sửa pin lithium, thay cell, làm pin máy công cụ, loa kéo và bộ pin theo thông số riêng tại Đà Nẵng.",
   },
   camera: {
     name: "Lắp camera an ninh Đà Nẵng",

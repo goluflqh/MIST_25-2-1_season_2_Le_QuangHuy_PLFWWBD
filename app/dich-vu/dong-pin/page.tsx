@@ -11,7 +11,7 @@ import { buildBreadcrumbJsonLd, buildServiceJsonLd } from "@/lib/structured-data
 export const metadata = buildMarketingMetadata({
   title: "Đóng Pin Lithium Đà Nẵng",
   description:
-    "Đóng pin Lithium tại Đà Nẵng theo tải thực tế cho xe điện, máy công cụ, loa kéo và bộ pin theo thông số riêng, có kiểm tra cell và BMS.",
+    "Điện máy pin Minh Hồng nhận đóng pin xe điện, sửa pin lithium, thay cell, làm pin máy khoan, loa kéo và bộ pin theo yêu cầu tại Đà Nẵng.",
   path: "/dich-vu/dong-pin",
 });
 
