@@ -1,4 +1,5 @@
 import { getChatbotDashboardMetrics } from "@/lib/chatbot-metrics";
+import { getPayableAmount } from "@/lib/coupon-discounts";
 import { getLeadSourceLabel } from "@/lib/lead-sources";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
@@ -163,6 +164,7 @@ export default async function DashboardPage() {
         orderDate: true,
         quotedPrice: true,
         paidAmount: true,
+        discountAmount: true,
       },
       take: 500,
     }),
@@ -192,10 +194,12 @@ export default async function DashboardPage() {
   const financialSummary = serviceOrders.reduce(
     (summary, order) => {
       const quoted = order.quotedPrice || 0;
+      const payable = getPayableAmount(order.quotedPrice, order.discountAmount);
       const paid = order.paidAmount || 0;
-      const debt = Math.max(quoted - paid, 0);
+      const debt = Math.max(payable - paid, 0);
 
       summary.quoted += quoted;
+      summary.discount += order.discountAmount || 0;
       summary.paid += paid;
       summary.debt += debt;
       if (debt > 0) summary.debtOrders += 1;
@@ -204,9 +208,9 @@ export default async function DashboardPage() {
       }
       return summary;
     },
-    { debt: 0, debtOrders: 0, openOrders: 0, paid: 0, quoted: 0 }
+    { debt: 0, debtOrders: 0, discount: 0, openOrders: 0, paid: 0, quoted: 0 }
   );
-  const collectionRate = getPercent(financialSummary.paid, financialSummary.quoted);
+  const collectionRate = getPercent(financialSummary.paid, Math.max(financialSummary.quoted - financialSummary.discount, 0));
   const monthBuckets = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
     return {
@@ -223,19 +227,19 @@ export default async function DashboardPage() {
     const bucket = monthLookup.get(key);
     if (!bucket) return;
     bucket.paid += order.paidAmount || 0;
-    bucket.quoted += order.quotedPrice || 0;
+    bucket.quoted += getPayableAmount(order.quotedPrice, order.discountAmount);
   });
   const maxMonthlyPaid = Math.max(...monthBuckets.map((bucket) => bucket.paid), 1);
   const serviceMoneyRows = Object.entries(
     serviceOrders.reduce<Record<string, { debt: number; paid: number; quoted: number }>>((summary, order) => {
-      const quoted = order.quotedPrice || 0;
+      const payable = getPayableAmount(order.quotedPrice, order.discountAmount);
       const paid = order.paidAmount || 0;
-      const debt = Math.max(quoted - paid, 0);
+      const debt = Math.max(payable - paid, 0);
       const current = summary[order.service] || { debt: 0, paid: 0, quoted: 0 };
       summary[order.service] = {
         debt: current.debt + debt,
         paid: current.paid + paid,
-        quoted: current.quoted + quoted,
+        quoted: current.quoted + payable,
       };
       return summary;
     }, {})
@@ -246,7 +250,7 @@ export default async function DashboardPage() {
   const topDebtOrders = serviceOrders
     .map((order) => ({
       ...order,
-      debt: Math.max((order.quotedPrice || 0) - (order.paidAmount || 0), 0),
+      debt: Math.max(getPayableAmount(order.quotedPrice, order.discountAmount) - (order.paidAmount || 0), 0),
     }))
     .filter((order) => order.debt > 0)
     .sort((first, second) => second.debt - first.debt)

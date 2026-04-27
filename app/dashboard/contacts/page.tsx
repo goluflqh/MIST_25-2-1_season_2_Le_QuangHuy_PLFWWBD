@@ -21,6 +21,25 @@ export default async function ContactsManagementPage() {
       utmCampaign: true,
       utmTerm: true,
       utmContent: true,
+      couponRedemption: {
+        select: {
+          id: true,
+          coupon: {
+            select: {
+              code: true,
+              description: true,
+              discount: true,
+            },
+          },
+        },
+      },
+      serviceOrder: {
+        select: {
+          id: true,
+          orderCode: true,
+          status: true,
+        },
+      },
       createdAt: true,
     },
   });

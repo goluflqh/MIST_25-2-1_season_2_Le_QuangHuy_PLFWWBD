@@ -4,6 +4,7 @@ import { startTransition, type FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
+import { getPayableAmount } from "@/lib/coupon-discounts";
 
 interface UserInfo {
   id: string;
@@ -48,6 +49,9 @@ interface ServiceOrderInfo {
   orderDateLabel: string;
   quotedPrice: number | null;
   paidAmount: number;
+  couponCode: string | null;
+  couponDiscount: string | null;
+  discountAmount: number;
   warrantyEndDateLabel: string | null;
   notes: string | null;
 }
@@ -396,7 +400,8 @@ function ServiceOrderCards({ orders }: { orders: ServiceOrderInfo[] }) {
         <div className="space-y-3">
           {orders.map((order) => {
             const status = orderStatusConfig[order.status] || orderStatusConfig.RECEIVED;
-            const remaining = Math.max((order.quotedPrice || 0) - order.paidAmount, 0);
+            const payable = getPayableAmount(order.quotedPrice, order.discountAmount);
+            const remaining = Math.max(payable - order.paidAmount, 0);
 
             return (
               <div key={order.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
@@ -415,11 +420,20 @@ function ServiceOrderCards({ orders }: { orders: ServiceOrderInfo[] }) {
                       {serviceLabels[order.service] || order.service} · {order.orderDateLabel}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2 font-body text-[10px] text-slate-500">
-                      <span>Giá báo: {formatMoney(order.quotedPrice)}</span>
+                      <span>Giá gốc: {formatMoney(order.quotedPrice)}</span>
+                      {order.discountAmount > 0 ? (
+                        <span>Giảm: {formatMoney(order.discountAmount)}</span>
+                      ) : null}
+                      <span>Phải trả: {formatMoney(payable)}</span>
                       <span>Đã thu: {formatMoney(order.paidAmount)}</span>
                       {remaining > 0 ? <span>Còn lại: {formatMoney(remaining)}</span> : null}
                       {order.warrantyEndDateLabel ? <span>BH đến: {order.warrantyEndDateLabel}</span> : null}
                     </div>
+                    {order.couponCode ? (
+                      <p className="mt-2 font-body text-xs font-semibold text-emerald-700">
+                        Đã áp dụng mã {order.couponCode} ({order.couponDiscount || "ưu đãi"})
+                      </p>
+                    ) : null}
                     {order.notes ? (
                       <p className="mt-2 font-body text-xs text-slate-500">{order.notes}</p>
                     ) : null}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
+import { calculateCouponDiscount, getPayableAmount, getRemainingAmount } from "@/lib/coupon-discounts";
 
 interface ServiceOrderData {
   id: string;
@@ -19,6 +20,11 @@ interface ServiceOrderData {
   orderDate: string;
   quotedPrice: number | null;
   paidAmount: number;
+  contactRequestId: string | null;
+  couponRedemptionId: string | null;
+  couponCode: string | null;
+  couponDiscount: string | null;
+  discountAmount: number;
   warrantyMonths: number | null;
   warrantyEndDate: string | null;
   customerVisible: boolean;
@@ -41,6 +47,20 @@ interface ServiceOrderData {
     id: string;
     serialNo: string;
     endDate: string;
+  } | null;
+  contactRequest: {
+    id: string;
+    status: string;
+    userId: string | null;
+    couponRedemptionId: string | null;
+  } | null;
+  couponRedemption: {
+    id: string;
+    coupon: {
+      code: string;
+      description: string;
+      discount: string;
+    };
   } | null;
 }
 
@@ -144,8 +164,13 @@ function formatMoney(value: number | null | undefined) {
   return `${value.toLocaleString("vi-VN")}đ`;
 }
 
+function parseMoneyText(value: string) {
+  const parsed = Number.parseInt(value.replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getDebt(order: ServiceOrderData) {
-  return Math.max((order.quotedPrice || 0) - order.paidAmount, 0);
+  return getRemainingAmount(order.quotedPrice, order.discountAmount, order.paidAmount);
 }
 
 function splitDelimitedLine(line: string, delimiter: string) {
@@ -297,12 +322,17 @@ export default function AdminServiceOrdersClient({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [warrantyCreatingId, setWarrantyCreatingId] = useState<string | null>(null);
+  const [paymentInputs, setPaymentInputs] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
+    contactRequestId: "",
     customerAddress: "",
     customerName: "",
     customerPhone: "",
     customerVisible: false,
+    couponCode: "",
+    couponDiscount: "",
+    couponRedemptionId: "",
     issueDescription: "",
     notes: "",
     orderDate: todayText(),
@@ -326,11 +356,12 @@ export default function AdminServiceOrdersClient({
       (summary, order) => {
         summary.total += 1;
         summary.debt += getDebt(order);
+        summary.discount += order.discountAmount || 0;
         summary.paid += order.paidAmount;
         summary.quoted += order.quotedPrice || 0;
         return summary;
       },
-      { debt: 0, paid: 0, quoted: 0, total: 0 }
+      { debt: 0, discount: 0, paid: 0, quoted: 0, total: 0 }
     );
   }, [orders]);
 
@@ -408,6 +439,11 @@ export default function AdminServiceOrdersClient({
     appliedPrefillRef.current = true;
     setFormData((prev) => ({
       ...prev,
+      contactRequestId: params.get("contactRequestId") || "",
+      couponCode: params.get("couponCode") || "",
+      couponDiscount: params.get("couponDiscount") || "",
+      couponRedemptionId: params.get("couponRedemptionId") || "",
+      customerVisible: true,
       customerName,
       customerPhone,
       issueDescription: params.get("issueDescription") || "",
@@ -422,10 +458,14 @@ export default function AdminServiceOrdersClient({
 
   const resetForm = () => {
     setFormData({
+      contactRequestId: "",
       customerAddress: "",
       customerName: "",
       customerPhone: "",
       customerVisible: false,
+      couponCode: "",
+      couponDiscount: "",
+      couponRedemptionId: "",
       issueDescription: "",
       notes: "",
       orderDate: todayText(),
@@ -522,6 +562,15 @@ export default function AdminServiceOrdersClient({
     } finally {
       setSavingId(null);
     }
+  };
+
+  const savePayment = (order: ServiceOrderData) => {
+    const input = paymentInputs[order.id] ?? String(order.paidAmount || "");
+    updateOrder(order.id, { paidAmount: parseMoneyText(input) });
+  };
+
+  const markPaidInFull = (order: ServiceOrderData) => {
+    updateOrder(order.id, { paidAmount: getPayableAmount(order.quotedPrice, order.discountAmount) });
   };
 
   const deleteOrder = (id: string) => {
@@ -647,6 +696,10 @@ export default function AdminServiceOrdersClient({
     reader.readAsText(file, "utf-8");
   };
 
+  const formQuotedPrice = parseMoneyText(formData.quotedPrice);
+  const formDiscountAmount = calculateCouponDiscount(formData.couponDiscount, formQuotedPrice);
+  const formPayableAmount = getPayableAmount(formQuotedPrice, formDiscountAmount);
+
   return (
     <div data-testid="dashboard-service-orders" className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -683,8 +736,9 @@ export default function AdminServiceOrdersClient({
           <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.total}</p>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Giá trị báo</p>
+          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Giá gốc đã báo</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{formatMoney(metrics.quoted)}</p>
+          <p className="mt-1 font-body text-xs text-emerald-700">Đã giảm: {formatMoney(metrics.discount)}</p>
         </div>
         <div className="rounded-2xl border border-green-100 bg-green-50 p-5">
           <p className="font-body text-xs uppercase tracking-wider text-green-700">Đã thu</p>
@@ -813,7 +867,7 @@ export default function AdminServiceOrdersClient({
               </select>
             </label>
             <label className="space-y-1.5">
-              <span className="font-body text-xs font-bold text-slate-600">Giá báo</span>
+              <span className="font-body text-xs font-bold text-slate-600">Giá báo gốc</span>
               <input
                 inputMode="numeric"
                 value={formData.quotedPrice}
@@ -822,6 +876,17 @@ export default function AdminServiceOrdersClient({
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
               />
             </label>
+            {formData.couponRedemptionId ? (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                <p className="font-body text-xs font-bold text-emerald-700">Mã khách chọn</p>
+                <p className="mt-1 font-heading text-sm font-extrabold text-emerald-900">
+                  {formData.couponCode || "Mã ưu đãi"} - giảm {formData.couponDiscount || "theo mã"}
+                </p>
+                <p className="mt-1 font-body text-xs text-emerald-800">
+                  Giảm dự kiến {formatMoney(formDiscountAmount)} · khách cần trả {formatMoney(formPayableAmount)}
+                </p>
+              </div>
+            ) : null}
             <label className="space-y-1.5">
               <span className="font-body text-xs font-bold text-slate-600">Đã thu</span>
               <input
@@ -1029,6 +1094,7 @@ export default function AdminServiceOrdersClient({
           filteredOrders.map((order) => {
             const status = statusConfig[order.status] || statusConfig.RECEIVED;
             const debt = getDebt(order);
+            const payable = getPayableAmount(order.quotedPrice, order.discountAmount);
             return (
               <div
                 key={order.id}
@@ -1060,10 +1126,17 @@ export default function AdminServiceOrdersClient({
                     </p>
                     <div className="mt-3 grid gap-2 font-body text-xs text-slate-500 md:grid-cols-2 xl:grid-cols-4">
                       <span>Ngày đơn: <strong>{formatDate(order.orderDate)}</strong></span>
-                      <span>Giá báo: <strong>{formatMoney(order.quotedPrice)}</strong></span>
+                      <span>Giá gốc: <strong>{formatMoney(order.quotedPrice)}</strong></span>
+                      <span>Giảm giá: <strong className="text-emerald-700">{formatMoney(order.discountAmount)}</strong></span>
+                      <span>Phải thu: <strong>{formatMoney(payable)}</strong></span>
                       <span>Đã thu: <strong>{formatMoney(order.paidAmount)}</strong></span>
                       <span>Còn lại: <strong className={debt > 0 ? "text-red-600" : "text-green-700"}>{formatMoney(debt)}</strong></span>
                     </div>
+                    {order.couponCode ? (
+                      <p className="mt-2 font-body text-xs font-semibold text-emerald-700">
+                        Mã ưu đãi: {order.couponCode} ({order.couponDiscount || "đã áp dụng"})
+                      </p>
+                    ) : null}
                     {order.issueDescription || order.solution || order.notes ? (
                       <div className="mt-3 grid gap-2 lg:grid-cols-3">
                         {order.issueDescription ? (
@@ -1109,6 +1182,32 @@ export default function AdminServiceOrdersClient({
                     >
                       {order.customerVisible ? "Đang hiện cho khách" : "Ẩn với khách"}
                     </button>
+                    <div className="flex gap-2 sm:col-span-3">
+                      <input
+                        inputMode="numeric"
+                        value={paymentInputs[order.id] ?? ""}
+                        onChange={(event) => setPaymentInputs((prev) => ({ ...prev, [order.id]: event.target.value }))}
+                        placeholder={`Đã thu: ${formatMoney(order.paidAmount)}`}
+                        className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-body outline-none focus:border-red-400"
+                        title="Cập nhật số tiền đã thu"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => savePayment(order)}
+                        disabled={savingId === order.id}
+                        className="rounded-xl bg-green-50 px-3 py-2 text-xs font-body font-bold text-green-700 disabled:bg-slate-100 disabled:text-slate-300"
+                      >
+                        Ghi thu
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => markPaidInFull(order)}
+                        disabled={savingId === order.id || payable === 0}
+                        className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-body font-bold text-white disabled:bg-slate-300"
+                      >
+                        Thu đủ
+                      </button>
+                    </div>
                     {order.warranty ? (
                       <p className="rounded-xl bg-green-50 px-3 py-2 text-xs font-body font-bold text-green-700">
                         BH: {order.warranty.serialNo}

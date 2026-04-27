@@ -100,7 +100,7 @@ export default function TrustHighlights() {
               </div>
               <div className="rounded-2xl border border-white bg-white/92 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  Khu vực hỗ trợ
+                  Địa chỉ cửa hàng
                 </p>
                 <p className="mt-1 font-body text-sm font-semibold text-slate-800">
                   {siteConfig.locationLabel}
