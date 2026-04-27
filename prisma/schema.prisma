@@ -29,6 +29,8 @@ model User {
   contactRequests   ContactRequest[]
   reviews           Review[]
   warranties        Warranty[]
+  customerProfile   Customer?
+  serviceOrders     ServiceOrder[]
   auditLogs         AuditLog[]
   couponRedemptions CouponRedemption[]
 
@@ -155,26 +157,89 @@ model CouponRedemption {
 }
 
 model Warranty {
-  id            String    @id @default(cuid())
-  serialNo      String    @unique
-  productName   String
-  customerName  String
-  customerPhone String
-  service       String    @default("KHAC")
-  startDate     DateTime  @default(now())
-  endDate       DateTime
-  notes         String?
-  deletedAt     DateTime?
-  createdAt     DateTime  @default(now())
-  userId        String?
+  id             String    @id @default(cuid())
+  serialNo       String    @unique
+  productName    String
+  customerName   String
+  customerPhone  String
+  service        String    @default("KHAC")
+  startDate      DateTime  @default(now())
+  endDate        DateTime
+  notes          String?
+  serviceOrderId String?   @unique
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  userId         String?
 
-  user User? @relation(fields: [userId], references: [id])
+  serviceOrder ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+  user         User?         @relation(fields: [userId], references: [id])
 
   @@index([serialNo])
   @@index([customerPhone])
   @@index([userId])
   @@index([createdAt])
   @@index([endDate])
+}
+
+model Customer {
+  id        String    @id @default(cuid())
+  name      String
+  phone     String    @unique
+  address   String?
+  notes     String?
+  userId    String?   @unique
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  serviceOrders ServiceOrder[]
+
+  @@index([phone])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ServiceOrder {
+  id               String    @id @default(cuid())
+  orderCode        String    @unique
+  customerId       String
+  userId           String?
+  customerName     String
+  customerPhone    String
+  customerAddress  String?
+  service          String    @default("KHAC")
+  productName      String
+  issueDescription String?
+  solution         String?
+  status           String    @default("RECEIVED")
+  source           String    @default("MANUAL")
+  orderDate        DateTime  @default(now())
+  quotedPrice      Int?
+  paidAmount       Int       @default(0)
+  warrantyMonths   Int?
+  warrantyEndDate  DateTime?
+  customerVisible  Boolean   @default(false)
+  notes            String?
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  warranty Warranty?
+
+  @@index([customerId])
+  @@index([userId])
+  @@index([customerPhone])
+  @@index([service])
+  @@index([status])
+  @@index([source])
+  @@index([orderDate])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([customerId, orderDate])
+  @@index([customerVisible, userId])
 }
 
 model AuditLog {

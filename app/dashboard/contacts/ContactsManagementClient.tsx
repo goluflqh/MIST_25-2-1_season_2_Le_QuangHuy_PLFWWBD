@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useNotify } from "@/components/NotifyProvider";
 import { getLeadSourceLabel } from "@/lib/lead-sources";
 
@@ -35,6 +36,18 @@ const serviceLabels: Record<string, string> = {
   contact: "📞 Liên hệ",
 };
 
+const serviceOrderDefaults: Record<string, { productName: string; service: string }> = {
+  DONG_PIN: { productName: "Đóng pin", service: "DONG_PIN" },
+  DEN_NLMT: { productName: "Đèn năng lượng mặt trời", service: "DEN_NLMT" },
+  PIN_LUU_TRU: { productName: "Pin lưu trữ", service: "PIN_LUU_TRU" },
+  CAMERA: { productName: "Camera an ninh", service: "CAMERA" },
+  CUSTOM: { productName: "Dịch vụ theo yêu cầu", service: "CUSTOM" },
+  KHAC: { productName: "Yêu cầu tư vấn", service: "KHAC" },
+  battery: { productName: "Đóng pin", service: "DONG_PIN" },
+  camera: { productName: "Camera an ninh", service: "CAMERA" },
+  contact: { productName: "Yêu cầu tư vấn", service: "KHAC" },
+};
+
 const statusConfig: Record<string, { label: string; color: string }> = {
   PENDING: { label: "Chờ xử lý", color: "bg-yellow-100 text-yellow-800 border-yellow-200" },
   CONTACTED: { label: "Đã liên hệ", color: "bg-blue-100 text-blue-800 border-blue-200" },
@@ -62,14 +75,46 @@ function getStatusRank(status: string) {
   return rank === -1 ? STATUS_PRIORITY.length : rank;
 }
 
+function isLocalHostname(hostname: string) {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized.endsWith(".local")
+  );
+}
+
+function isInternalTrackingValue(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return (
+    !normalized ||
+    normalized.includes("e2e") ||
+    normalized.includes("localhost") ||
+    normalized.includes("127.0.0.1") ||
+    normalized.startsWith("/e2e")
+  );
+}
+
+function formatTrackingLabel(value: string | null | undefined) {
+  if (isInternalTrackingValue(value)) return null;
+
+  return String(value)
+    .trim()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function formatReferrer(referrer: string | null) {
   if (!referrer) return null;
 
   try {
     const url = new URL(referrer);
+    if (isLocalHostname(url.hostname)) return null;
     return url.hostname;
   } catch {
-    return referrer;
+    return isInternalTrackingValue(referrer) ? null : referrer;
   }
 }
 
@@ -81,12 +126,18 @@ function formatSourcePath(sourcePath: string | null) {
   if (!sourcePath) return null;
 
   try {
+    const rawSourcePath = sourcePath.trim();
     const url = new URL(sourcePath, "https://minhhong.local");
+    if (url.pathname.startsWith("/e2e")) return null;
+
     const source = url.searchParams.get("source");
     if (source) {
       const sourceLabel = getLeadSourceLabel(source);
       return url.hash === "#quote" ? `${sourceLabel} - biểu mẫu tư vấn` : sourceLabel;
     }
+
+    const isAbsoluteUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(rawSourcePath);
+    if (isAbsoluteUrl && isLocalHostname(url.hostname)) return null;
 
     const pathLabels: Record<string, string> = {
       "/": "Trang chủ",
@@ -98,7 +149,7 @@ function formatSourcePath(sourcePath: string | null) {
 
     return pathLabels[url.pathname] || `Đường dẫn ${url.pathname}`;
   } catch {
-    return sourcePath;
+    return isInternalTrackingValue(sourcePath) ? null : sourcePath;
   }
 }
 
@@ -153,11 +204,27 @@ function getLeadHeat(contact: ContactRequest) {
   };
 }
 
+function buildServiceOrderHref(contact: ContactRequest) {
+  const orderDefault = serviceOrderDefaults[contact.service] || serviceOrderDefaults.KHAC;
+  const params = new URLSearchParams({
+    customerName: contact.name,
+    customerPhone: contact.phone,
+    issueDescription: contact.message || "",
+    notes: contact.notes || `Tạo từ yêu cầu tư vấn ${formatDateTime(contact.createdAt)}`,
+    productName: orderDefault.productName,
+    service: orderDefault.service,
+    source: "CONTACT",
+  });
+
+  return `/dashboard/orders?${params.toString()}`;
+}
+
 export default function ContactsManagementClient({
   initialContacts,
 }: {
   initialContacts: ContactRequest[];
 }) {
+  const router = useRouter();
   const { showToast, showConfirm } = useNotify();
   const [contacts, setContacts] = useState<ContactRequest[]>(initialContacts);
   const [filter, setFilter] = useState("ALL");
@@ -328,13 +395,12 @@ export default function ContactsManagementClient({
         contact.source,
         contact.source ? getLeadSourceLabel(contact.source) : null,
         formatSourcePath(contact.sourcePath),
-        contact.sourcePath,
         referrer,
-        contact.utmSource,
-        contact.utmMedium,
-        contact.utmCampaign,
-        contact.utmTerm,
-        contact.utmContent,
+        formatTrackingLabel(contact.utmSource),
+        formatTrackingLabel(contact.utmMedium),
+        formatTrackingLabel(contact.utmCampaign),
+        formatTrackingLabel(contact.utmTerm),
+        formatTrackingLabel(contact.utmContent),
       ];
       const matchesSearch =
         query.length === 0 ||
@@ -516,29 +582,29 @@ export default function ContactsManagementClient({
                         Nguồn: {getLeadSourceLabel(contact.source)}
                       </span>
                     ) : null}
-                    {contact.utmSource ? (
+                    {formatTrackingLabel(contact.utmSource) ? (
                       <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-body font-bold text-blue-700">
-                        Kênh quảng cáo: {contact.utmSource}
+                        Kênh quảng cáo: {formatTrackingLabel(contact.utmSource)}
                       </span>
                     ) : null}
-                    {contact.utmCampaign ? (
+                    {formatTrackingLabel(contact.utmCampaign) ? (
                       <span className="rounded-full bg-purple-50 px-2 py-1 text-[10px] font-body font-bold text-purple-700">
-                        Chiến dịch: {contact.utmCampaign}
+                        Chiến dịch: {formatTrackingLabel(contact.utmCampaign)}
                       </span>
                     ) : null}
-                    {contact.utmMedium ? (
+                    {formatTrackingLabel(contact.utmMedium) ? (
                       <span className="rounded-full bg-cyan-50 px-2 py-1 text-[10px] font-body font-bold text-cyan-700">
-                        Cách chạy: {contact.utmMedium}
+                        Cách chạy: {formatTrackingLabel(contact.utmMedium)}
                       </span>
                     ) : null}
-                    {contact.utmTerm ? (
+                    {formatTrackingLabel(contact.utmTerm) ? (
                       <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-body font-bold text-amber-700">
-                        Từ khoá: {contact.utmTerm}
+                        Từ khoá: {formatTrackingLabel(contact.utmTerm)}
                       </span>
                     ) : null}
-                    {contact.utmContent ? (
+                    {formatTrackingLabel(contact.utmContent) ? (
                       <span className="rounded-full bg-pink-50 px-2 py-1 text-[10px] font-body font-bold text-pink-700">
-                        Nội dung quảng cáo: {contact.utmContent}
+                        Nội dung quảng cáo: {formatTrackingLabel(contact.utmContent)}
                       </span>
                     ) : null}
                     {formatReferrer(contact.referrer) ? (
@@ -712,6 +778,14 @@ export default function ContactsManagementClient({
                 >
                   Gọi {selectedContact.phone}
                 </a>
+                <button
+                  data-testid="dashboard-contact-create-order"
+                  type="button"
+                  onClick={() => router.push(buildServiceOrderHref(selectedContact))}
+                  className="rounded-xl border border-red-100 bg-red-50 p-4 font-body text-sm font-bold text-red-700 transition-colors hover:bg-red-100"
+                >
+                  Tạo đơn dịch vụ
+                </button>
                 <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
                   <p className="font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">Thời điểm tạo</p>
                   <p className="mt-1 font-body text-sm font-semibold text-slate-700">
@@ -836,14 +910,14 @@ export default function ContactsManagementClient({
                       Trang giới thiệu: {selectedReferrer}
                     </span>
                   ) : null}
-                  {selectedContact.utmSource ? (
+                  {formatTrackingLabel(selectedContact.utmSource) ? (
                     <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-body font-bold text-blue-700">
-                      Kênh quảng cáo: {selectedContact.utmSource}
+                      Kênh quảng cáo: {formatTrackingLabel(selectedContact.utmSource)}
                     </span>
                   ) : null}
-                  {selectedContact.utmCampaign ? (
+                  {formatTrackingLabel(selectedContact.utmCampaign) ? (
                     <span className="rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-body font-bold text-purple-700">
-                      Chiến dịch: {selectedContact.utmCampaign}
+                      Chiến dịch: {formatTrackingLabel(selectedContact.utmCampaign)}
                     </span>
                   ) : null}
                 </div>

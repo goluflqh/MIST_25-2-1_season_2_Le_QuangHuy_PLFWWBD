@@ -123,6 +123,21 @@ export async function POST(request: Request) {
       },
     });
 
+    await prisma.$transaction([
+      prisma.customer.updateMany({
+        where: { phone, userId: null, deletedAt: null },
+        data: { userId: user.id },
+      }),
+      prisma.serviceOrder.updateMany({
+        where: { customerPhone: phone, userId: null, deletedAt: null },
+        data: { userId: user.id },
+      }),
+      prisma.warranty.updateMany({
+        where: { customerPhone: phone, userId: null, deletedAt: null },
+        data: { userId: user.id },
+      }),
+    ]);
+
     if (referrer) {
       await prisma.user.update({
         where: { id: referrer.id },

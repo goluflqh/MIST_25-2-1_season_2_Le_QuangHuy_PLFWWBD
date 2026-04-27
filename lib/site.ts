@@ -21,12 +21,12 @@ export const siteUrl = normalizeSiteUrl(
 );
 
 export const siteConfig = {
-  name: "Minh Hồng",
-  tagline: "Đại Lý Điện Máy & Đóng Pin Chuyên Nghiệp",
+  name: "Điện máy pin Minh Hồng",
+  tagline: "Đóng pin lithium Đà Nẵng",
   description:
-    "Trung tâm đóng pin Lithium, pin lưu trữ, đèn năng lượng mặt trời và lắp đặt camera an ninh uy tín tại Đà Nẵng.",
+    "Điện máy pin Minh Hồng tại Đà Nẵng nhận đóng pin xe điện, sửa pin lithium, pin lưu trữ, đèn năng lượng mặt trời và lắp đặt camera an ninh.",
   ogDescription:
-    "Chuyên đóng pin Lithium, pin lưu trữ, đèn năng lượng và lắp camera an ninh tại Đà Nẵng.",
+    "Đóng pin xe điện, sửa pin lithium, pin lưu trữ, đèn năng lượng mặt trời và lắp camera an ninh tại Đà Nẵng.",
   locale: "vi_VN",
   cityLabel: "Đà Nẵng",
   locationLabel: "Xã Đồng Dương, TP. Đà Nẵng",

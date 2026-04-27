@@ -33,7 +33,7 @@ function formatVietnamDateTime(date: Date) {
 
 async function loadAccountCollections(userId: string, phone: string, referralCode: string | null) {
   try {
-    const [requests, warranties, coupons, referralCount] = await Promise.all([
+    const [requests, warranties, serviceOrders, coupons, referralCount] = await Promise.all([
       prisma.contactRequest.findMany({
         where: {
           deletedAt: null,
@@ -42,8 +42,20 @@ async function loadAccountCollections(userId: string, phone: string, referralCod
         orderBy: { createdAt: "desc" },
       }),
       prisma.warranty.findMany({
-        where: { userId, deletedAt: null },
+        where: {
+          deletedAt: null,
+          OR: [{ userId }, { customerPhone: phone }],
+        },
         orderBy: { createdAt: "desc" },
+      }),
+      prisma.serviceOrder.findMany({
+        where: {
+          deletedAt: null,
+          customerVisible: true,
+          OR: [{ userId }, { customerPhone: phone }],
+        },
+        orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
+        take: 20,
       }),
       prisma.coupon.findMany({
         where: {
@@ -93,6 +105,18 @@ async function loadAccountCollections(userId: string, phone: string, referralCod
         createdAtLabel: formatVietnamDateTime(request.createdAt),
         updatedAtLabel: formatVietnamDateTime(request.updatedAt),
       })),
+      serviceOrders: serviceOrders.map((order) => ({
+        id: order.id,
+        orderCode: order.orderCode,
+        service: order.service,
+        productName: order.productName,
+        status: order.status,
+        orderDateLabel: formatVietnamDate(order.orderDate),
+        quotedPrice: order.quotedPrice,
+        paidAmount: order.paidAmount,
+        warrantyEndDateLabel: order.warrantyEndDate ? formatVietnamDate(order.warrantyEndDate) : null,
+        notes: order.notes,
+      })),
       warranties: warranties.map((warranty) => ({
         id: warranty.id,
         serialNo: warranty.serialNo,
@@ -114,6 +138,7 @@ async function loadAccountCollections(userId: string, phone: string, referralCod
         coupons: [],
         referralCount: 0,
         requests: [],
+        serviceOrders: [],
         warranties: [],
       };
     }
@@ -129,7 +154,7 @@ export default async function AccountPage() {
     return <AccountAuthRedirect />;
   }
 
-  const { requests, warranties, coupons, referralCount, dataWarning } = await loadAccountCollections(
+  const { requests, warranties, serviceOrders, coupons, referralCount, dataWarning } = await loadAccountCollections(
     user.id,
     user.phone,
     user.referralCode
@@ -151,6 +176,7 @@ export default async function AccountPage() {
         createdAtLabel: formatVietnamDate(user.createdAt),
       }}
       initialRequests={requests}
+      initialServiceOrders={serviceOrders}
       initialWarranties={warranties}
     />
   );
