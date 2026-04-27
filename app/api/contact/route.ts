@@ -49,6 +49,7 @@ export async function POST(request: Request) {
     const utmCampaign = optionalText(body.utmCampaign, 120);
     const utmTerm = optionalText(body.utmTerm, 120);
     const utmContent = optionalText(body.utmContent, 120);
+    const couponRedemptionId = optionalText(body.couponRedemptionId, 64);
 
     if (!name || !phone || !service) {
       return createErrorResponse({
@@ -81,8 +82,45 @@ export async function POST(request: Request) {
       // Ignore guest session lookup failures.
     }
 
+    if (couponRedemptionId && !userId) {
+      return createErrorResponse({
+        status: 401,
+        message: "Vui lòng đăng nhập để áp dụng mã giảm giá đã nhận.",
+      });
+    }
+
+    let couponRedemptionToApply: string | null = null;
+    if (couponRedemptionId && userId) {
+      const now = new Date();
+      const redemption = await prisma.couponRedemption.findUnique({
+        where: { id: couponRedemptionId },
+        include: {
+          contactRequest: { select: { id: true } },
+          coupon: { select: { active: true, expiresAt: true } },
+          serviceOrder: { select: { id: true } },
+        },
+      });
+
+      if (
+        !redemption
+        || redemption.userId !== userId
+        || !redemption.coupon.active
+        || (redemption.coupon.expiresAt && redemption.coupon.expiresAt < now)
+        || redemption.contactRequest
+        || redemption.serviceOrder
+      ) {
+        return createErrorResponse({
+          status: 400,
+          message: "Mã giảm giá này không còn dùng được cho yêu cầu mới.",
+        });
+      }
+
+      couponRedemptionToApply = redemption.id;
+    }
+
     const contactRequest = await prisma.contactRequest.create({
       data: {
+        couponRedemptionId: couponRedemptionToApply,
         name,
         phone,
         service: serviceType,

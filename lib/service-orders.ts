@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { parseAdminDateInput } from "@/lib/admin-date";
+import { calculateCouponDiscount, getPayableAmount } from "@/lib/coupon-discounts";
 import { prisma } from "@/lib/prisma";
 import { isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
 import { DEFAULT_WARRANTY_MONTHS } from "@/lib/warranties";
@@ -41,6 +42,26 @@ type ServiceOrderSource = (typeof serviceOrderSources)[number];
 type PrismaRunner = typeof prisma | Prisma.TransactionClient;
 
 export const serviceOrderInclude = {
+  contactRequest: {
+    select: {
+      id: true,
+      status: true,
+      userId: true,
+      couponRedemptionId: true,
+    },
+  },
+  couponRedemption: {
+    select: {
+      id: true,
+      coupon: {
+        select: {
+          code: true,
+          description: true,
+          discount: true,
+        },
+      },
+    },
+  },
   customer: {
     select: {
       id: true,
@@ -160,7 +181,7 @@ function normalizeSource(value: unknown, fallback: ServiceOrderSource): ServiceO
   return fallback;
 }
 
-function parseOptionalMoney(value: unknown) {
+export function parseOptionalMoney(value: unknown) {
   if (value === null || value === undefined) return null;
 
   const raw = sanitizeText(String(value));
@@ -192,6 +213,20 @@ function parseBoolean(value: unknown) {
 
   const key = compactKey(value);
   return ["1", "true", "yes", "y", "co", "có", "hien", "hiện", "x"].includes(key);
+}
+
+export function mapOrderStatusToContactStatus(status: string) {
+  if (status === "CANCELLED") return "CANCELLED";
+  if (status === "COMPLETED" || status === "DELIVERED") return "COMPLETED";
+  if (status === "RECEIVED") return "CONTACTED";
+  return "IN_PROGRESS";
+}
+
+export function mapContactStatusToOrderStatus(status: string) {
+  if (status === "CANCELLED") return "CANCELLED";
+  if (status === "COMPLETED") return "COMPLETED";
+  if (status === "PENDING" || status === "CONTACTED") return "CHECKING";
+  return "IN_PROGRESS";
 }
 
 function addMonths(date: Date, months: number) {
@@ -232,6 +267,8 @@ export function normalizeServiceOrderPayload(
   const customerName = sanitizeText(String(payload.customerName || payload.name || ""));
   const customerPhone = normalizePhone(sanitizeText(String(payload.customerPhone || payload.phone || "")));
   const customerAddress = sanitizeText(String(payload.customerAddress || payload.address || ""));
+  const contactRequestId = sanitizeText(String(payload.contactRequestId || "")) || null;
+  const couponRedemptionId = sanitizeText(String(payload.couponRedemptionId || "")) || null;
   const productName = sanitizeText(String(payload.productName || payload.product || ""));
   const orderDate = parseAdminDateInput(payload.orderDate) || new Date();
   const warrantyMonths = parseOptionalInt(payload.warrantyMonths, 120) ?? DEFAULT_WARRANTY_MONTHS;
@@ -255,6 +292,8 @@ export function normalizeServiceOrderPayload(
     customerName,
     customerPhone,
     customerVisible: parseBoolean(payload.customerVisible),
+    contactRequestId,
+    couponRedemptionId,
     issueDescription: sanitizeText(String(payload.issueDescription || payload.issue || "")) || null,
     notes: sanitizeText(String(payload.notes || "")) || null,
     orderDate,
@@ -277,6 +316,30 @@ export async function createServiceOrder(
   const normalized = normalizeServiceOrderPayload(payload, fallbackSource);
 
   return prisma.$transaction(async (tx) => {
+    const contactRequest = normalized.contactRequestId
+      ? await tx.contactRequest.findUnique({
+          where: { id: normalized.contactRequestId },
+          include: {
+            couponRedemption: {
+              include: {
+                contactRequest: { select: { id: true } },
+                coupon: { select: { code: true, description: true, discount: true } },
+                serviceOrder: { select: { id: true } },
+              },
+            },
+            serviceOrder: { select: { id: true } },
+          },
+        })
+      : null;
+
+    if (normalized.contactRequestId && (!contactRequest || contactRequest.deletedAt)) {
+      throw new ServiceOrderValidationError("Yêu cầu tư vấn liên kết không còn tồn tại.");
+    }
+
+    if (contactRequest?.serviceOrder) {
+      throw new ServiceOrderValidationError("Yêu cầu tư vấn này đã có đơn dịch vụ liên kết.");
+    }
+
     const linkedUser = await tx.user.findUnique({
       where: { phone: normalized.customerPhone },
       select: { id: true },
@@ -285,32 +348,85 @@ export async function createServiceOrder(
       where: { phone: normalized.customerPhone },
       select: { userId: true },
     });
+    const effectiveUserId = linkedUser?.id || contactRequest?.userId || existingCustomer?.userId || null;
+    const requestedCouponRedemptionId = normalized.couponRedemptionId || contactRequest?.couponRedemptionId || null;
+    const couponRedemption = contactRequest?.couponRedemption
+      || (requestedCouponRedemptionId
+        ? await tx.couponRedemption.findUnique({
+            where: { id: requestedCouponRedemptionId },
+            include: {
+              contactRequest: { select: { id: true } },
+              coupon: { select: { code: true, description: true, discount: true } },
+              serviceOrder: { select: { id: true } },
+            },
+          })
+        : null);
+
+    if (requestedCouponRedemptionId && !couponRedemption) {
+      throw new ServiceOrderValidationError("Mã giảm giá khách chọn không còn hợp lệ.");
+    }
+
+    if (couponRedemption) {
+      if (!effectiveUserId || couponRedemption.userId !== effectiveUserId) {
+        throw new ServiceOrderValidationError("Mã giảm giá không khớp với tài khoản khách.");
+      }
+
+      if (couponRedemption.serviceOrder) {
+        throw new ServiceOrderValidationError("Mã giảm giá này đã được dùng cho một đơn khác.");
+      }
+
+      if (
+        couponRedemption.contactRequest
+        && contactRequest
+        && couponRedemption.contactRequest.id !== contactRequest.id
+      ) {
+        throw new ServiceOrderValidationError("Mã giảm giá này đang gắn với yêu cầu tư vấn khác.");
+      }
+    }
+
     const customer = await tx.customer.upsert({
       where: { phone: normalized.customerPhone },
       update: {
         address: normalized.customerAddress,
         deletedAt: null,
         name: normalized.customerName,
-        ...(linkedUser ? { userId: linkedUser.id } : {}),
+        ...(effectiveUserId ? { userId: effectiveUserId } : {}),
       },
       create: {
         address: normalized.customerAddress,
         name: normalized.customerName,
         phone: normalized.customerPhone,
-        userId: linkedUser?.id || null,
+        userId: effectiveUserId,
       },
     });
     const orderCode = await getAvailableOrderCode(tx, payload.orderCode);
+    const discountAmount = calculateCouponDiscount(couponRedemption?.coupon.discount, normalized.quotedPrice);
 
-    return tx.serviceOrder.create({
+    const order = await tx.serviceOrder.create({
       data: {
         ...normalized,
+        contactRequestId: contactRequest?.id || null,
+        couponCode: couponRedemption?.coupon.code || null,
+        couponDiscount: couponRedemption?.coupon.discount || null,
+        couponRedemptionId: couponRedemption?.id || null,
         customerId: customer.id,
+        customerVisible: normalized.customerVisible || Boolean(effectiveUserId && normalized.source === "CONTACT"),
+        discountAmount,
         orderCode,
-        userId: linkedUser?.id || existingCustomer?.userId || null,
+        paidAmount: Math.min(normalized.paidAmount, getPayableAmount(normalized.quotedPrice, discountAmount)),
+        userId: effectiveUserId,
       },
       include: serviceOrderInclude,
     });
+
+    if (contactRequest && contactRequest.status !== "COMPLETED" && contactRequest.status !== "CANCELLED") {
+      await tx.contactRequest.update({
+        where: { id: contactRequest.id },
+        data: { status: mapOrderStatusToContactStatus(order.status) },
+      });
+    }
+
+    return order;
   });
 }
 

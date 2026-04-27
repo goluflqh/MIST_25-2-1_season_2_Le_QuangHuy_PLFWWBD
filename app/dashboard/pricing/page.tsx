@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { defaultPricingItems } from "@/lib/default-pricing";
 import AdminPricingClient from "./AdminPricingClient";
 
 export default async function AdminPricingPage() {
@@ -18,5 +19,5 @@ export default async function AdminPricingPage() {
     },
   });
 
-  return <AdminPricingClient initialItems={items} />;
+  return <AdminPricingClient defaultItems={defaultPricingItems} initialItems={items} />;
 }

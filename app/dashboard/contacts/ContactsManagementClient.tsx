@@ -21,6 +21,19 @@ interface ContactRequest {
   utmCampaign: string | null;
   utmTerm: string | null;
   utmContent: string | null;
+  couponRedemption: {
+    id: string;
+    coupon: {
+      code: string;
+      description: string;
+      discount: string;
+    };
+  } | null;
+  serviceOrder: {
+    id: string;
+    orderCode: string;
+    status: string;
+  } | null;
   createdAt: string;
 }
 
@@ -215,6 +228,12 @@ function buildServiceOrderHref(contact: ContactRequest) {
     service: orderDefault.service,
     source: "CONTACT",
   });
+  params.set("contactRequestId", contact.id);
+  if (contact.couponRedemption) {
+    params.set("couponRedemptionId", contact.couponRedemption.id);
+    params.set("couponCode", contact.couponRedemption.coupon.code);
+    params.set("couponDiscount", contact.couponRedemption.coupon.discount);
+  }
 
   return `/dashboard/orders?${params.toString()}`;
 }
@@ -612,6 +631,16 @@ export default function ContactsManagementClient({
                         Trang giới thiệu: {formatReferrer(contact.referrer)}
                       </span>
                     ) : null}
+                    {contact.couponRedemption ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-body font-bold text-emerald-700">
+                        Mã ưu đãi: {contact.couponRedemption.coupon.code} ({contact.couponRedemption.coupon.discount})
+                      </span>
+                    ) : null}
+                    {contact.serviceOrder ? (
+                      <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-body font-bold text-indigo-700">
+                        Đơn: {contact.serviceOrder.orderCode}
+                      </span>
+                    ) : null}
                   </div>
                   {formatSourcePath(contact.sourcePath) ? (
                     <p className="font-body text-[10px] text-slate-300 mt-1">
@@ -782,9 +811,10 @@ export default function ContactsManagementClient({
                   data-testid="dashboard-contact-create-order"
                   type="button"
                   onClick={() => router.push(buildServiceOrderHref(selectedContact))}
+                  disabled={Boolean(selectedContact.serviceOrder)}
                   className="rounded-xl border border-red-100 bg-red-50 p-4 font-body text-sm font-bold text-red-700 transition-colors hover:bg-red-100"
                 >
-                  Tạo đơn dịch vụ
+                  {selectedContact.serviceOrder ? `Đã tạo đơn ${selectedContact.serviceOrder.orderCode}` : "Tạo đơn dịch vụ"}
                 </button>
                 <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
                   <p className="font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">Thời điểm tạo</p>
@@ -918,6 +948,16 @@ export default function ContactsManagementClient({
                   {formatTrackingLabel(selectedContact.utmCampaign) ? (
                     <span className="rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-body font-bold text-purple-700">
                       Chiến dịch: {formatTrackingLabel(selectedContact.utmCampaign)}
+                    </span>
+                  ) : null}
+                  {selectedContact.couponRedemption ? (
+                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-body font-bold text-emerald-700">
+                      Mã ưu đãi: {selectedContact.couponRedemption.coupon.code} ({selectedContact.couponRedemption.coupon.discount})
+                    </span>
+                  ) : null}
+                  {selectedContact.serviceOrder ? (
+                    <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-body font-bold text-indigo-700">
+                      Đơn dịch vụ: {selectedContact.serviceOrder.orderCode}
                     </span>
                   ) : null}
                 </div>

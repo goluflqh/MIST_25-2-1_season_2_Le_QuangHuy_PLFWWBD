@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import {
   createServiceOrder,
+  mapOrderStatusToContactStatus,
+  parseOptionalMoney,
   serializeServiceOrder,
   serviceOrderInclude,
   ServiceOrderValidationError,
@@ -9,6 +11,7 @@ import {
 } from "@/lib/service-orders";
 import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { createInvalidJsonResponse, readJsonBody } from "@/lib/api-route";
+import { calculateCouponDiscount, getPayableAmount } from "@/lib/coupon-discounts";
 import { prisma } from "@/lib/prisma";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 import { sanitizeText } from "@/lib/sanitize";
@@ -145,6 +148,23 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: "Không tìm thấy đơn dịch vụ." }, { status: 404 });
     }
 
+    if ("quotedPrice" in body) {
+      const quotedPrice = parseOptionalMoney(body.quotedPrice);
+      updateData.quotedPrice = quotedPrice;
+      updateData.discountAmount = calculateCouponDiscount(previousOrder.couponDiscount, quotedPrice);
+    }
+
+    if ("paidAmount" in body) {
+      const paidAmount = parseOptionalMoney(body.paidAmount) || 0;
+      const quotedPrice = typeof updateData.quotedPrice === "number"
+        ? updateData.quotedPrice
+        : previousOrder.quotedPrice;
+      const discountAmount = typeof updateData.discountAmount === "number"
+        ? updateData.discountAmount
+        : previousOrder.discountAmount;
+      updateData.paidAmount = Math.min(paidAmount, getPayableAmount(quotedPrice, discountAmount));
+    }
+
     let order = await prisma.serviceOrder.update({
       where: { id },
       data: updateData,
@@ -170,6 +190,13 @@ export async function PATCH(request: Request) {
         include: serviceOrderInclude,
       });
       if (refreshedOrder) order = refreshedOrder;
+    }
+
+    if (typeof updateData.status === "string" && order.contactRequestId) {
+      await prisma.contactRequest.update({
+        where: { id: order.contactRequestId },
+        data: { status: mapOrderStatusToContactStatus(order.status) },
+      });
     }
 
     await recordAuditLog({

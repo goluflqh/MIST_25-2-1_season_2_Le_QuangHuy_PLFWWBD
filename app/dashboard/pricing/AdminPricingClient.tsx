@@ -15,6 +15,8 @@ interface PricingItem {
   active: boolean;
 }
 
+type PricingSeedItem = Omit<PricingItem, "id">;
+
 const categories = [
   { key: "PIN", label: "🔋 Pin", color: "bg-red-50 text-red-700" },
   { key: "NLMT", label: "☀️ NLMT", color: "bg-yellow-50 text-yellow-700" },
@@ -55,7 +57,13 @@ function parseIntegerField(value: string, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export default function AdminPricingClient({ initialItems }: { initialItems: PricingItem[] }) {
+export default function AdminPricingClient({
+  defaultItems = [],
+  initialItems,
+}: {
+  defaultItems?: readonly PricingSeedItem[];
+  initialItems: PricingItem[];
+}) {
   const { showToast, showConfirm } = useNotify();
   const [items, setItems] = useState<PricingItem[]>(initialItems);
   const [showForm, setShowForm] = useState(false);
@@ -64,6 +72,7 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [sortMode, setSortMode] = useState<PricingSortMode>("category");
@@ -104,6 +113,41 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
     setSearchQuery("");
     setCategoryFilter("all");
     setSortMode("category");
+  };
+
+  const bootstrapDefaultPricing = async () => {
+    if (defaultItems.length === 0 || items.length > 0) return;
+
+    setIsBootstrapping(true);
+    setFormError(null);
+
+    try {
+      const created: PricingItem[] = [];
+
+      for (const item of defaultItems) {
+        const response = await fetch("/api/admin/pricing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(item),
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || `Chưa nhập được mục giá "${item.name}".`);
+        }
+
+        created.push(data.item);
+      }
+
+      setItems(sortItems(created));
+      showToast(`Đã nhập ${created.length} mục giá mẫu vào dashboard.`, "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Chưa nhập được bảng giá mẫu.";
+      setFormError(message);
+      showToast(message, "error");
+    } finally {
+      setIsBootstrapping(false);
+    }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -204,6 +248,15 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {items.length === 0 && defaultItems.length > 0 ? (
+            <button
+              onClick={bootstrapDefaultPricing}
+              disabled={isBootstrapping}
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-emerald-700 disabled:bg-slate-300"
+            >
+              {isBootstrapping ? "Đang nhập..." : "Nhập bảng giá mẫu"}
+            </button>
+          ) : null}
           <button
             onClick={resetFilters}
             className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
@@ -317,7 +370,11 @@ export default function AdminPricingClient({ initialItems }: { initialItems: Pri
 
       {filteredItems.length === 0 ? (
         <div className="rounded-2xl border border-slate-100 bg-white p-10 text-center shadow-sm">
-          <p className="font-body text-sm text-slate-400">Không có mục giá nào khớp bộ lọc.</p>
+          <p className="font-body text-sm text-slate-400">
+            {items.length === 0
+              ? "Chưa có mục giá nào trong DB. Bấm Nhập bảng giá mẫu để đưa dữ liệu đang hiển thị public vào dashboard."
+              : "Không có mục giá nào khớp bộ lọc."}
+          </p>
         </div>
       ) : (
         categories.map((category) => {

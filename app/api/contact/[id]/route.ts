@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
+import { mapContactStatusToOrderStatus } from "@/lib/service-orders";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
 // PATCH /api/contact/[id] — Admin updates contact status + notes
@@ -23,11 +24,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     if (notes !== undefined) updateData.notes = notes;
 
-    const previousContact = await prisma.contactRequest.findUnique({ where: { id } });
+    const previousContact = await prisma.contactRequest.findUnique({
+      where: { id },
+      include: { serviceOrder: { select: { id: true, status: true } } },
+    });
     const updated = await prisma.contactRequest.update({
       where: { id },
       data: updateData,
     });
+
+    if (status && previousContact?.serviceOrder) {
+      await prisma.serviceOrder.update({
+        where: { id: previousContact.serviceOrder.id },
+        data: { status: mapContactStatusToOrderStatus(status) },
+      });
+    }
     await recordAuditLog({
       action: "CONTACT_UPDATE",
       actor: admin,

@@ -1,11 +1,12 @@
 import Link from "next/link";
 import JsonLd from "@/components/seo/JsonLd";
+import { getDefaultPricingByCategory } from "@/lib/default-pricing";
 import { getPublicActivePricingItems } from "@/lib/public-data";
 import { siteConfig } from "@/lib/site";
 import { buildBreadcrumbJsonLd, buildPricingFaqJsonLd } from "@/lib/structured-data";
 
 interface PricingItem {
-  id: string;
+  id?: string;
   category: string;
   name: string;
   price: string;
@@ -19,48 +20,6 @@ interface DisplayPricingItem {
   note: string;
   price: string;
 }
-
-const fallbackData = [
-  {
-    category: "PIN",
-    items: [
-      {
-        name: "Kiểm tra tình trạng pin",
-        price: "Miễn phí",
-        note: "Quyền lợi trước khi chốt sửa hoặc đóng lại",
-      },
-      { name: "Pin máy khoan / bắn vít", price: "350.000 - 800.000đ", note: "Tuỳ dung lượng & hãng" },
-      { name: "Pin máy cắt / máy mài", price: "500.000 - 1.200.000đ", note: "Tuỳ số cell" },
-      { name: "Pin xe đạp điện", price: "2.000.000 - 5.000.000đ", note: "Tuỳ Ah & loại xe" },
-      { name: "Pin xe máy điện", price: "3.500.000 - 8.000.000đ", note: "Tuỳ dung lượng" },
-      { name: "Pin loa kéo", price: "200.000 - 500.000đ", note: "Tuỳ hãng loa" },
-    ],
-  },
-  {
-    category: "NLMT",
-    items: [
-      { name: "Thay pin đèn NLMT", price: "150.000 - 400.000đ", note: "Tuỳ dung lượng" },
-      { name: "Đèn pha NLMT 100W-300W", price: "500.000 - 1.500.000đ", note: "Bao lắp đặt" },
-    ],
-  },
-  {
-    category: "LUU_TRU",
-    items: [
-      { name: "Pin kích đề ô tô 12V", price: "800.000 - 2.000.000đ", note: "Tuỳ dòng xả" },
-      { name: "Pin dự phòng dung lượng lớn", price: "500.000 - 3.000.000đ", note: "Tuỳ mAh" },
-      { name: "Đóng bình pin theo yêu cầu", price: "Liên hệ", note: "Báo giá theo thông số" },
-    ],
-  },
-  {
-    category: "CAMERA",
-    items: [
-      { name: "Trọn bộ 2 camera", price: "2.500.000 - 4.000.000đ", note: "Bao lắp đặt" },
-      { name: "Trọn bộ 4 camera", price: "4.000.000 - 7.000.000đ", note: "Bao lắp đặt" },
-      { name: "Camera PTZ xoay 360°", price: "1.500.000 - 3.000.000đ/cam", note: "Tuỳ hãng" },
-      { name: "Khảo sát tận nơi", price: "Miễn phí", note: "Đà Nẵng & lân cận" },
-    ],
-  },
-] as const;
 
 const categoryConfig: Record<string, { label: string; bg: string; border: string; badge: string }> = {
   PIN: {
@@ -110,12 +69,12 @@ export default async function PricingPage() {
 
   const displayData = pricingCategories.map((category) => {
     const fromDb = dbItems.filter((item) => item.category === category);
-    const fallback = fallbackData.find((item) => item.category === category);
+    const fallback = getDefaultPricingByCategory(category);
 
     return {
       category,
       config: categoryConfig[category],
-      items: fromDb.length > 0 ? fromDb.map(formatPricingItem) : fallback?.items || [],
+      items: fromDb.length > 0 ? fromDb.map(formatPricingItem) : fallback.map(formatPricingItem),
       fromDb: fromDb.length > 0,
     };
   });

@@ -301,6 +301,137 @@ test.describe("Auth, account and dashboard smoke", () => {
     }
   });
 
+  test("redeemed coupon follows a contact into a service order payment", async ({ baseURL, page, request }) => {
+    test.setTimeout(120_000);
+
+    const unique = Date.now().toString().slice(-8);
+    const couponCode = `E2EPAY${unique}`;
+    const customerName = `Coupon Payment ${unique}`;
+    const customerPhone = buildUniquePhone();
+    const apiBaseURL = baseURL ?? "http://127.0.0.1:3001";
+    const customerContext = await playwrightRequest.newContext({ baseURL: apiBaseURL });
+    let contactId: string | undefined;
+    let orderId: string | undefined;
+    let userId: string | undefined;
+
+    await loginAdminRequest(request);
+    const couponResponse = await request.post("/api/admin/coupons", {
+      data: {
+        code: couponCode,
+        description: "Coupon e2e follows contact into service order.",
+        discount: "10%",
+        pointsCost: 0,
+        usageLimit: 1,
+        active: true,
+      },
+    });
+    expect(couponResponse.ok()).toBeTruthy();
+    const couponBody = await couponResponse.json();
+    const couponId = couponBody.coupon?.id as string | undefined;
+    expect(couponId).toBeTruthy();
+
+    try {
+      const registerResponse = await customerContext.post("/api/auth/register", {
+        data: {
+          name: customerName,
+          phone: customerPhone,
+          password: "123456",
+        },
+      });
+      expect(registerResponse.ok()).toBeTruthy();
+      userId = (await registerResponse.json()).user?.id as string | undefined;
+
+      const redeemResponse = await customerContext.post("/api/coupons/redeem", {
+        data: { couponId },
+      });
+      expect(redeemResponse.ok()).toBeTruthy();
+
+      const ownedCouponsResponse = await customerContext.get("/api/coupons/owned");
+      expect(ownedCouponsResponse.ok()).toBeTruthy();
+      const ownedCouponsBody = await ownedCouponsResponse.json();
+      const redemption = ownedCouponsBody.coupons.find((coupon: { code: string }) => coupon.code === couponCode);
+      expect(redemption?.id).toBeTruthy();
+
+      const contactResponse = await customerContext.post("/api/contact", {
+        data: {
+          name: customerName,
+          phone: customerPhone,
+          service: "DONG_PIN",
+          message: "Customer wants to apply coupon to this service request.",
+          source: "account-e2e",
+          couponRedemptionId: redemption.id,
+        },
+      });
+      expect(contactResponse.ok()).toBeTruthy();
+      contactId = (await contactResponse.json()).id as string | undefined;
+      expect(contactId).toBeTruthy();
+
+      const orderResponse = await request.post("/api/admin/service-orders", {
+        data: {
+          contactRequestId: contactId,
+          couponRedemptionId: redemption.id,
+          customerName,
+          customerPhone,
+          customerVisible: true,
+          issueDescription: "Apply coupon e2e request.",
+          paidAmount: "200000",
+          productName: "Pin coupon payment e2e",
+          quotedPrice: "1000000",
+          service: "DONG_PIN",
+          source: "CONTACT",
+          status: "QUOTED",
+          warrantyMonths: "0",
+        },
+      });
+      expect(orderResponse.ok()).toBeTruthy();
+      const orderBody = await orderResponse.json();
+      orderId = orderBody.order?.id as string | undefined;
+      expect(orderId).toBeTruthy();
+      expect(orderBody.order.couponCode).toBe(couponCode);
+      expect(orderBody.order.quotedPrice).toBe(1_000_000);
+      expect(orderBody.order.discountAmount).toBe(100_000);
+      expect(orderBody.order.paidAmount).toBe(200_000);
+
+      const paymentResponse = await request.patch("/api/admin/service-orders", {
+        data: {
+          id: orderId,
+          paidAmount: "900000",
+          status: "COMPLETED",
+        },
+      });
+      expect(paymentResponse.ok()).toBeTruthy();
+      const paymentBody = await paymentResponse.json();
+      expect(paymentBody.order.discountAmount).toBe(100_000);
+      expect(paymentBody.order.paidAmount).toBe(900_000);
+
+      const contactsResponse = await request.get("/api/contact");
+      expect(contactsResponse.ok()).toBeTruthy();
+      const contactsBody = await contactsResponse.json();
+      const syncedContact = contactsBody.contacts.find((contact: { id: string }) => contact.id === contactId);
+      expect(syncedContact?.status).toBe("COMPLETED");
+
+      await login(page, customerPhone, "123456");
+      await expect(page).toHaveURL(/\/tai-khoan/, { timeout: AUTH_REDIRECT_TIMEOUT });
+      await expect(page.getByTestId("account-service-orders")).toContainText("Pin coupon payment e2e");
+      await expect(page.getByTestId("account-service-orders")).toContainText(couponCode);
+      await expect(page.getByTestId("account-service-orders")).toContainText("900.000");
+    } finally {
+      if (orderId) {
+        await request.delete("/api/admin/service-orders", { data: { id: orderId } }).catch(() => undefined);
+      }
+      if (contactId) {
+        await request.delete(`/api/contact/${contactId}`).catch(() => undefined);
+      }
+      if (couponId) {
+        await request.delete("/api/admin/coupons", { data: { id: couponId } }).catch(() => undefined);
+      }
+      if (userId) {
+        await request.delete("/api/admin/users", { data: { userId } }).catch(() => undefined);
+      }
+      await customerContext.dispose();
+    }
+  });
+
   test("admin can sign in and open the dashboard health widgets", async ({ page }) => {
     await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
 

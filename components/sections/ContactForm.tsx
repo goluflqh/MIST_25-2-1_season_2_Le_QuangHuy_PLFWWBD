@@ -73,6 +73,14 @@ const formSchema = z.object({
 type FormData = z.infer<typeof formSchema>;
 type ServiceId = (typeof serviceOptions)[number]["value"];
 
+interface OwnedCouponOption {
+  id: string;
+  code: string;
+  description: string;
+  discount: string;
+  expiresAtLabel: string | null;
+}
+
 function readTrackingValue(searchParams: { get(name: string): string | null }, key: string) {
   return searchParams.get(key) || "";
 }
@@ -89,6 +97,8 @@ export default function ContactForm() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submittedServiceId, setSubmittedServiceId] = useState<ServiceId | "">("");
+  const [ownedCoupons, setOwnedCoupons] = useState<OwnedCouponOption[]>([]);
+  const [selectedCouponRedemptionId, setSelectedCouponRedemptionId] = useState("");
 
   const serviceFromQuery = searchParams.get("service") || "";
   const messageFromQuery = searchParams.get("message") || "";
@@ -116,6 +126,31 @@ export default function ContactForm() {
   const selectedServiceId = watch("serviceId");
   const selectedServiceLabel =
     serviceOptions.find((option) => option.value === selectedServiceId)?.label || "";
+  const selectedCoupon = ownedCoupons.find((coupon) => coupon.id === selectedCouponRedemptionId) || null;
+
+  useEffect(() => {
+    if (!user) {
+      setOwnedCoupons([]);
+      setSelectedCouponRedemptionId("");
+      return;
+    }
+
+    let cancelled = false;
+    fetch("/api/coupons/owned")
+      .then((response) => response.json())
+      .then((data) => {
+        if (!cancelled && data.success && Array.isArray(data.coupons)) {
+          setOwnedCoupons(data.coupons);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOwnedCoupons([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     const initialService = getInitialServiceValue(serviceFromQuery);
@@ -139,6 +174,7 @@ export default function ContactForm() {
     });
     setSubmitError(null);
     setSubmittedServiceId("");
+    setSelectedCouponRedemptionId("");
   };
 
   const handleCloseSuccess = () => {
@@ -169,6 +205,7 @@ export default function ContactForm() {
           phone: data.phone,
           service: data.serviceId,
           message: data.message || "",
+          couponRedemptionId: selectedCouponRedemptionId || null,
           source: selectedSource,
           sourcePath,
           referrer: typeof document !== "undefined" ? document.referrer : "",
@@ -190,6 +227,10 @@ export default function ContactForm() {
       setSubmittedServiceId(
         validServiceIds.has(data.serviceId as ServiceId) ? (data.serviceId as ServiceId) : "KHAC"
       );
+      if (selectedCouponRedemptionId) {
+        setOwnedCoupons((prev) => prev.filter((coupon) => coupon.id !== selectedCouponRedemptionId));
+        setSelectedCouponRedemptionId("");
+      }
       setIsSuccess(true);
     } catch (err) {
       console.error("Contact form error:", err);
@@ -240,7 +281,7 @@ export default function ContactForm() {
               </div>
               <div className="rounded-[1.45rem] border border-white bg-white/92 p-4 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Khu vực hỗ trợ
+                  Địa chỉ cửa hàng
                 </p>
                 <p className="mt-2 font-body text-sm font-semibold leading-6 text-slate-800">
                   {siteConfig.locationLabel}
@@ -529,6 +570,33 @@ export default function ContactForm() {
                     className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-body text-slate-800 transition-shadow focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
+
+                {user && ownedCoupons.length > 0 ? (
+                  <label className="block">
+                    <span className="mb-2 block font-body text-sm font-semibold text-slate-700">
+                      Mã giảm giá muốn áp dụng
+                    </span>
+                    <select
+                      value={selectedCouponRedemptionId}
+                      onChange={(event) => setSelectedCouponRedemptionId(event.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 font-body text-slate-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                      title="Mã giảm giá muốn áp dụng"
+                    >
+                      <option value="">Không áp dụng mã</option>
+                      {ownedCoupons.map((coupon) => (
+                        <option key={coupon.id} value={coupon.id}>
+                          {coupon.code} - giảm {coupon.discount}
+                          {coupon.expiresAtLabel ? ` - hạn ${coupon.expiresAtLabel}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedCoupon ? (
+                      <p className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 font-body text-xs text-emerald-800">
+                        {selectedCoupon.description}
+                      </p>
+                    ) : null}
+                  </label>
+                ) : null}
 
                 {submitError ? (
                   <div
