@@ -110,19 +110,42 @@ export async function PATCH(request: Request) {
   }
 }
 
-// DELETE — Admin deletes warranty
+// DELETE — Admin archives warranty
 export async function DELETE(request: Request) {
   try {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const { id } = await request.json();
-    const deletedWarranty = await prisma.warranty.delete({ where: { id } });
+    const previousWarranty = await prisma.warranty.findUnique({ where: { id } });
+    if (!previousWarranty || previousWarranty.deletedAt) {
+      return NextResponse.json({ success: false, message: "Không tìm thấy phiếu bảo hành." }, { status: 404 });
+    }
+
+    const deletedWarranty = await prisma.$transaction(async (tx) => {
+      const warranty = await tx.warranty.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
+
+      if (previousWarranty.serviceOrderId) {
+        await tx.serviceOrder.update({
+          where: { id: previousWarranty.serviceOrderId },
+          data: {
+            warrantyEndDate: null,
+            warrantyMonths: null,
+          },
+        });
+      }
+
+      return warranty;
+    });
     await recordAuditLog({
       action: "WARRANTY_DELETE",
       actor: admin,
       entity: "Warranty",
       entityId: deletedWarranty.id,
-      oldData: toAuditJson(deletedWarranty),
+      oldData: toAuditJson(previousWarranty),
+      newData: toAuditJson(deletedWarranty),
       request,
     });
     return NextResponse.json({ success: true });

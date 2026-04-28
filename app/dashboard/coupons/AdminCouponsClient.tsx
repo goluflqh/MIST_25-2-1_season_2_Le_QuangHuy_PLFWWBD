@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
+import { formatVietnamDate } from "@/lib/vietnam-time";
 
 interface CouponData {
   id: string;
@@ -41,7 +42,7 @@ function getCouponStatus(coupon: CouponData) {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString("vi-VN");
+  return formatVietnamDate(value);
 }
 
 function normalizeCouponCodeInput(value: string) {

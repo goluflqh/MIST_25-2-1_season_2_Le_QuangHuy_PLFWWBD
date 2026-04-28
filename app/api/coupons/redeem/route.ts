@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
+import { formatVietnamDate } from "@/lib/vietnam-time";
 
 function redeemError(message: string, status = 400) {
   const error = new Error(message) as Error & { status?: number };
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
     }
 
     const now = new Date();
-    const { updatedUser, redeemedCoupon } = await prisma.$transaction(async (tx) => {
+    const { redemptionId, updatedUser, redeemedCoupon } = await prisma.$transaction(async (tx) => {
       const coupon = await tx.coupon.findUnique({
         where: { id: couponId },
         include: {
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
         throw redeemError("Mã vừa được người khác nhận. Vui lòng tải lại và thử lại.", 409);
       }
 
-      await tx.couponRedemption.create({
+      const redemption = await tx.couponRedemption.create({
         data: { couponId: coupon.id, userId: session.user.id },
       });
 
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
         }),
       ]);
 
-      return { updatedUser, redeemedCoupon };
+      return { redemptionId: redemption.id, updatedUser, redeemedCoupon };
     });
 
     return NextResponse.json({
@@ -89,13 +90,13 @@ export async function POST(request: Request) {
       message: `Đổi thành công! Mã giảm giá: ${redeemedCoupon.code}`,
       coupon: {
         id: redeemedCoupon.id,
+        redemptionId,
         code: redeemedCoupon.code,
         description: redeemedCoupon.description,
         discount: redeemedCoupon.discount,
-        expiresAtLabel: redeemedCoupon.expiresAt
-          ? redeemedCoupon.expiresAt.toLocaleDateString("vi-VN")
-          : null,
+        expiresAtLabel: redeemedCoupon.expiresAt ? formatVietnamDate(redeemedCoupon.expiresAt) : null,
         isOwned: true,
+        redemptionStatus: "OWNED",
         pointsCost: redeemedCoupon.pointsCost,
         remainingUses: Math.max(0, redeemedCoupon.usageLimit - redeemedCoupon.usedCount),
       },

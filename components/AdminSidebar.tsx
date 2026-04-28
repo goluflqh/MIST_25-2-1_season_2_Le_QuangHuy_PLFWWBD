@@ -135,9 +135,12 @@ export default function AdminSidebar({ initialCounts }: { initialCounts: NavCoun
     <>
       {/* Mobile hamburger button */}
       <button
+        type="button"
         onClick={toggleMobileMenu}
-        className="md:hidden fixed top-3 left-3 z-[70] w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center shadow-lg"
+        aria-expanded={mobileOpen}
+        className="admin-menu-toggle fixed left-4 top-[108px] z-[45] flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white shadow-lg shadow-slate-900/20 md:hidden sm:top-[120px]"
         aria-label="Toggle admin menu"
+        title="Menu admin"
       >
         {mobileOpen ? (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>

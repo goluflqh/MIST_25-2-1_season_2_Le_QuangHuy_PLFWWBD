@@ -1,0 +1,1 @@
+ALTER TABLE "ServiceOrder" ALTER COLUMN "status" SET DEFAULT 'PENDING';

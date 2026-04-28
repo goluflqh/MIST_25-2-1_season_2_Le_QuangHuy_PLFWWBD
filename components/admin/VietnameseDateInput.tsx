@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { parseAdminDateInput } from "@/lib/admin-date";
+import { getVietnamCalendarParts } from "@/lib/vietnam-time";
 
 interface VietnameseDateInputProps {
   dataTestId?: string;
@@ -17,11 +18,16 @@ interface VietnameseDateInputProps {
 const weekdayLabels = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
 
 function formatDateInput(value: Date) {
-  return value.toLocaleDateString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return [
+    String(value.getDate()).padStart(2, "0"),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    value.getFullYear(),
+  ].join("/");
+}
+
+function toCalendarDate(value: Date) {
+  const parts = getVietnamCalendarParts(value);
+  return new Date(parts.year, parts.month - 1, parts.day);
 }
 
 function getCalendarDays(monthDate: Date) {
@@ -55,7 +61,8 @@ export default function VietnameseDateInput({
   required = false,
   value,
 }: VietnameseDateInputProps) {
-  const parsedValue = parseAdminDateInput(value);
+  const parsedAdminValue = parseAdminDateInput(value);
+  const parsedValue = parsedAdminValue ? toCalendarDate(parsedAdminValue) : null;
   const [isOpen, setIsOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(() => parsedValue || new Date());
   const days = useMemo(() => getCalendarDays(visibleMonth), [visibleMonth]);

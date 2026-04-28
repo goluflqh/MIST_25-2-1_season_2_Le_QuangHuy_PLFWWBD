@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { parseAdminDateInput } from "@/lib/admin-date";
 import { prisma } from "@/lib/prisma";
 import { isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
+import { addMonthsInVietnam, getVietnamDateCode } from "@/lib/vietnam-time";
 
 export const DEFAULT_WARRANTY_MONTHS = 6;
 
@@ -74,27 +75,17 @@ export function normalizeWarrantyService(value: unknown) {
 }
 
 export function addMonths(date: Date, months: number) {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + months);
-  return next;
+  return addMonthsInVietnam(date, months);
 }
 
 export function getDefaultWarrantyEndDate(startDate = new Date(), months = DEFAULT_WARRANTY_MONTHS) {
-  const endDate = addMonths(startDate, months);
-  endDate.setHours(23, 59, 59, 999);
-  return endDate;
+  return addMonthsInVietnam(startDate, months, true);
 }
 
 function buildWarrantySerial() {
-  const now = new Date();
-  const datePart = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-  ].join("");
   const suffix = randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase();
 
-  return `MH-BH-${datePart}-${suffix}`;
+  return `MH-BH-${getVietnamDateCode()}-${suffix}`;
 }
 
 export async function getAvailableWarrantySerial(runner: PrismaRunner, manualSerial: unknown) {
@@ -188,9 +179,6 @@ export async function createWarrantyForServiceOrder(
   const existingWarranty = await runner.warranty.findUnique({
     where: { serviceOrderId },
   });
-  if (existingWarranty && !existingWarranty.deletedAt) {
-    return { created: false, warranty: existingWarranty };
-  }
 
   const order = await runner.serviceOrder.findUnique({
     where: { id: serviceOrderId },
@@ -200,12 +188,16 @@ export async function createWarrantyForServiceOrder(
     throw new WarrantyValidationError("Không tìm thấy đơn dịch vụ để tạo bảo hành.", 404);
   }
 
-  if (!["COMPLETED", "DELIVERED"].includes(order.status)) {
-    throw new WarrantyValidationError("Chỉ tạo bảo hành tự động khi đơn đã hoàn thành hoặc đã giao.");
+  if (order.status !== "COMPLETED") {
+    throw new WarrantyValidationError("Chỉ tạo bảo hành tự động khi đơn đã hoàn thành.");
+  }
+
+  if (existingWarranty && !existingWarranty.deletedAt) {
+    return { created: false, warranty: existingWarranty };
   }
 
   const months = parseOptionalInt(payload.warrantyMonths, 120) ?? order.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS;
-  const startDate = parseAdminDateInput(payload.startDate) || new Date();
+  const startDate = parseAdminDateInput(payload.startDate) || order.orderDate;
   const endDate = parseAdminDateInput(payload.endDate, { endOfDay: true }) || getDefaultWarrantyEndDate(startDate, months);
   const serialNo = await getAvailableWarrantySerial(runner, payload.serialNo);
   const notes = sanitizeText(String(payload.notes || "")) || `Tự tạo từ đơn ${order.orderCode}`;
@@ -213,20 +205,28 @@ export async function createWarrantyForServiceOrder(
   const customerName = sanitizeText(String(payload.customerName || "")) || order.customerName;
   const service = normalizeWarrantyService(payload.service || order.service);
 
-  const warranty = await runner.warranty.create({
-    data: {
-      customerName,
-      customerPhone: order.customerPhone,
-      endDate,
-      notes,
-      productName,
-      serialNo,
-      service,
-      serviceOrderId: order.id,
-      startDate,
-      userId: order.userId || order.customer.userId || null,
-    },
-  });
+  const warrantyData = {
+    customerName,
+    customerPhone: order.customerPhone,
+    deletedAt: null,
+    endDate,
+    notes,
+    productName,
+    serialNo,
+    service,
+    serviceOrderId: order.id,
+    startDate,
+    userId: order.userId || order.customer.userId || null,
+  };
+
+  const warranty = existingWarranty
+    ? await runner.warranty.update({
+        where: { id: existingWarranty.id },
+        data: warrantyData,
+      })
+    : await runner.warranty.create({
+        data: warrantyData,
+      });
 
   await runner.serviceOrder.update({
     where: { id: order.id },
@@ -237,6 +237,28 @@ export async function createWarrantyForServiceOrder(
   });
 
   return { created: true, warranty };
+}
+
+export async function archiveWarrantyForServiceOrder(
+  runner: PrismaRunner,
+  serviceOrderId: string
+) {
+  const existingWarranty = await runner.warranty.findUnique({
+    where: { serviceOrderId },
+  });
+  if (!existingWarranty || existingWarranty.deletedAt) return null;
+
+  const warranty = await runner.warranty.update({
+    where: { id: existingWarranty.id },
+    data: { deletedAt: new Date() },
+  });
+
+  await runner.serviceOrder.update({
+    where: { id: serviceOrderId },
+    data: { warrantyEndDate: null },
+  });
+
+  return warranty;
 }
 
 export function normalizeWarrantyUpdatePayload(payload: Record<string, unknown>) {

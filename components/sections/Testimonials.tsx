@@ -1,3 +1,4 @@
+import TestimonialsReviewPager from "@/components/sections/TestimonialsReviewPager";
 import { getPublicApprovedReviews } from "@/lib/public-data";
 
 const serviceLabels: Record<string, string> = {
@@ -5,7 +6,7 @@ const serviceLabels: Record<string, string> = {
   DEN_NLMT: "Đèn NLMT",
   PIN_LUU_TRU: "Pin Lưu Trữ",
   CAMERA: "Camera",
-  CUSTOM: "Custom",
+  CUSTOM: "Theo yêu cầu",
   KHAC: "Dịch vụ",
 };
 
@@ -93,6 +94,13 @@ function ReviewCard({
 
 export default async function Testimonials() {
   const realReviews = await getPublicApprovedReviews();
+  const realReviewSummaries = realReviews.map((review) => ({
+    id: review.id,
+    comment: review.comment,
+    name: review.user.name,
+    rating: review.rating,
+    service: review.service,
+  }));
 
   return (
     <section id="testimonials" className="relative z-10 mx-auto mb-12 max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
@@ -126,30 +134,8 @@ export default async function Testimonials() {
         ))}
       </div>
 
-      {realReviews.length > 0 ? (
-        <details className="mt-12">
-          <summary className="mx-auto flex w-fit cursor-pointer list-none items-center rounded-2xl bg-slate-900 px-6 py-3 text-sm font-body font-bold text-white shadow-lg transition-colors hover:bg-slate-800 [&::-webkit-details-marker]:hidden">
-            Xem thêm {realReviews.length} đánh giá từ khách hàng →
-          </summary>
-          <div className="mt-8 grid grid-cols-1 gap-8 md:grid-cols-3">
-            {realReviews.map((review, index) => (
-              <ReviewCard
-                key={review.id}
-                testimonial={{
-                  name: review.user.name,
-                  comment: review.comment,
-                  rating: review.rating,
-                  service: review.service,
-                }}
-                index={index + 3}
-              />
-            ))}
-          </div>
-          <p className="mt-6 text-center text-sm font-body text-slate-400">
-            Bấm lại nút trên để ẩn bớt đánh giá.
-          </p>
-        </details>
-      ) : null}
+      <TestimonialsReviewPager reviews={realReviewSummaries} />
+
     </section>
   );
 }

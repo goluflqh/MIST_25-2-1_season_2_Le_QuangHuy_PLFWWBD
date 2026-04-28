@@ -149,10 +149,25 @@ test.describe("Auth, account and dashboard smoke", () => {
     });
     expect(contactResponse.ok()).toBeTruthy();
     const contactBody = await contactResponse.json();
-    const contactUpdateResponse = await request.patch(`/api/contact/${contactBody.id}`, {
-      data: { status: "COMPLETED" },
+    const orderResponse = await request.post("/api/admin/service-orders", {
+      data: {
+        contactRequestId: contactBody.id,
+        customerName: name,
+        customerPhone: phone,
+        customerVisible: true,
+        issueDescription: "Yeu cau hoan thanh de danh gia trong e2e.",
+        paidAmount: "500000",
+        productName: "Pin test Phase 5",
+        quotedPrice: "500000",
+        service: "DONG_PIN",
+        source: "CONTACT",
+        status: "COMPLETED",
+        warrantyMonths: "6",
+      },
     });
-    expect(contactUpdateResponse.ok()).toBeTruthy();
+    expect(orderResponse.ok()).toBeTruthy();
+    const orderBody = await orderResponse.json();
+    const orderId = orderBody.order?.id as string | undefined;
 
     await page.reload();
     await expect(page.getByText(serialNo)).toBeVisible();
@@ -163,15 +178,7 @@ test.describe("Auth, account and dashboard smoke", () => {
       timeout: 15_000,
     });
 
-    await page.getByTestId("account-warranty-query").fill(`MH-MISSING-${Date.now()}`);
-    await page.getByTestId("account-warranty-lookup").click();
-    await expect(page.getByTestId("account-warranty-lookup")).toBeEnabled({ timeout: 15_000 });
-    await expect(page.getByTestId("account-warranty-message")).toContainText("Không tìm thấy", {
-      timeout: 15_000,
-    });
-    await page.getByTestId("account-warranty-query").fill(serialNo);
-    await page.getByTestId("account-warranty-lookup").click();
-    await expect(page.getByTestId("account-warranty-result")).toContainText("Pin test Phase 5");
+    await expect(page.getByTestId("account-warranty-lookup")).toHaveCount(0);
 
     const couponCard = page
       .getByTestId("account-coupon-list")
@@ -201,15 +208,24 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("account-review-submit")).toBeDisabled();
     await page.getByTestId("account-review-service").selectOption("DONG_PIN");
     await page.getByTestId("account-review-comment").fill("Dịch vụ tư vấn rõ ràng, phản hồi nhanh.");
-    await expect(page.getByTestId("account-review-submit")).toBeEnabled();
+    await expect(page.getByTestId("account-review-submit")).toBeDisabled();
 
+    await page.getByRole("button", { name: /Chờ đánh giá/ }).click();
     await page.getByTestId("account-review-from-request").click();
     await expect(page.getByTestId("account-review-service")).toHaveValue("DONG_PIN");
+    await expect(page.getByTestId("account-review-submit")).toBeEnabled();
+    await page.getByTestId("account-review-submit").click();
+    await expect(page.getByText(/Cảm ơn bạn đã đánh giá/)).toBeVisible({
+      timeout: AUTH_REDIRECT_TIMEOUT,
+    });
 
     await page.getByRole("button", { name: /Bảo mật đăng nhập/ }).click();
     await expect(page.getByText("Kiểm tra trước khi đổi")).toBeVisible();
 
-    await request.delete(`/api/contact/${contactBody.id}`);
+    if (orderId) {
+      await request.delete("/api/admin/service-orders", { data: { id: orderId } });
+    }
+    await request.delete(`/api/contact/${contactBody.id}`).catch(() => undefined);
     if (warrantyBody.warranty?.id) {
       await request.delete("/api/admin/warranty", { data: { id: warrantyBody.warranty.id } });
     }
@@ -350,7 +366,7 @@ test.describe("Auth, account and dashboard smoke", () => {
       expect(ownedCouponsResponse.ok()).toBeTruthy();
       const ownedCouponsBody = await ownedCouponsResponse.json();
       const redemption = ownedCouponsBody.coupons.find((coupon: { code: string }) => coupon.code === couponCode);
-      expect(redemption?.id).toBeTruthy();
+      expect(redemption?.redemptionId).toBeTruthy();
 
       const contactResponse = await customerContext.post("/api/contact", {
         data: {
@@ -359,12 +375,16 @@ test.describe("Auth, account and dashboard smoke", () => {
           service: "DONG_PIN",
           message: "Customer wants to apply coupon to this service request.",
           source: "account-e2e",
-          couponRedemptionId: redemption.id,
+          couponRedemptionId: redemption.redemptionId,
         },
       });
       expect(contactResponse.ok()).toBeTruthy();
       contactId = (await contactResponse.json()).id as string | undefined;
       expect(contactId).toBeTruthy();
+
+      await login(page, customerPhone, "123456");
+      await expect(page).toHaveURL(/\/tai-khoan/, { timeout: AUTH_REDIRECT_TIMEOUT });
+      await expect(page.getByTestId("account-coupon-pending")).toContainText(couponCode);
 
       const orderResponse = await request.post("/api/admin/service-orders", {
         data: {
@@ -379,7 +399,7 @@ test.describe("Auth, account and dashboard smoke", () => {
           quotedPrice: "1000000",
           service: "DONG_PIN",
           source: "CONTACT",
-          status: "QUOTED",
+          status: "CONTACTED",
           warrantyMonths: "0",
         },
       });
@@ -410,11 +430,14 @@ test.describe("Auth, account and dashboard smoke", () => {
       const syncedContact = contactsBody.contacts.find((contact: { id: string }) => contact.id === contactId);
       expect(syncedContact?.status).toBe("COMPLETED");
 
-      await login(page, customerPhone, "123456");
-      await expect(page).toHaveURL(/\/tai-khoan/, { timeout: AUTH_REDIRECT_TIMEOUT });
+      await page.reload();
+      await page.getByRole("button", { name: /Đã mua/ }).click();
       await expect(page.getByTestId("account-service-orders")).toContainText("Pin coupon payment e2e");
       await expect(page.getByTestId("account-service-orders")).toContainText(couponCode);
       await expect(page.getByTestId("account-service-orders")).toContainText("900.000");
+      if (await page.getByTestId("account-coupon-list").count()) {
+        await expect(page.getByTestId("account-coupon-list")).not.toContainText(couponCode);
+      }
     } finally {
       if (orderId) {
         await request.delete("/api/admin/service-orders", { data: { id: orderId } }).catch(() => undefined);
@@ -444,6 +467,11 @@ test.describe("Auth, account and dashboard smoke", () => {
     await page.getByTestId("dashboard-open-orders").click();
     await expect(page).toHaveURL(/\/dashboard\/orders/, { timeout: AUTH_REDIRECT_TIMEOUT });
     await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+    await expect(page.getByTestId("dashboard-orders-source-filter")).toBeVisible();
+    await expect(page.getByTestId("dashboard-orders-account-filter")).toBeVisible();
+    await expect(page.getByTestId("dashboard-orders-payment-filter")).toBeVisible();
+    await expect(page.getByTestId("dashboard-orders-warranty-filter")).toBeVisible();
+    await expect(page.getByTestId("dashboard-orders-coupon-filter")).toBeVisible();
   });
 
   test("admin can scan and filter the customer CRM list", async ({ page }) => {
@@ -453,6 +481,10 @@ test.describe("Auth, account and dashboard smoke", () => {
     await page.goto("/dashboard/users");
     await expect(page.getByTestId("dashboard-users-crm")).toBeVisible();
     await expect(page.getByTestId("dashboard-users-metrics")).toBeVisible();
+    await expect(page.getByTestId("dashboard-users-origin-filter")).toBeVisible();
+    await expect(page.getByTestId("dashboard-users-debt-filter")).toBeVisible();
+    await expect(page.getByTestId("dashboard-users-warranty-filter")).toBeVisible();
+    await expect(page.getByTestId("dashboard-users-recent-order-filter")).toBeVisible();
 
     await page.getByTestId("dashboard-users-search").fill(ADMIN_PHONE);
     await page.getByTestId("dashboard-users-role-filter").selectOption("ADMIN");
@@ -504,6 +536,160 @@ test.describe("Auth, account and dashboard smoke", () => {
     } finally {
       if (warrantyId) {
         await request.delete("/api/admin/warranty", { data: { id: warrantyId } });
+      }
+    }
+  });
+
+  test("admin can archive and recreate a linked service-order warranty", async ({ request }) => {
+    const unique = Date.now().toString().slice(-8);
+    const customerPhone = buildUniquePhone();
+    let warrantyId: string | undefined;
+
+    await loginAdminRequest(request);
+    const orderResponse = await request.post("/api/admin/service-orders", {
+      data: {
+        customerName: `Warranty Archive ${unique}`,
+        customerPhone,
+        customerVisible: true,
+        issueDescription: "Completed order for warranty archive e2e.",
+        paidAmount: "100000",
+        productName: `Pin warranty archive ${unique}`,
+        quotedPrice: "100000",
+        service: "DONG_PIN",
+        source: "MANUAL",
+        status: "COMPLETED",
+        warrantyMonths: "6",
+      },
+    });
+    expect(orderResponse.ok()).toBeTruthy();
+    const orderBody = await orderResponse.json();
+    const orderId = orderBody.order?.id as string | undefined;
+    warrantyId = orderBody.order?.warranty?.id as string | undefined;
+    expect(orderId).toBeTruthy();
+    expect(warrantyId).toBeTruthy();
+
+    try {
+      const deleteWarrantyResponse = await request.delete("/api/admin/warranty", {
+        data: { id: warrantyId },
+      });
+      expect(deleteWarrantyResponse.ok()).toBeTruthy();
+
+      const ordersAfterDeleteResponse = await request.get("/api/admin/service-orders");
+      expect(ordersAfterDeleteResponse.ok()).toBeTruthy();
+      const ordersAfterDeleteBody = await ordersAfterDeleteResponse.json();
+      const orderAfterDelete = ordersAfterDeleteBody.orders.find((order: { id: string }) => order.id === orderId);
+      expect(orderAfterDelete?.warranty).toBeNull();
+      expect(orderAfterDelete?.warrantyEndDate).toBeNull();
+
+      const recreateWarrantyResponse = await request.post("/api/admin/warranty", {
+        data: { serviceOrderId: orderId, warrantyMonths: "6" },
+      });
+      expect(recreateWarrantyResponse.ok()).toBeTruthy();
+      const recreateWarrantyBody = await recreateWarrantyResponse.json();
+      expect(recreateWarrantyBody.created).toBeTruthy();
+      warrantyId = recreateWarrantyBody.warranty?.id as string | undefined;
+      expect(warrantyId).toBeTruthy();
+
+      const ordersAfterRecreateResponse = await request.get("/api/admin/service-orders");
+      expect(ordersAfterRecreateResponse.ok()).toBeTruthy();
+      const ordersAfterRecreateBody = await ordersAfterRecreateResponse.json();
+      const orderAfterRecreate = ordersAfterRecreateBody.orders.find((order: { id: string }) => order.id === orderId);
+      expect(orderAfterRecreate?.warranty?.id).toBe(warrantyId);
+      expect(orderAfterRecreate?.warrantyEndDate).toBeTruthy();
+    } finally {
+      if (warrantyId) {
+        await request.delete("/api/admin/warranty", { data: { id: warrantyId } }).catch(() => undefined);
+      }
+      if (orderId) {
+        await request.delete("/api/admin/service-orders", { data: { id: orderId } }).catch(() => undefined);
+      }
+    }
+  });
+
+  test("contact status creates the matching order status and archives warranty on rollback", async ({ request }) => {
+    const unique = Date.now().toString().slice(-8);
+    const customerName = `Status Map ${unique}`;
+    const customerPhone = buildUniquePhone();
+    let orderId: string | undefined;
+
+    await loginAdminRequest(request);
+    const contactResponse = await request.post("/api/contact", {
+      data: {
+        name: customerName,
+        phone: customerPhone,
+        service: "DONG_PIN",
+        message: "Contact status should map into a service order status.",
+        source: "account-e2e",
+      },
+    });
+    expect(contactResponse.ok()).toBeTruthy();
+    const contactId = (await contactResponse.json()).id as string | undefined;
+    expect(contactId).toBeTruthy();
+
+    try {
+      const contactStatusResponse = await request.patch(`/api/contact/${contactId}`, {
+        data: { status: "CONTACTED" },
+      });
+      expect(contactStatusResponse.status()).toBe(409);
+      const blockedContactStatusBody = await contactStatusResponse.json();
+      expect(blockedContactStatusBody.code).toBe("SERVICE_ORDER_REQUIRED");
+
+      const orderResponse = await request.post("/api/admin/service-orders", {
+        data: {
+          contactRequestId: contactId,
+          customerName,
+          customerPhone,
+          customerVisible: true,
+          issueDescription: "Order should not fall back to received.",
+          orderDate: "15/01/2026",
+          paidAmount: "0",
+          productName: `Pin status mapping ${unique}`,
+          quotedPrice: "600000",
+          service: "DONG_PIN",
+          source: "CONTACT",
+          status: "CONTACTED",
+          warrantyMonths: "6",
+        },
+      });
+      expect(orderResponse.ok()).toBeTruthy();
+      const orderBody = await orderResponse.json();
+      orderId = orderBody.order?.id as string | undefined;
+      expect(orderId).toBeTruthy();
+      expect(orderBody.order?.status).toBe("CONTACTED");
+      expect(orderBody.order?.warranty).toBeNull();
+
+      const linkedContactStatusResponse = await request.patch(`/api/contact/${contactId}`, {
+        data: { status: "IN_PROGRESS" },
+      });
+      expect(linkedContactStatusResponse.ok()).toBeTruthy();
+      const orderAfterContactPatchResponse = await request.get("/api/admin/service-orders");
+      expect(orderAfterContactPatchResponse.ok()).toBeTruthy();
+      const orderAfterContactPatchBody = await orderAfterContactPatchResponse.json();
+      const orderAfterContactPatch = orderAfterContactPatchBody.orders.find((order: { id: string }) => order.id === orderId);
+      expect(orderAfterContactPatch?.status).toBe("IN_PROGRESS");
+
+      const completedResponse = await request.patch("/api/admin/service-orders", {
+        data: { id: orderId, status: "COMPLETED" },
+      });
+      expect(completedResponse.ok()).toBeTruthy();
+      const completedBody = await completedResponse.json();
+      expect(completedBody.order?.warranty?.id).toBeTruthy();
+      expect(new Date(completedBody.order?.warrantyEndDate).getUTCFullYear()).toBe(2026);
+      expect(new Date(completedBody.order?.warrantyEndDate).getUTCMonth()).toBe(6);
+
+      const rollbackResponse = await request.patch("/api/admin/service-orders", {
+        data: { id: orderId, status: "IN_PROGRESS" },
+      });
+      expect(rollbackResponse.ok()).toBeTruthy();
+      const rollbackBody = await rollbackResponse.json();
+      expect(rollbackBody.order?.warranty).toBeNull();
+      expect(rollbackBody.order?.warrantyEndDate).toBeNull();
+    } finally {
+      if (orderId) {
+        await request.delete("/api/admin/service-orders", { data: { id: orderId } }).catch(() => undefined);
+      }
+      if (contactId) {
+        await request.delete(`/api/contact/${contactId}`).catch(() => undefined);
       }
     }
   });
@@ -686,9 +872,6 @@ test.describe("Auth, account and dashboard smoke", () => {
       await expect(drawer).toBeVisible();
       await expect(drawer).toContainText("Hành động đề xuất");
 
-      await drawer.getByTestId("dashboard-contact-detail-status-IN_PROGRESS").click();
-      await expect(drawer).toContainText("Đang xử lý");
-
       const crmNote = `Ghi chú CRM ${unique}`;
       await drawer.getByRole("button", { name: "Sửa" }).click();
       await drawer.getByTestId("dashboard-contact-detail-notes").fill(crmNote);
@@ -705,8 +888,9 @@ test.describe("Auth, account and dashboard smoke", () => {
       await expect(page.getByTestId("dashboard-contact-card")).toHaveCount(1);
       await page.getByTestId("dashboard-contact-detail-open").click();
       await expect(drawer).toBeVisible();
-      await drawer.getByTestId("dashboard-contact-create-order").click();
+      await drawer.getByTestId("dashboard-contact-detail-status-IN_PROGRESS").click();
       await expect(page).toHaveURL(/\/dashboard\/orders\?.*source=CONTACT/, { timeout: AUTH_REDIRECT_TIMEOUT });
+      await expect(page).toHaveURL(/status=IN_PROGRESS/);
       await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
       await expect(page.getByTestId("dashboard-order-customer-name-input")).toHaveValue(name);
     } finally {

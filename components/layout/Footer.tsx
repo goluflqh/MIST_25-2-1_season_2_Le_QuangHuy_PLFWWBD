@@ -4,11 +4,11 @@ import { siteConfig } from "@/lib/site";
 export default function Footer() {
   return (
     <>
-      <footer className="bg-slate-900 border-t border-slate-800 pt-20 pb-10">
+      <footer className="bg-slate-900 border-t border-slate-800 pt-8 pb-4 sm:pt-16 sm:pb-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
-            <div className="col-span-1 md:col-span-2">
-              <div className="flex items-center gap-3 mb-6">
+          <div className="grid grid-cols-2 gap-6 md:grid-cols-4 md:gap-12">
+            <div className="col-span-2 md:col-span-2">
+              <div className="mb-2 flex items-center gap-3 sm:mb-6">
                 <svg
                   width="40"
                   height="40"
@@ -69,17 +69,17 @@ export default function Footer() {
                   </span>
                 </div>
               </div>
-              <p className="mb-6 max-w-md font-body leading-relaxed text-slate-400">
+              <p className="mb-4 hidden max-w-md font-body text-sm leading-6 text-slate-400 sm:mb-6 sm:block sm:text-base sm:leading-relaxed">
                 Xưởng tư vấn và thi công pin Lithium, pin lưu trữ, đèn năng lượng mặt trời
                 và camera tại Đà Nẵng. Ưu tiên kiểm tra trước, báo giá rõ và hỗ trợ sau
                 bàn giao.
               </p>
-              <div className="flex gap-3">
+              <div className="mb-4 flex gap-3 sm:mb-0">
                 <a
                   href={siteConfig.facebookUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-blue-600 hover:text-white transition-colors"
+                  className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition-colors hover:bg-blue-600 hover:text-white"
                   title="Facebook"
                 >
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -90,14 +90,14 @@ export default function Footer() {
                   href={siteConfig.zaloUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-blue-500 hover:text-white transition-colors"
+                  className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition-colors hover:bg-blue-500 hover:text-white"
                   title="Zalo"
                 >
                   <span className="text-sm font-black">Zalo</span>
                 </a>
                 <a
                   href={siteConfig.hotlineHref}
-                  className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-green-600 hover:text-white transition-colors"
+                  className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition-colors hover:bg-green-600 hover:text-white"
                   title="Gọi ngay"
                 >
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -107,14 +107,14 @@ export default function Footer() {
               </div>
             </div>
             <div>
-              <h4 className="font-heading font-bold text-white text-lg mb-6">
+              <h4 className="mb-2 font-heading text-base font-bold text-white sm:mb-6 sm:text-lg">
                 Liên Kết Nhanh
               </h4>
-              <ul className="space-y-3 font-body">
+              <ul className="grid grid-cols-1 gap-2 font-body text-sm sm:block sm:space-y-3 sm:text-base">
                 <li>
                   <Link
                     href="/dich-vu/dong-pin"
-                    className="text-slate-400 hover:text-yellow-400 transition-colors"
+                    className="block rounded-lg bg-slate-800/60 px-3 py-2 text-slate-300 transition-colors hover:text-yellow-400 sm:bg-transparent sm:px-0 sm:py-0 sm:text-slate-400"
                   >
                     Dịch Vụ Đóng Pin
                   </Link>
@@ -122,7 +122,7 @@ export default function Footer() {
                 <li>
                   <Link
                     href="/dich-vu/camera"
-                    className="text-slate-400 hover:text-yellow-400 transition-colors"
+                    className="block rounded-lg bg-slate-800/60 px-3 py-2 text-slate-300 transition-colors hover:text-yellow-400 sm:bg-transparent sm:px-0 sm:py-0 sm:text-slate-400"
                   >
                     Lắp Đặt Camera
                   </Link>
@@ -130,7 +130,7 @@ export default function Footer() {
                 <li>
                   <Link
                     href="/#process"
-                    className="text-slate-400 hover:text-yellow-400 transition-colors"
+                    className="block rounded-lg bg-slate-800/60 px-3 py-2 text-slate-300 transition-colors hover:text-yellow-400 sm:bg-transparent sm:px-0 sm:py-0 sm:text-slate-400"
                   >
                     Quy Trình Làm Việc
                   </Link>
@@ -138,7 +138,7 @@ export default function Footer() {
                 <li>
                   <Link
                     href="/#testimonials"
-                    className="text-slate-400 hover:text-yellow-400 transition-colors"
+                    className="block rounded-lg bg-slate-800/60 px-3 py-2 text-slate-300 transition-colors hover:text-yellow-400 sm:bg-transparent sm:px-0 sm:py-0 sm:text-slate-400"
                   >
                     Khách Hàng Đánh Giá
                   </Link>
@@ -146,31 +146,30 @@ export default function Footer() {
               </ul>
             </div>
             <div>
-              <h4 className="font-heading font-bold text-white text-lg mb-6">
+              <h4 className="mb-2 font-heading text-base font-bold text-white sm:mb-6 sm:text-lg">
                 Liên Hệ Chuyên Viên
               </h4>
-              <p className="text-slate-400 font-body mb-3">
+              <p className="mb-3 font-body text-sm text-slate-400 sm:text-base">
                 Cơ sở tại: <a href={siteConfig.mapUrl} target="_blank" rel="noopener noreferrer" className="text-white hover:text-primary transition-colors underline underline-offset-2"><strong>{siteConfig.locationLabel}</strong></a>
               </p>
-              <p className="text-slate-400 font-bold mb-2 flex items-center gap-2">
+              <p className="mb-2 flex items-center gap-2 font-bold text-slate-400">
                 <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"></path>
                 </svg>
                 <a href={siteConfig.hotlineHref} className="text-white hover:text-primary transition-colors">{siteConfig.hotlineDisplay}</a>
               </p>
-              <div className="flex gap-2 mt-3">
-                <a href={siteConfig.mapUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 text-white text-xs font-body font-bold rounded-lg hover:bg-slate-700 transition-colors">
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <a href={siteConfig.mapUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-body font-bold text-white transition-colors hover:bg-slate-700">
                   Chỉ Đường
                 </a>
-                <a href={siteConfig.zaloUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-blue-600 text-white text-xs font-body font-bold rounded-lg hover:bg-blue-500 transition-colors">
+                <a href={siteConfig.zaloUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-body font-bold text-white transition-colors hover:bg-blue-500">
                   Chat Zalo
                 </a>
               </div>
             </div>
           </div>
-          <div className="border-t border-slate-800 mt-10 pt-6 text-center text-sm text-slate-500 font-body">
-            © 2026 Website Thiết Kế Dành Riêng Cho Minh Hồng - Tối Ưu Tỉ Lệ Chuyển
-            Đổi.
+          <div className="mt-6 border-t border-slate-800 pt-4 text-center font-body text-xs text-slate-500 sm:mt-10 sm:pt-6 sm:text-sm">
+            © 2026 Minh Hồng. Tối ưu cho tư vấn và chăm sóc khách hàng.
           </div>
         </div>
       </footer>

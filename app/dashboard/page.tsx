@@ -2,6 +2,8 @@ import { getChatbotDashboardMetrics } from "@/lib/chatbot-metrics";
 import { getPayableAmount } from "@/lib/coupon-discounts";
 import { getLeadSourceLabel } from "@/lib/lead-sources";
 import { prisma } from "@/lib/prisma";
+import { normalizeServiceOrderStatus } from "@/lib/service-orders";
+import { formatVietnamDate } from "@/lib/vietnam-time";
 import Link from "next/link";
 import DashboardOrdersButton from "./DashboardOrdersButton";
 
@@ -44,7 +46,7 @@ function getPercent(value: number, total: number) {
 }
 
 function formatDate(value: Date) {
-  return value.toLocaleDateString("vi-VN");
+  return formatVietnamDate(value);
 }
 
 function formatMoney(value: number) {
@@ -203,7 +205,7 @@ export default async function DashboardPage() {
       summary.paid += paid;
       summary.debt += debt;
       if (debt > 0) summary.debtOrders += 1;
-      if (["RECEIVED", "CHECKING", "QUOTED", "IN_PROGRESS"].includes(order.status)) {
+      if (OPEN_STATUSES.includes(normalizeServiceOrderStatus(order.status) as (typeof OPEN_STATUSES)[number])) {
         summary.openOrders += 1;
       }
       return summary;
@@ -247,15 +249,6 @@ export default async function DashboardPage() {
     .sort(([, first], [, second]) => second.quoted - first.quoted)
     .slice(0, 5);
   const maxServiceQuoted = Math.max(...serviceMoneyRows.map(([, value]) => value.quoted), 1);
-  const topDebtOrders = serviceOrders
-    .map((order) => ({
-      ...order,
-      debt: Math.max(getPayableAmount(order.quotedPrice, order.discountAmount) - (order.paidAmount || 0), 0),
-    }))
-    .filter((order) => order.debt > 0)
-    .sort((first, second) => second.debt - first.debt)
-    .slice(0, 5);
-
   return (
     <div data-testid="dashboard-page" className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -424,26 +417,6 @@ export default async function DashboardPage() {
             </div>
           </div>
         </div>
-
-        {topDebtOrders.length > 0 ? (
-          <div className="rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h4 className="font-heading font-bold text-slate-900">Đơn Còn Phải Thu Nhiều</h4>
-              <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-body font-bold text-red-700">
-                {topDebtOrders.length} đơn ưu tiên
-              </span>
-            </div>
-            <div className="grid gap-2 lg:grid-cols-5">
-              {topDebtOrders.map((order) => (
-                <Link key={order.id} href="/dashboard/orders" className="rounded-xl border border-slate-100 bg-slate-50 p-3 transition-colors hover:bg-red-50">
-                  <p className="truncate font-body text-xs font-bold text-slate-800">{order.customerName}</p>
-                  <p className="truncate font-body text-[11px] text-slate-400">{order.productName}</p>
-                  <p className="mt-2 font-heading text-sm font-extrabold text-red-600">{formatMoney(order.debt)}</p>
-                </Link>
-              ))}
-            </div>
-          </div>
-        ) : null}
       </section>
 
       <div className="grid gap-6 lg:grid-cols-5">

@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
+import { addMonthsInVietnam, formatVietnamDate } from "@/lib/vietnam-time";
 
 interface WarrantyData {
   id: string;
@@ -63,7 +64,7 @@ function getWarrantyStatus(endDate: string) {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString("vi-VN");
+  return formatVietnamDate(value);
 }
 
 function isVietnameseDateText(value: string) {
@@ -71,13 +72,11 @@ function isVietnameseDateText(value: string) {
 }
 
 function addMonths(date: Date, months: number) {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + months);
-  return next;
+  return addMonthsInVietnam(date, months);
 }
 
 function formatDateInput(value: Date) {
-  return value.toLocaleDateString("vi-VN");
+  return formatVietnamDate(value);
 }
 
 function defaultWarrantyEndDateText() {

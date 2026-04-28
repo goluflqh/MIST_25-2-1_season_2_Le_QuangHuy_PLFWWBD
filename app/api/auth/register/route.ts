@@ -8,6 +8,7 @@ import {
 } from "@/lib/api-route";
 import { prisma } from "@/lib/prisma";
 import { generateSessionToken, hashPassword } from "@/lib/auth";
+import { shouldUseSecureSessionCookie } from "@/lib/session";
 import {
   consumeRateLimitForRequest,
   formatDurationVi,
@@ -156,14 +157,14 @@ export async function POST(request: Request) {
       {
         success: true,
         message: "Đăng ký thành công!",
-        user: { id: user.id, name: user.name, role: user.role },
+        user: { id: user.id, name: user.name, phone: user.phone, role: user.role },
       },
       { status: 201 }
     );
 
     response.cookies.set("session_token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureSessionCookie(request),
       sameSite: "lax",
       expires: expiresAt,
       path: "/",

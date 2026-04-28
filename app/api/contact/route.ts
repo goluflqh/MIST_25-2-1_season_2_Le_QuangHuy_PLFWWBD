@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     let userId: string | undefined;
     try {
       const session = await getCurrentSession();
-      if (session) userId = session.userId;
+      if (session?.user.role === "CUSTOMER") userId = session.userId;
     } catch {
       // Ignore guest session lookup failures.
     }

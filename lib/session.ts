@@ -64,6 +64,28 @@ export async function getCurrentAdminUser() {
   return user;
 }
 
+export function shouldUseSecureSessionCookie(request: Request) {
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  if (forwardedProto) {
+    return forwardedProto === "https";
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    return false;
+  }
+
+  try {
+    const url = new URL(request.url);
+    if (url.protocol === "https:") {
+      return true;
+    }
+
+    return !["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  } catch {
+    return true;
+  }
+}
+
 export function unauthorizedResponse(message?: string) {
   return NextResponse.json(message ? { success: false, message } : { success: false }, { status: 401 });
 }

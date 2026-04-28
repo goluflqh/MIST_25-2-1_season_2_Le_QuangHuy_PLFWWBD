@@ -4,15 +4,14 @@ import { parseAdminDateInput } from "@/lib/admin-date";
 import { calculateCouponDiscount, getPayableAmount } from "@/lib/coupon-discounts";
 import { prisma } from "@/lib/prisma";
 import { isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
+import { addMonthsInVietnam, getVietnamDateCode } from "@/lib/vietnam-time";
 import { DEFAULT_WARRANTY_MONTHS } from "@/lib/warranties";
 
 export const serviceOrderStatuses = [
-  "RECEIVED",
-  "CHECKING",
-  "QUOTED",
+  "PENDING",
+  "CONTACTED",
   "IN_PROGRESS",
   "COMPLETED",
-  "DELIVERED",
   "CANCELLED",
 ] as const;
 
@@ -80,6 +79,7 @@ export const serviceOrderInclude = {
   },
   warranty: {
     select: {
+      deletedAt: true,
       id: true,
       serialNo: true,
       endDate: true,
@@ -120,7 +120,7 @@ const serviceAliases: Record<string, ServiceOrderService> = {
   "theo yêu cầu": "CUSTOM",
 };
 
-const statusAliases: Record<string, ServiceOrderStatus> = {
+const statusAliases: Record<string, string> = {
   "bao gia": "QUOTED",
   "chờ kiểm tra": "RECEIVED",
   "dang kiem tra": "CHECKING",
@@ -153,6 +153,40 @@ const statusAliases: Record<string, ServiceOrderStatus> = {
   "xong": "COMPLETED",
 };
 
+const normalizedStatusAliases: Record<string, ServiceOrderStatus> = {
+  CHECKING: "CONTACTED",
+  DELIVERED: "COMPLETED",
+  QUOTED: "CONTACTED",
+  RECEIVED: "PENDING",
+  "bao gia": "CONTACTED",
+  "chờ xử lý": "PENDING",
+  "cho xu ly": "PENDING",
+  "đang xử lý": "IN_PROGRESS",
+  "dang kiem tra": "CONTACTED",
+  "dang lam": "IN_PROGRESS",
+  "dang sua": "IN_PROGRESS",
+  "dang xu ly": "IN_PROGRESS",
+  "da bao gia": "CONTACTED",
+  "da giao": "COMPLETED",
+  "da huy": "CANCELLED",
+  "da huy don": "CANCELLED",
+  "da lien he": "CONTACTED",
+  "da xong": "COMPLETED",
+  "đã hủy": "CANCELLED",
+  "đã huỷ": "CANCELLED",
+  "đã liên hệ": "CONTACTED",
+  "hoàn thành": "COMPLETED",
+  "giao khach": "COMPLETED",
+  huy: "CANCELLED",
+  "hủy": "CANCELLED",
+  "huỷ": "CANCELLED",
+  "kiem tra": "CONTACTED",
+  "moi nhan": "PENDING",
+  "nhan don": "PENDING",
+  "xử lý": "IN_PROGRESS",
+  xong: "COMPLETED",
+};
+
 function compactKey(value: unknown) {
   return sanitizeText(String(value || ""))
     .toLowerCase()
@@ -167,12 +201,14 @@ function normalizeService(value: unknown): ServiceOrderService {
   return alias || "KHAC";
 }
 
-function normalizeStatus(value: unknown): ServiceOrderStatus {
+export function normalizeServiceOrderStatus(value: unknown): ServiceOrderStatus {
   const raw = sanitizeText(String(value || "")).toUpperCase();
   if (serviceOrderStatuses.includes(raw as ServiceOrderStatus)) return raw as ServiceOrderStatus;
 
-  const alias = statusAliases[compactKey(value)];
-  return alias || "RECEIVED";
+  const compact = compactKey(value);
+  const legacyAlias = statusAliases[compact] || statusAliases[raw] || "";
+  const alias = normalizedStatusAliases[raw] || normalizedStatusAliases[compact] || normalizedStatusAliases[legacyAlias];
+  return alias || "PENDING";
 }
 
 function normalizeSource(value: unknown, fallback: ServiceOrderSource): ServiceOrderSource {
@@ -216,35 +252,21 @@ function parseBoolean(value: unknown) {
 }
 
 export function mapOrderStatusToContactStatus(status: string) {
-  if (status === "CANCELLED") return "CANCELLED";
-  if (status === "COMPLETED" || status === "DELIVERED") return "COMPLETED";
-  if (status === "RECEIVED") return "CONTACTED";
-  return "IN_PROGRESS";
+  return normalizeServiceOrderStatus(status);
 }
 
 export function mapContactStatusToOrderStatus(status: string) {
-  if (status === "CANCELLED") return "CANCELLED";
-  if (status === "COMPLETED") return "COMPLETED";
-  if (status === "PENDING" || status === "CONTACTED") return "CHECKING";
-  return "IN_PROGRESS";
+  return normalizeServiceOrderStatus(status);
 }
 
 function addMonths(date: Date, months: number) {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + months);
-  return next;
+  return addMonthsInVietnam(date, months);
 }
 
 function buildOrderCode() {
-  const now = new Date();
-  const datePart = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-  ].join("");
   const suffix = randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase();
 
-  return `MH-DH-${datePart}-${suffix}`;
+  return `MH-DH-${getVietnamDateCode()}-${suffix}`;
 }
 
 async function getAvailableOrderCode(runner: PrismaRunner, manualCode: unknown) {
@@ -271,9 +293,12 @@ export function normalizeServiceOrderPayload(
   const couponRedemptionId = sanitizeText(String(payload.couponRedemptionId || "")) || null;
   const productName = sanitizeText(String(payload.productName || payload.product || ""));
   const orderDate = parseAdminDateInput(payload.orderDate) || new Date();
+  const status = normalizeServiceOrderStatus(payload.status);
   const warrantyMonths = parseOptionalInt(payload.warrantyMonths, 120) ?? DEFAULT_WARRANTY_MONTHS;
   const explicitWarrantyEndDate = parseAdminDateInput(payload.warrantyEndDate, { endOfDay: true });
-  const warrantyEndDate = explicitWarrantyEndDate || (warrantyMonths ? addMonths(orderDate, warrantyMonths) : null);
+  const warrantyEndDate = status === "COMPLETED"
+    ? explicitWarrantyEndDate || (warrantyMonths ? addMonths(orderDate, warrantyMonths) : null)
+    : null;
 
   if (!customerName || customerName.length < 2) {
     throw new ServiceOrderValidationError("Vui lòng nhập tên khách hàng từ 2 ký tự trở lên.");
@@ -303,7 +328,7 @@ export function normalizeServiceOrderPayload(
     service: normalizeService(payload.service),
     solution: sanitizeText(String(payload.solution || "")) || null,
     source: normalizeSource(payload.source, fallbackSource),
-    status: normalizeStatus(payload.status),
+    status,
     warrantyEndDate,
     warrantyMonths,
   };
@@ -324,10 +349,11 @@ export async function createServiceOrder(
               include: {
                 contactRequest: { select: { id: true } },
                 coupon: { select: { code: true, description: true, discount: true } },
-                serviceOrder: { select: { id: true } },
+                serviceOrder: { select: { deletedAt: true, id: true } },
               },
             },
-            serviceOrder: { select: { id: true } },
+            serviceOrder: { select: { deletedAt: true, id: true } },
+            user: { select: { id: true, role: true } },
           },
         })
       : null;
@@ -336,19 +362,21 @@ export async function createServiceOrder(
       throw new ServiceOrderValidationError("Yêu cầu tư vấn liên kết không còn tồn tại.");
     }
 
-    if (contactRequest?.serviceOrder) {
+    if (contactRequest?.serviceOrder && !contactRequest.serviceOrder.deletedAt) {
       throw new ServiceOrderValidationError("Yêu cầu tư vấn này đã có đơn dịch vụ liên kết.");
     }
 
     const linkedUser = await tx.user.findUnique({
       where: { phone: normalized.customerPhone },
-      select: { id: true },
+      select: { id: true, role: true },
     });
     const existingCustomer = await tx.customer.findUnique({
       where: { phone: normalized.customerPhone },
       select: { userId: true },
     });
-    const effectiveUserId = linkedUser?.id || contactRequest?.userId || existingCustomer?.userId || null;
+    const contactUserId = contactRequest?.user?.role === "CUSTOMER" ? contactRequest.user.id : null;
+    const linkedCustomerUserId = linkedUser?.role === "CUSTOMER" ? linkedUser.id : null;
+    const effectiveUserId = linkedCustomerUserId || contactUserId || existingCustomer?.userId || null;
     const requestedCouponRedemptionId = normalized.couponRedemptionId || contactRequest?.couponRedemptionId || null;
     const couponRedemption = contactRequest?.couponRedemption
       || (requestedCouponRedemptionId
@@ -357,7 +385,7 @@ export async function createServiceOrder(
             include: {
               contactRequest: { select: { id: true } },
               coupon: { select: { code: true, description: true, discount: true } },
-              serviceOrder: { select: { id: true } },
+              serviceOrder: { select: { deletedAt: true, id: true } },
             },
           })
         : null);
@@ -371,7 +399,7 @@ export async function createServiceOrder(
         throw new ServiceOrderValidationError("Mã giảm giá không khớp với tài khoản khách.");
       }
 
-      if (couponRedemption.serviceOrder) {
+      if (couponRedemption.serviceOrder && !couponRedemption.serviceOrder.deletedAt) {
         throw new ServiceOrderValidationError("Mã giảm giá này đã được dùng cho một đơn khác.");
       }
 
@@ -414,6 +442,7 @@ export async function createServiceOrder(
         discountAmount,
         orderCode,
         paidAmount: Math.min(normalized.paidAmount, getPayableAmount(normalized.quotedPrice, discountAmount)),
+        status: normalized.status,
         userId: effectiveUserId,
       },
       include: serviceOrderInclude,
@@ -433,17 +462,22 @@ export async function createServiceOrder(
 export function serializeServiceOrder(
   order: Prisma.ServiceOrderGetPayload<{ include: typeof serviceOrderInclude }>
 ) {
+  const status = normalizeServiceOrderStatus(order.status);
+  const warranty = status === "COMPLETED" && order.warranty && !order.warranty.deletedAt ? order.warranty : null;
+
   return {
     ...order,
     createdAt: order.createdAt.toISOString(),
     orderDate: order.orderDate.toISOString(),
+    status,
     updatedAt: order.updatedAt.toISOString(),
-    warranty: order.warranty
+    warranty: warranty
       ? {
-          ...order.warranty,
-          endDate: order.warranty.endDate.toISOString(),
+          id: warranty.id,
+          serialNo: warranty.serialNo,
+          endDate: warranty.endDate.toISOString(),
         }
       : null,
-    warrantyEndDate: order.warrantyEndDate?.toISOString() || null,
+    warrantyEndDate: warranty ? order.warrantyEndDate?.toISOString() || null : null,
   };
 }
