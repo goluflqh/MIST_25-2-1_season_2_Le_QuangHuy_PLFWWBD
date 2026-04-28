@@ -91,7 +91,7 @@ export default async function RootLayout({
           key={currentUser ? `${currentUser.id}:${currentUser.role}:${currentUser.name}` : "guest"}
           initialUser={
             currentUser
-              ? { id: currentUser.id, name: currentUser.name, role: currentUser.role }
+              ? { id: currentUser.id, name: currentUser.name, phone: currentUser.phone, role: currentUser.role }
               : null
           }
         >

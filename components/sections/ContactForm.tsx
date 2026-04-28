@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
@@ -73,12 +73,20 @@ const formSchema = z.object({
 type FormData = z.infer<typeof formSchema>;
 type ServiceId = (typeof serviceOptions)[number]["value"];
 
-interface OwnedCouponOption {
+interface ContactCouponOption {
   id: string;
+  redemptionId: string | null;
+  redemptionStatus: "AVAILABLE" | "OWNED" | "PENDING";
   code: string;
   description: string;
   discount: string;
+  pointsCost: number;
+  remainingUses: number;
   expiresAtLabel: string | null;
+}
+
+function getCouponSelectionValue(coupon: ContactCouponOption) {
+  return coupon.redemptionId ? `redemption:${coupon.redemptionId}` : `coupon:${coupon.id}`;
 }
 
 function readTrackingValue(searchParams: { get(name: string): string | null }, key: string) {
@@ -97,8 +105,9 @@ export default function ContactForm() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submittedServiceId, setSubmittedServiceId] = useState<ServiceId | "">("");
-  const [ownedCoupons, setOwnedCoupons] = useState<OwnedCouponOption[]>([]);
-  const [selectedCouponRedemptionId, setSelectedCouponRedemptionId] = useState("");
+  const [couponOptions, setCouponOptions] = useState<ContactCouponOption[]>([]);
+  const [selectedCouponValue, setSelectedCouponValue] = useState("");
+  const lastProfileAutofillRef = useRef<{ name: string; phone: string } | null>(null);
 
   const serviceFromQuery = searchParams.get("service") || "";
   const messageFromQuery = searchParams.get("message") || "";
@@ -111,6 +120,7 @@ export default function ContactForm() {
     handleSubmit,
     formState: { errors },
     reset,
+    getValues,
     setValue,
     watch,
   } = useForm<FormData>({
@@ -126,12 +136,12 @@ export default function ContactForm() {
   const selectedServiceId = watch("serviceId");
   const selectedServiceLabel =
     serviceOptions.find((option) => option.value === selectedServiceId)?.label || "";
-  const selectedCoupon = ownedCoupons.find((coupon) => coupon.id === selectedCouponRedemptionId) || null;
+  const selectedCoupon = couponOptions.find((coupon) => getCouponSelectionValue(coupon) === selectedCouponValue) || null;
 
   useEffect(() => {
     if (!user) {
-      setOwnedCoupons([]);
-      setSelectedCouponRedemptionId("");
+      setCouponOptions([]);
+      setSelectedCouponValue("");
       return;
     }
 
@@ -140,11 +150,11 @@ export default function ContactForm() {
       .then((response) => response.json())
       .then((data) => {
         if (!cancelled && data.success && Array.isArray(data.coupons)) {
-          setOwnedCoupons(data.coupons);
+          setCouponOptions(data.coupons);
         }
       })
       .catch(() => {
-        if (!cancelled) setOwnedCoupons([]);
+        if (!cancelled) setCouponOptions([]);
       });
 
     return () => {
@@ -165,16 +175,37 @@ export default function ContactForm() {
     }
   }, [messageFromQuery, setValue]);
 
+  useEffect(() => {
+    if (!user?.phone) return;
+
+    const previousAutofill = lastProfileAutofillRef.current;
+    const currentName = getValues("name").trim();
+    const currentPhone = getValues("phone").trim();
+    const shouldFillName = !currentName || currentName === previousAutofill?.name;
+    const shouldFillPhone = !currentPhone || currentPhone === previousAutofill?.phone;
+
+    if (shouldFillName) {
+      setValue("name", user.name, { shouldValidate: Boolean(currentName) });
+    }
+    if (shouldFillPhone) {
+      setValue("phone", user.phone, { shouldValidate: Boolean(currentPhone) });
+    }
+
+    lastProfileAutofillRef.current = { name: user.name, phone: user.phone };
+  }, [getValues, setValue, user?.name, user?.phone]);
+
+  const getDefaultFormValues = () => ({
+    name: user?.name || "",
+    phone: user?.phone || "",
+    serviceId: getInitialServiceValue(serviceFromQuery),
+    message: messageFromQuery,
+  });
+
   const resetForNextRequest = () => {
-    reset({
-      name: "",
-      phone: "",
-      serviceId: getInitialServiceValue(serviceFromQuery),
-      message: messageFromQuery,
-    });
+    reset(getDefaultFormValues());
     setSubmitError(null);
     setSubmittedServiceId("");
-    setSelectedCouponRedemptionId("");
+    setSelectedCouponValue("");
   };
 
   const handleCloseSuccess = () => {
@@ -187,6 +218,34 @@ export default function ContactForm() {
     setIsSuccess(false);
   };
 
+  const getSelectedCouponRedemptionId = async () => {
+    if (!selectedCoupon) return null;
+    if (selectedCoupon.redemptionStatus === "OWNED" && selectedCoupon.redemptionId) {
+      return selectedCoupon.redemptionId;
+    }
+
+    if (selectedCoupon.redemptionStatus !== "AVAILABLE") return null;
+
+    const response = await fetch("/api/coupons/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ couponId: selectedCoupon.id }),
+    });
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data?.success || !data.coupon?.redemptionId) {
+      throw new Error(data?.message || "Chưa đổi được mã ưu đãi này.");
+    }
+
+    setCouponOptions((prev) => prev.map((coupon) => (
+      coupon.id === selectedCoupon.id
+        ? { ...coupon, ...data.coupon, redemptionStatus: "OWNED" }
+        : coupon
+    )));
+
+    return data.coupon.redemptionId as string;
+  };
+
   const onSubmit = async (data: FormData) => {
     setIsSubmitting(true);
     setSubmitError(null);
@@ -197,6 +256,7 @@ export default function ContactForm() {
           ? `${window.location.pathname}${window.location.search}`
           : `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
 
+      const couponRedemptionId = await getSelectedCouponRedemptionId();
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -205,7 +265,7 @@ export default function ContactForm() {
           phone: data.phone,
           service: data.serviceId,
           message: data.message || "",
-          couponRedemptionId: selectedCouponRedemptionId || null,
+          couponRedemptionId,
           source: selectedSource,
           sourcePath,
           referrer: typeof document !== "undefined" ? document.referrer : "",
@@ -227,14 +287,16 @@ export default function ContactForm() {
       setSubmittedServiceId(
         validServiceIds.has(data.serviceId as ServiceId) ? (data.serviceId as ServiceId) : "KHAC"
       );
-      if (selectedCouponRedemptionId) {
-        setOwnedCoupons((prev) => prev.filter((coupon) => coupon.id !== selectedCouponRedemptionId));
-        setSelectedCouponRedemptionId("");
+      if (selectedCouponValue) {
+        setCouponOptions((prev) => prev.filter((coupon) => (
+          getCouponSelectionValue(coupon) !== selectedCouponValue && coupon.id !== selectedCoupon?.id
+        )));
+        setSelectedCouponValue("");
       }
       setIsSuccess(true);
     } catch (err) {
       console.error("Contact form error:", err);
-      setSubmitError("Không thể gửi yêu cầu lúc này. Vui lòng kiểm tra kết nối và thử lại.");
+      setSubmitError(err instanceof Error ? err.message : "Không thể gửi yêu cầu lúc này. Vui lòng kiểm tra kết nối và thử lại.");
     } finally {
       setIsSubmitting(false);
     }
@@ -571,32 +633,52 @@ export default function ContactForm() {
                   />
                 </div>
 
-                {user && ownedCoupons.length > 0 ? (
+                {user ? (
                   <label className="block">
                     <span className="mb-2 block font-body text-sm font-semibold text-slate-700">
                       Mã giảm giá muốn áp dụng
                     </span>
-                    <select
-                      value={selectedCouponRedemptionId}
-                      onChange={(event) => setSelectedCouponRedemptionId(event.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 font-body text-slate-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
-                      title="Mã giảm giá muốn áp dụng"
-                    >
-                      <option value="">Không áp dụng mã</option>
-                      {ownedCoupons.map((coupon) => (
-                        <option key={coupon.id} value={coupon.id}>
-                          {coupon.code} - giảm {coupon.discount}
-                          {coupon.expiresAtLabel ? ` - hạn ${coupon.expiresAtLabel}` : ""}
-                        </option>
-                      ))}
-                    </select>
+                    {couponOptions.length > 0 ? (
+                      <select
+                        value={selectedCouponValue}
+                        onChange={(event) => setSelectedCouponValue(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 font-body text-slate-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                        title="Mã giảm giá muốn áp dụng"
+                      >
+                        <option value="">Không áp dụng mã</option>
+                        {couponOptions.map((coupon) => (
+                          <option key={getCouponSelectionValue(coupon)} value={getCouponSelectionValue(coupon)}>
+                            {coupon.redemptionStatus === "AVAILABLE" ? "Đổi & áp dụng: " : ""}
+                            {coupon.code} - giảm {coupon.discount}
+                            {coupon.expiresAtLabel ? ` - hạn ${coupon.expiresAtLabel}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 font-body text-sm text-slate-500">
+                        Hiện chưa có mã đủ điều kiện áp dụng cho tài khoản này.
+                      </div>
+                    )}
                     {selectedCoupon ? (
                       <p className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 font-body text-xs text-emerald-800">
                         {selectedCoupon.description}
+                        {selectedCoupon.redemptionStatus === "AVAILABLE"
+                          ? ` Mã này sẽ tự đổi bằng ${selectedCoupon.pointsCost} điểm rồi áp dụng vào yêu cầu.`
+                          : ""}
                       </p>
                     ) : null}
                   </label>
-                ) : null}
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="font-body text-sm font-semibold text-slate-700">Mã giảm giá</p>
+                    <p className="mt-1 font-body text-sm text-slate-500">
+                      Đăng nhập tài khoản để đổi điểm và áp dụng mã ưu đãi khi gửi yêu cầu.
+                    </p>
+                    <Link href="/dang-nhap" className="mt-2 inline-flex min-h-11 items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white">
+                      Đăng nhập để dùng mã
+                    </Link>
+                  </div>
+                )}
 
                 {submitError ? (
                   <div

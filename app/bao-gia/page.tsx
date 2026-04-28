@@ -68,13 +68,26 @@ export default async function PricingPage() {
   const dbItems = await getPublicActivePricingItems();
 
   const displayData = pricingCategories.map((category) => {
-    const fromDb = dbItems.filter((item) => item.category === category);
+    const fromDb = dbItems.filter((item) => (
+      item.category === category && !item.name.toLowerCase().includes("pricing crm")
+    ));
     const fallback = getDefaultPricingByCategory(category);
+    const requiredFallbackItems = category === "PIN"
+      ? fallback.filter((item) => item.name.toLowerCase().includes("kiểm tra tình trạng pin"))
+      : [];
+    const mergedDbItems = fromDb.length > 0
+      ? [
+          ...requiredFallbackItems.filter((fallbackItem) => (
+            !fromDb.some((item) => item.name.toLowerCase() === fallbackItem.name.toLowerCase())
+          )),
+          ...fromDb,
+        ]
+      : [];
 
     return {
       category,
       config: categoryConfig[category],
-      items: fromDb.length > 0 ? fromDb.map(formatPricingItem) : fallback.map(formatPricingItem),
+      items: mergedDbItems.length > 0 ? mergedDbItems.map(formatPricingItem) : fallback.map(formatPricingItem),
       fromDb: fromDb.length > 0,
     };
   });

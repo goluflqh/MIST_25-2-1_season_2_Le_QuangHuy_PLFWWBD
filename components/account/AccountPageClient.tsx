@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, type FormEvent, useRef, useState } from "react";
+import { startTransition, type Dispatch, type FormEvent, type SetStateAction, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -23,8 +23,11 @@ interface ServiceRequest {
   service: string;
   message: string | null;
   status: string;
+  serviceOrderId: string | null;
+  reviewId: string | null;
   createdAt: string;
   createdAtLabel: string;
+  updatedAt: string;
   updatedAtLabel: string;
 }
 
@@ -56,19 +59,6 @@ interface ServiceOrderInfo {
   notes: string | null;
 }
 
-interface WarrantyLookupData {
-  id: string;
-  serialNo: string;
-  productName: string;
-  customerName: string;
-  customerPhone: string;
-  service: string;
-  startDate: string;
-  endDate: string;
-  notes: string | null;
-  isValid: boolean;
-}
-
 interface FeedbackMessage {
   text: string;
   type: "success" | "error";
@@ -76,6 +66,8 @@ interface FeedbackMessage {
 
 interface CouponInfo {
   id: string;
+  redemptionId: string | null;
+  redemptionStatus: "AVAILABLE" | "OWNED" | "PENDING";
   code: string;
   description: string;
   discount: string;
@@ -85,12 +77,16 @@ interface CouponInfo {
   isOwned: boolean;
 }
 
+function getAccountCouponSelectionValue(coupon: CouponInfo) {
+  return coupon.redemptionId ? `redemption:${coupon.redemptionId}` : `coupon:${coupon.id}`;
+}
+
 const serviceLabels: Record<string, string> = {
   DONG_PIN: "🔋 Đóng Pin",
   DEN_NLMT: "☀️ Đèn NLMT",
   PIN_LUU_TRU: "⚡ Pin Lưu Trữ",
   CAMERA: "📹 Camera",
-  CUSTOM: "🔧 Custom",
+  CUSTOM: "🔧 Theo yêu cầu",
   KHAC: "📞 Khác",
 };
 
@@ -103,12 +99,10 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 };
 
 const orderStatusConfig: Record<string, { label: string; color: string }> = {
-  RECEIVED: { label: "Mới nhận", color: "bg-slate-100 text-slate-700" },
-  CHECKING: { label: "Đang kiểm tra", color: "bg-amber-100 text-amber-700" },
-  QUOTED: { label: "Đã báo giá", color: "bg-blue-100 text-blue-700" },
-  IN_PROGRESS: { label: "Đang làm", color: "bg-orange-100 text-orange-700" },
+  PENDING: { label: "Chờ xử lý", color: "bg-yellow-100 text-yellow-700" },
+  CONTACTED: { label: "Đã liên hệ", color: "bg-blue-100 text-blue-700" },
+  IN_PROGRESS: { label: "Đang xử lý", color: "bg-orange-100 text-orange-700" },
   COMPLETED: { label: "Hoàn thành", color: "bg-green-100 text-green-700" },
-  DELIVERED: { label: "Đã giao", color: "bg-emerald-100 text-emerald-700" },
   CANCELLED: { label: "Đã huỷ", color: "bg-red-100 text-red-700" },
 };
 
@@ -118,6 +112,9 @@ const requestStages = [
   { key: "IN_PROGRESS", label: "Đang làm" },
   { key: "COMPLETED", label: "Hoàn thành" },
 ];
+
+const ACCOUNT_PAGE_SIZE = 5;
+const REVIEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
 function getRequestStageIndex(status: string) {
   if (status === "CANCELLED") return 0;
@@ -140,6 +137,63 @@ function getRequestNextAction(status: string) {
     default:
       return "Trạng thái đang được cập nhật.";
   }
+}
+
+function isActiveStatus(status: string) {
+  return status !== "COMPLETED" && status !== "CANCELLED";
+}
+
+function isWithinReviewWindow(request: ServiceRequest, reviewedServiceOrderIds: Set<string>) {
+  if (
+    request.status !== "COMPLETED"
+    || !request.serviceOrderId
+    || request.reviewId
+    || reviewedServiceOrderIds.has(request.serviceOrderId)
+  ) {
+    return false;
+  }
+
+  return Date.now() - new Date(request.updatedAt).getTime() <= REVIEW_WINDOW_MS;
+}
+
+function PaginationControls({
+  label,
+  onPageChange,
+  page,
+  pageCount,
+}: {
+  label: string;
+  onPageChange: (page: number) => void;
+  page: number;
+  pageCount: number;
+}) {
+  if (pageCount <= 1) return null;
+
+  return (
+    <div className="mt-4 flex flex-col items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-3 sm:flex-row">
+      <p className="font-body text-sm font-semibold text-slate-500">
+        {label}: {page}/{pageCount}
+      </p>
+      <div className="flex w-full gap-2 sm:w-auto">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page === 1}
+          className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 disabled:bg-slate-100 disabled:text-slate-300 sm:flex-none"
+        >
+          Trước
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+          disabled={page === pageCount}
+          className="min-h-11 flex-1 rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
+        >
+          Tiếp
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function getWarrantyRemainingLabel(endDate: string, isActive: boolean) {
@@ -180,6 +234,8 @@ function getInitials(name: string) {
   const initials = name
     .trim()
     .split(/\s+/)
+    .map((part) => part.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter(Boolean)
     .slice(0, 2)
     .map((part) => part.charAt(0))
     .join("");
@@ -201,47 +257,10 @@ function formatClientVietnamDateTime(date: Date) {
 }
 
 function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
-  const [lookupQuery, setLookupQuery] = useState("");
-  const [lookupResults, setLookupResults] = useState<WarrantyLookupData[]>([]);
-  const [lookupMessage, setLookupMessage] = useState<FeedbackMessage | null>(null);
-  const [isLookingUp, setIsLookingUp] = useState(false);
-
-  const lookupWarranty = async (event: FormEvent) => {
-    event.preventDefault();
-    const query = lookupQuery.trim();
-    if (!query) {
-      setLookupMessage({ text: "Nhập số serial hoặc số điện thoại cần tra cứu.", type: "error" });
-      return;
-    }
-
-    setIsLookingUp(true);
-    setLookupMessage(null);
-    setLookupResults([]);
-
-    try {
-      const response = await fetch(`/api/warranty/lookup?query=${encodeURIComponent(query)}`);
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        setLookupMessage({
-          text: data.message || "Chưa tra cứu được bảo hành lúc này.",
-          type: "error",
-        });
-        return;
-      }
-
-      const results = Array.isArray(data.warranties) ? data.warranties : data.warranty ? [data.warranty] : [];
-      setLookupResults(results);
-      setLookupMessage({
-        text: results.length > 1 ? `Đã tìm thấy ${results.length} phiếu bảo hành.` : "Đã tìm thấy thông tin bảo hành.",
-        type: "success",
-      });
-    } catch {
-      setLookupMessage({ text: "Kết nối bị gián đoạn khi tra cứu bảo hành.", type: "error" });
-    } finally {
-      setIsLookingUp(false);
-    }
-  };
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(warranties.length / ACCOUNT_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const visibleWarranties = warranties.slice((currentPage - 1) * ACCOUNT_PAGE_SIZE, currentPage * ACCOUNT_PAGE_SIZE);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
@@ -249,7 +268,7 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
         <div>
           <h3 className="font-heading font-bold text-slate-900">🛡️ Phiếu Bảo Hành</h3>
           <p className="font-body text-xs text-slate-400">
-            Theo dõi hạn bảo hành và tra cứu nhanh bằng số serial hoặc số điện thoại.
+            Danh sách phiếu bảo hành đã gắn với tài khoản, xem từng trang để không kéo quá dài.
           </p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-body font-bold text-slate-500">
@@ -261,12 +280,12 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
           <p className="font-body text-sm font-semibold text-slate-600">Chưa có phiếu bảo hành gắn với tài khoản.</p>
           <p className="font-body text-xs text-slate-400 mt-1">
-            Nếu đã có serial hoặc số điện thoại mua hàng, bạn vẫn có thể tra cứu trực tiếp bên dưới.
+            Khi đơn dịch vụ hoàn thành và còn bảo hành, phiếu sẽ tự xuất hiện tại đây.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {warranties.map((warranty) => {
+          {visibleWarranties.map((warranty) => {
             const isValid = warranty.isActive;
             return (
               <div
@@ -302,92 +321,66 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
               </div>
             );
           })}
+          <PaginationControls label="Phiếu bảo hành" page={currentPage} pageCount={pageCount} onPageChange={setPage} />
         </div>
       )}
-
-      <form onSubmit={lookupWarranty} className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
-        <label className="block font-body text-xs font-bold text-slate-500 mb-2">
-          Tra cứu bằng serial hoặc số điện thoại
-        </label>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            data-testid="account-warranty-query"
-            value={lookupQuery}
-            onChange={(event) => setLookupQuery(event.target.value)}
-            placeholder="Ví dụ: MH-BH-001 hoặc 0912345678"
-            className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body outline-none focus:ring-2 focus:ring-red-500"
-          />
-          <button
-            data-testid="account-warranty-lookup"
-            type="submit"
-            disabled={isLookingUp}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white transition-colors disabled:bg-slate-300"
-          >
-            {isLookingUp ? "Đang tra..." : "Tra cứu"}
-          </button>
-        </div>
-        {lookupMessage ? (
-          <div
-            data-testid="account-warranty-message"
-            aria-live="polite"
-            className={`mt-3 rounded-lg border px-3 py-2 text-xs font-body font-semibold ${
-              lookupMessage.type === "success"
-                ? "border-green-200 bg-green-50 text-green-700"
-                : "border-red-200 bg-red-50 text-red-600"
-            }`}
-          >
-            {lookupMessage.text}
-          </div>
-        ) : null}
-        {lookupResults.length > 0 ? (
-          <div data-testid="account-warranty-result" className="mt-3 space-y-2">
-            {lookupResults.map((lookupResult) => (
-              <div key={lookupResult.id || lookupResult.serialNo} className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <code className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
-                      {lookupResult.serialNo}
-                    </code>
-                    <p className="mt-1 font-body text-sm font-bold text-slate-800">{lookupResult.productName}</p>
-                    <p className="font-body text-xs text-slate-400">
-                      {serviceLabels[lookupResult.service] || lookupResult.service} · {lookupResult.customerName}
-                    </p>
-                  </div>
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-[10px] font-body font-bold ${
-                      lookupResult.isValid ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                    }`}
-                  >
-                    {lookupResult.isValid ? "Còn hiệu lực" : "Hết hạn"}
-                  </span>
-                </div>
-                <p className="mt-2 font-body text-xs text-slate-500">
-                  Hết hạn: {new Date(lookupResult.endDate).toLocaleDateString("vi-VN")} ·{" "}
-                  {getWarrantyRemainingLabel(lookupResult.endDate, lookupResult.isValid)}
-                </p>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </form>
     </div>
   );
 }
 
 function ServiceOrderCards({ orders }: { orders: ServiceOrderInfo[] }) {
+  const [activeTab, setActiveTab] = useState<"active" | "completed" | "cancelled">("active");
+  const [page, setPage] = useState(1);
+  const activeOrders = orders.filter((order) => isActiveStatus(order.status));
+  const completedOrders = orders.filter((order) => order.status === "COMPLETED");
+  const cancelledOrders = orders.filter((order) => order.status === "CANCELLED");
+  const selectedOrders = activeTab === "active"
+    ? activeOrders
+    : activeTab === "completed"
+      ? completedOrders
+      : cancelledOrders;
+  const pageCount = Math.max(1, Math.ceil(selectedOrders.length / ACCOUNT_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const visibleOrders = selectedOrders.slice((currentPage - 1) * ACCOUNT_PAGE_SIZE, currentPage * ACCOUNT_PAGE_SIZE);
+  const tabs = [
+    { key: "active" as const, label: "Đang xử lý", count: activeOrders.length },
+    { key: "completed" as const, label: "Đã mua", count: completedOrders.length },
+    { key: "cancelled" as const, label: "Đã hủy", count: cancelledOrders.length },
+  ];
+
   return (
     <div data-testid="account-service-orders" className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between mb-4">
         <div>
-          <h3 className="font-heading font-bold text-slate-900">🧾 Lịch Sử Dịch Vụ</h3>
+          <h3 className="font-heading font-bold text-slate-900">🧾 Đơn Dịch Vụ</h3>
           <p className="font-body text-xs text-slate-400">
-            Các đơn Minh Hồng đã xác nhận hiển thị trong tài khoản của bạn.
+            Đơn chưa hoàn thành nằm riêng; đơn hoàn thành chuyển sang Đã mua, đơn hủy nằm ở tab riêng.
           </p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-body font-bold text-slate-500">
           {orders.length} đơn
         </span>
       </div>
+
+      {orders.length > 0 ? (
+        <div className="mb-4 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => {
+                setActiveTab(tab.key);
+                setPage(1);
+              }}
+              className={`min-h-11 rounded-lg px-2 py-2 text-sm font-body font-bold transition-colors ${
+                activeTab === tab.key ? "bg-white text-red-600 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              {tab.label} ({tab.count})
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {orders.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
@@ -396,10 +389,14 @@ function ServiceOrderCards({ orders }: { orders: ServiceOrderInfo[] }) {
             Nếu bạn từng làm dịch vụ trước đây, cửa hàng có thể đối chiếu và gắn lại theo số điện thoại.
           </p>
         </div>
+      ) : selectedOrders.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
+          <p className="font-body text-sm font-semibold text-slate-600">Chưa có đơn trong nhóm này.</p>
+        </div>
       ) : (
         <div className="space-y-3">
-          {orders.map((order) => {
-            const status = orderStatusConfig[order.status] || orderStatusConfig.RECEIVED;
+          {visibleOrders.map((order) => {
+            const status = orderStatusConfig[order.status] || orderStatusConfig.PENDING;
             const payable = getPayableAmount(order.quotedPrice, order.discountAmount);
             const remaining = Math.max(payable - order.paidAmount, 0);
 
@@ -427,7 +424,7 @@ function ServiceOrderCards({ orders }: { orders: ServiceOrderInfo[] }) {
                       <span>Phải trả: {formatMoney(payable)}</span>
                       <span>Đã thu: {formatMoney(order.paidAmount)}</span>
                       {remaining > 0 ? <span>Còn lại: {formatMoney(remaining)}</span> : null}
-                      {order.warrantyEndDateLabel ? <span>BH đến: {order.warrantyEndDateLabel}</span> : null}
+                      {order.status === "COMPLETED" && order.warrantyEndDateLabel ? <span>BH đến: {order.warrantyEndDateLabel}</span> : null}
                     </div>
                     {order.couponCode ? (
                       <p className="mt-2 font-body text-xs font-semibold text-emerald-700">
@@ -442,6 +439,7 @@ function ServiceOrderCards({ orders }: { orders: ServiceOrderInfo[] }) {
               </div>
             );
           })}
+          <PaginationControls label="Đơn dịch vụ" page={currentPage} pageCount={pageCount} onPageChange={setPage} />
         </div>
       )}
     </div>
@@ -449,20 +447,21 @@ function ServiceOrderCards({ orders }: { orders: ServiceOrderInfo[] }) {
 }
 
 function RewardsSection({
-  initialCoupons,
+  coupons,
   initialReferralCount,
   initialReferralCode,
   loyaltyPoints,
+  onCouponsChange,
   onLoyaltyPointsChange,
 }: {
-  initialCoupons: CouponInfo[];
+  coupons: CouponInfo[];
   initialReferralCount: number;
   initialReferralCode: string | null;
   loyaltyPoints: number;
+  onCouponsChange: Dispatch<SetStateAction<CouponInfo[]>>;
   onLoyaltyPointsChange: (points: number) => void;
 }) {
   const [referralCode, setReferralCode] = useState<string | null>(initialReferralCode);
-  const [coupons, setCoupons] = useState<CouponInfo[]>(initialCoupons);
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
@@ -470,8 +469,9 @@ function RewardsSection({
   const [couponMessage, setCouponMessage] = useState<FeedbackMessage | null>(null);
   const tier = getLoyaltyTier(loyaltyPoints);
   const progress = getLoyaltyProgress(loyaltyPoints);
-  const availableCoupons = coupons.filter((coupon) => !coupon.isOwned);
-  const ownedCoupons = coupons.filter((coupon) => coupon.isOwned);
+  const availableCoupons = coupons.filter((coupon) => coupon.redemptionStatus === "AVAILABLE");
+  const ownedCoupons = coupons.filter((coupon) => coupon.redemptionStatus === "OWNED");
+  const pendingCoupons = coupons.filter((coupon) => coupon.redemptionStatus === "PENDING");
 
   const generateCode = async () => {
     setError(null);
@@ -514,13 +514,14 @@ function RewardsSection({
         return;
       }
 
-      setCoupons((prev) =>
+      onCouponsChange((prev) =>
         prev.map((coupon) =>
           coupon.id === couponId
             ? {
                 ...coupon,
                 ...(data.coupon || {}),
                 isOwned: true,
+                redemptionStatus: "OWNED",
                 remainingUses: Math.max(0, coupon.remainingUses - 1),
               }
             : coupon
@@ -565,7 +566,7 @@ function RewardsSection({
         <div>
           <h3 className="font-heading font-bold text-slate-900">🎁 Điểm Thưởng & Giới Thiệu</h3>
           <p className="font-body text-xs text-slate-400 mt-1">
-            Gửi link mời, đổi điểm lấy ưu đãi và theo dõi hạng thành viên.
+            Mời bạn bè đăng ký, cả hai cùng nhận 20 điểm để đổi ưu đãi.
           </p>
         </div>
         <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
@@ -604,7 +605,7 @@ function RewardsSection({
         <div className="mb-3">
           <p className="font-body text-xs font-bold uppercase tracking-wider text-slate-500">Link mời bạn bè</p>
           <p className="mt-1 font-body text-xs text-slate-400">
-            Gửi link này cho người thân hoặc bạn bè. Khi họ đăng ký bằng link, hệ thống sẽ ghi nhận vào số người đã mời.
+            Gửi link cho người thân hoặc bạn bè. Khi họ đăng ký bằng link, bạn được cộng 20 điểm và người được mời cũng nhận 20 điểm khởi đầu.
           </p>
         </div>
         {!referralCode ? (
@@ -633,7 +634,7 @@ function RewardsSection({
                 onClick={copyLink}
                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${copied ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}
               >
-                {copied ? "✓ Đã copy" : "📋 Copy"}
+                {copied ? "✓ Đã sao chép" : "📋 Sao chép"}
               </button>
             </div>
             <p className="font-body text-[10px] text-slate-400">Mã: {referralCode}</p>
@@ -644,7 +645,7 @@ function RewardsSection({
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between gap-3">
           <p className="font-body text-xs font-bold uppercase tracking-wider text-slate-400">Ưu đãi đổi điểm</p>
-          <p className="font-body text-[10px] text-slate-400">{ownedCoupons.length} mã đã đổi</p>
+          <p className="font-body text-[10px] text-slate-400">{ownedCoupons.length + pendingCoupons.length} mã đã đổi</p>
         </div>
         {couponMessage ? (
           <div
@@ -720,6 +721,24 @@ function RewardsSection({
                 <p className="mt-1 font-body text-xs text-green-700">{coupon.description}</p>
               </div>
             ))}
+            {pendingCoupons.map((coupon) => (
+              <div
+                key={coupon.id}
+                data-testid="account-coupon-pending"
+                className="rounded-xl border border-blue-200 bg-blue-50 p-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="rounded-lg bg-white/80 px-2 py-1 text-xs font-bold text-blue-800">
+                    {coupon.code}
+                  </code>
+                  <span className="text-xs font-heading font-bold text-blue-700">-{coupon.discount}</span>
+                  <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                    Đang gắn với yêu cầu
+                  </span>
+                </div>
+                <p className="mt-1 font-body text-xs text-blue-700">{coupon.description}</p>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -745,7 +764,7 @@ function AccountHero({
   const accountStats = [
     { label: "Yêu cầu đã gửi", value: requestCount, helper: requestCount > 0 ? "Đang được theo dõi" : "Chưa có yêu cầu" },
     { label: "Đơn dịch vụ", value: serviceOrderCount, helper: serviceOrderCount > 0 ? "Đã gắn với tài khoản" : "Chưa có đơn hiển thị" },
-    { label: "Phiếu bảo hành", value: warrantyCount, helper: warrantyCount > 0 ? "Gắn với tài khoản" : "Có thể tra serial" },
+    { label: "Phiếu bảo hành", value: warrantyCount, helper: warrantyCount > 0 ? "Gắn với tài khoản" : "Theo đơn đã hoàn thành" },
   ];
 
   return (
@@ -928,28 +947,21 @@ function PasswordChangeSection() {
 
 function AccountStatusPanel({
   dataWarning,
-  initialUser,
   requests,
 }: {
   dataWarning?: string | null;
-  initialUser: UserInfo;
   requests: ServiceRequest[];
 }) {
   const actionableUpdates = requests.filter((request) => request.status !== "PENDING").length;
   const latestRequest = requests[0] ?? null;
-  const profileRows = [
-    { label: "Họ tên", value: initialUser.name },
-    { label: "Số điện thoại", value: initialUser.phone },
-    { label: "Ngày tham gia", value: initialUser.createdAtLabel },
-  ];
 
   return (
     <div data-testid="account-status-panel" className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 p-6">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="font-heading font-bold text-slate-900">Hồ sơ & thông báo</h3>
+          <h3 className="font-heading font-bold text-slate-900">Thông báo dịch vụ</h3>
           <p className="font-body text-xs text-slate-400 mt-1">
-            Thông tin định danh, trạng thái đồng bộ và các cập nhật dịch vụ.
+            Trạng thái đồng bộ và các cập nhật mới nhất từ yêu cầu của bạn.
           </p>
         </div>
         <span
@@ -959,15 +971,6 @@ function AccountStatusPanel({
         >
           {dataWarning ? "Đang đồng bộ" : "Đã đồng bộ"}
         </span>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {profileRows.map((row) => (
-          <div key={row.label} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">{row.label}</p>
-            <p className="mt-1 break-words font-body text-sm font-bold text-slate-800">{row.value}</p>
-          </div>
-        ))}
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1000,6 +1003,157 @@ function AccountStatusPanel({
   );
 }
 
+function RequestHistorySection({
+  onReviewRequest,
+  requests,
+  reviewedServiceOrderIds,
+}: {
+  onReviewRequest: (request: ServiceRequest) => void;
+  requests: ServiceRequest[];
+  reviewedServiceOrderIds: Set<string>;
+}) {
+  const [activeTab, setActiveTab] = useState<"active" | "review" | "completed" | "cancelled">("active");
+  const [page, setPage] = useState(1);
+  const activeRequests = requests.filter((request) => isActiveStatus(request.status));
+  const reviewRequests = requests.filter((request) => isWithinReviewWindow(request, reviewedServiceOrderIds));
+  const completedRequests = requests.filter((request) => (
+    request.status === "COMPLETED" && !isWithinReviewWindow(request, reviewedServiceOrderIds)
+  ));
+  const cancelledRequests = requests.filter((request) => request.status === "CANCELLED");
+  const selectedRequests = activeTab === "active"
+    ? activeRequests
+    : activeTab === "review"
+      ? reviewRequests
+      : activeTab === "completed"
+        ? completedRequests
+        : cancelledRequests;
+  const pageCount = Math.max(1, Math.ceil(selectedRequests.length / ACCOUNT_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const visibleRequests = selectedRequests.slice((currentPage - 1) * ACCOUNT_PAGE_SIZE, currentPage * ACCOUNT_PAGE_SIZE);
+  const tabs = [
+    { key: "active" as const, label: "Đang xử lý", count: activeRequests.length },
+    { key: "review" as const, label: "Chờ đánh giá", count: reviewRequests.length },
+    { key: "completed" as const, label: "Đã lưu", count: completedRequests.length },
+    { key: "cancelled" as const, label: "Đã hủy", count: cancelledRequests.length },
+  ];
+
+  return (
+    <div data-testid="account-request-history" className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-100">
+        <h3 className="font-heading font-bold text-slate-900">📋 Lịch Sử Yêu Cầu Của Bạn</h3>
+        <p className="font-body text-xs text-slate-400 mt-0.5">
+          {requests.length} yêu cầu, đang tách theo trạng thái để dễ theo dõi trên điện thoại.
+        </p>
+      </div>
+      {requests.length === 0 ? (
+        <div className="p-8 text-center">
+          <p className="text-3xl mb-2">📭</p>
+          <p className="font-body text-slate-400 mb-3">Bạn chưa có yêu cầu nào</p>
+        </div>
+      ) : (
+        <div className="p-4">
+          <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-1 sm:grid-cols-4">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  setPage(1);
+                }}
+                className={`min-h-11 rounded-lg px-2 py-2 text-sm font-body font-bold transition-colors ${
+                  activeTab === tab.key ? "bg-white text-red-600 shadow-sm" : "text-slate-500"
+                }`}
+              >
+                {tab.label} ({tab.count})
+              </button>
+            ))}
+          </div>
+
+          {selectedRequests.length === 0 ? (
+            <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
+              <p className="font-body text-sm font-semibold text-slate-600">Chưa có yêu cầu trong nhóm này.</p>
+            </div>
+          ) : (
+            <div className="mt-4 divide-y divide-slate-50 overflow-hidden rounded-xl border border-slate-100">
+              {visibleRequests.map((request) => {
+                const status = statusConfig[request.status] || {
+                  label: "Đang cập nhật",
+                  color: "bg-slate-100 text-slate-600",
+                };
+                const stageIndex = getRequestStageIndex(request.status);
+                const isCancelled = request.status === "CANCELLED";
+
+                return (
+                  <div key={request.id} className="px-4 py-5">
+                    <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-body font-semibold text-sm text-slate-800">
+                              {serviceLabels[request.service] || request.service}
+                            </p>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${status.color}`}>
+                              {status.label}
+                            </span>
+                          </div>
+                          <p className="font-body text-[10px] text-slate-300 mt-1">{request.createdAtLabel}</p>
+                        </div>
+                        <p className="font-body text-xs font-semibold text-slate-500 sm:text-right">
+                          {getRequestNextAction(request.status)}
+                        </p>
+                      </div>
+
+                      {isActiveStatus(request.status) ? (
+                        <div className="grid grid-cols-4 gap-2" aria-label="Tiến độ yêu cầu">
+                          {requestStages.map((stage, index) => {
+                            const isReached = !isCancelled && index <= stageIndex;
+                            const isCurrent = !isCancelled && stage.key === request.status;
+
+                            return (
+                              <div key={stage.key} className="min-w-0">
+                                <span className={`block h-1.5 rounded-full ${isReached ? "bg-red-500" : "bg-slate-100"}`} />
+                                <span className={`mt-1 block truncate text-[10px] font-body ${isCurrent ? "font-bold text-red-600" : "text-slate-400"}`}>
+                                  {stage.label}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
+                      {request.message ? (
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                          <p className="font-body text-xs text-slate-500 break-words">{request.message}</p>
+                        </div>
+                      ) : null}
+                      {activeTab === "review" ? (
+                        <div>
+                          <button
+                            data-testid="account-review-from-request"
+                            type="button"
+                            onClick={() => onReviewRequest(request)}
+                            className="rounded-xl bg-yellow-100 px-3 py-2 text-xs font-body font-bold text-yellow-800 transition-colors hover:bg-yellow-200"
+                          >
+                            Đánh giá dịch vụ này
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="px-4 pb-4">
+                <PaginationControls label="Yêu cầu" page={currentPage} pageCount={pageCount} onPageChange={setPage} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface AccountPageClientProps {
   dataWarning?: string | null;
   initialCoupons: CouponInfo[];
@@ -1023,18 +1177,26 @@ export default function AccountPageClient({
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ service: "", message: "" });
+  const [coupons, setCoupons] = useState<CouponInfo[]>(initialCoupons);
+  const [selectedCouponValue, setSelectedCouponValue] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [requestFeedback, setRequestFeedback] = useState<FeedbackMessage | null>(null);
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [reviewData, setReviewData] = useState({ rating: 5, service: "", comment: "" });
+  const [reviewServiceOrderId, setReviewServiceOrderId] = useState<string | null>(null);
+  const [reviewedServiceOrderIds, setReviewedServiceOrderIds] = useState<Set<string>>(() => new Set());
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
   const [reviewSuccess, setReviewSuccess] = useState(false);
   const [reviewFeedback, setReviewFeedback] = useState<FeedbackMessage | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [loyaltyPoints, setLoyaltyPoints] = useState(initialUser.loyaltyPoints);
   const canSubmitRequest = formData.service.length > 0;
-  const canSubmitReview = reviewData.service.length > 0 && reviewData.comment.trim().length > 0;
+  const canSubmitReview = Boolean(reviewServiceOrderId) && reviewData.service.length > 0 && reviewData.comment.trim().length > 0;
+  const requestCouponOptions = coupons.filter((coupon) => (
+    coupon.redemptionStatus === "OWNED" || coupon.redemptionStatus === "AVAILABLE"
+  ));
+  const selectedCoupon = requestCouponOptions.find((coupon) => getAccountCouponSelectionValue(coupon) === selectedCouponValue) || null;
 
   const openRequestForm = () => {
     setShowForm(true);
@@ -1052,6 +1214,7 @@ export default function AccountPageClient({
     const previousUser = user ?? {
       id: initialUser.id,
       name: initialUser.name,
+      phone: initialUser.phone,
       role: initialUser.role,
     };
 
@@ -1075,6 +1238,35 @@ export default function AccountPageClient({
     }
   };
 
+  const getSelectedRequestCouponRedemptionId = async () => {
+    if (!selectedCoupon) return null;
+    if (selectedCoupon.redemptionStatus === "OWNED" && selectedCoupon.redemptionId) {
+      return selectedCoupon.redemptionId;
+    }
+
+    if (selectedCoupon.redemptionStatus !== "AVAILABLE") return null;
+
+    const response = await fetch("/api/coupons/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ couponId: selectedCoupon.id }),
+    });
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data?.success || !data.coupon?.redemptionId) {
+      throw new Error(data?.message || "Chưa đổi được mã ưu đãi này.");
+    }
+
+    setCoupons((prev) => prev.map((coupon) => (
+      coupon.id === selectedCoupon.id
+        ? { ...coupon, ...data.coupon, redemptionStatus: "OWNED" }
+        : coupon
+    )));
+    setLoyaltyPoints(data.loyaltyPoints ?? loyaltyPoints);
+
+    return data.coupon.redemptionId as string;
+  };
+
   const handleSubmitRequest = async (e: FormEvent) => {
     e.preventDefault();
     if (!formData.service) return;
@@ -1084,6 +1276,7 @@ export default function AccountPageClient({
     setIsSubmitting(true);
 
     try {
+      const couponRedemptionId = await getSelectedRequestCouponRedemptionId();
       const response = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1092,6 +1285,7 @@ export default function AccountPageClient({
           phone: initialUser.phone,
           service: formData.service,
           message: formData.message,
+          couponRedemptionId,
         }),
       });
 
@@ -1109,12 +1303,23 @@ export default function AccountPageClient({
             service: formData.service,
             message: formData.message.trim() || null,
             status: "PENDING",
+            serviceOrderId: null,
+            reviewId: null,
             createdAt: new Date().toISOString(),
             createdAtLabel: formatClientVietnamDateTime(new Date()),
+            updatedAt: new Date().toISOString(),
             updatedAtLabel: formatClientVietnamDateTime(new Date()),
           },
           ...prev,
         ]);
+        if (selectedCouponValue) {
+          setCoupons((prev) => prev.map((coupon) => (
+            getAccountCouponSelectionValue(coupon) === selectedCouponValue || coupon.id === selectedCoupon?.id
+              ? { ...coupon, redemptionStatus: "PENDING" }
+              : coupon
+          )));
+          setSelectedCouponValue("");
+        }
         setFormData({ service: "", message: "" });
         setTimeout(() => {
           setSubmitSuccess(false);
@@ -1126,9 +1331,11 @@ export default function AccountPageClient({
           type: "error",
         });
       }
-    } catch {
+    } catch (error) {
       setRequestFeedback({
-        text: "Kết nối đang chập chờn. Yêu cầu của bạn chưa được gửi.",
+        text: error instanceof Error
+          ? error.message
+          : "Kết nối đang chập chờn. Yêu cầu của bạn chưa được gửi.",
         type: "error",
       });
     } finally {
@@ -1138,7 +1345,7 @@ export default function AccountPageClient({
 
   const handleSubmitReview = async (e: FormEvent) => {
     e.preventDefault();
-    if (!reviewData.comment || !reviewData.service) return;
+    if (!reviewServiceOrderId || !reviewData.comment.trim() || !reviewData.service) return;
 
     setReviewFeedback(null);
     setReviewSuccess(false);
@@ -1148,7 +1355,7 @@ export default function AccountPageClient({
       const response = await fetch("/api/reviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(reviewData),
+        body: JSON.stringify({ ...reviewData, serviceOrderId: reviewServiceOrderId }),
       });
 
       const data = await response.json();
@@ -1159,6 +1366,15 @@ export default function AccountPageClient({
           text: "Đánh giá đã được ghi nhận và sẽ hiển thị sau khi duyệt.",
           type: "success",
         });
+        if (reviewServiceOrderId) {
+          setReviewedServiceOrderIds((current) => new Set(current).add(reviewServiceOrderId));
+          setRequests((current) => current.map((request) => (
+            request.serviceOrderId === reviewServiceOrderId
+              ? { ...request, reviewId: data.review?.id || request.reviewId || "submitted" }
+              : request
+          )));
+        }
+        setReviewServiceOrderId(null);
         setReviewData({ rating: 5, service: "", comment: "" });
         setTimeout(() => {
           setReviewSuccess(false);
@@ -1181,7 +1397,10 @@ export default function AccountPageClient({
   };
 
   const openReviewForRequest = (request: ServiceRequest) => {
+    if (!request.serviceOrderId) return;
+
     setReviewData((prev) => ({ ...prev, service: request.service }));
+    setReviewServiceOrderId(request.serviceOrderId);
     setReviewFeedback(null);
     setReviewSuccess(false);
     setShowReviewForm(true);
@@ -1213,7 +1432,7 @@ export default function AccountPageClient({
         onLogout={handleLogout}
       />
 
-      <AccountStatusPanel dataWarning={dataWarning} initialUser={initialUser} requests={requests} />
+      <AccountStatusPanel dataWarning={dataWarning} requests={requests} />
 
       <div ref={requestFormRef} className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
         <button
@@ -1287,6 +1506,42 @@ export default function AccountPageClient({
                 </div>
                 <div>
                   <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">
+                    Mã giảm giá muốn áp dụng
+                  </label>
+                  {requestCouponOptions.length > 0 ? (
+                    <>
+                      <select
+                        value={selectedCouponValue}
+                        onChange={(e) => setSelectedCouponValue(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-slate-200 font-body text-sm focus:ring-2 focus:ring-red-500 outline-none"
+                        title="Chọn mã giảm giá"
+                      >
+                        <option value="">Không dùng mã trong yêu cầu này</option>
+                        {requestCouponOptions.map((coupon) => (
+                          <option key={getAccountCouponSelectionValue(coupon)} value={getAccountCouponSelectionValue(coupon)}>
+                            {coupon.redemptionStatus === "AVAILABLE" ? "Đổi & áp dụng: " : ""}
+                            {coupon.code} - giảm {coupon.discount}
+                            {coupon.expiresAtLabel ? ` - hạn ${coupon.expiresAtLabel}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedCoupon ? (
+                        <p className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 font-body text-xs text-emerald-800">
+                          {selectedCoupon.description}
+                          {selectedCoupon.redemptionStatus === "AVAILABLE"
+                            ? ` Mã này sẽ tự đổi bằng ${selectedCoupon.pointsCost} điểm rồi áp dụng vào yêu cầu.`
+                            : ""}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 font-body text-sm text-slate-500">
+                      Hiện chưa có mã đủ điều kiện áp dụng.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">
                     Ghi chú (tuỳ chọn)
                   </label>
                   <textarea
@@ -1352,6 +1607,11 @@ export default function AccountPageClient({
                     }`}
                   >
                     {reviewFeedback.text}
+                  </div>
+                ) : null}
+                {!reviewServiceOrderId ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-body font-semibold text-amber-800">
+                    Chọn một đơn ở mục Chờ đánh giá để gửi đánh giá đúng đơn đã hoàn thành.
                   </div>
                 ) : null}
                 <div>
@@ -1425,113 +1685,20 @@ export default function AccountPageClient({
       <ServiceOrderCards orders={initialServiceOrders} />
       <WarrantyCards warranties={initialWarranties} />
       <RewardsSection
-        initialCoupons={initialCoupons}
+        coupons={coupons}
         initialReferralCount={initialUser.referralCount}
         initialReferralCode={initialUser.referralCode}
         loyaltyPoints={loyaltyPoints}
+        onCouponsChange={setCoupons}
         onLoyaltyPointsChange={setLoyaltyPoints}
       />
       <PasswordChangeSection />
 
-      <div
-        data-testid="account-request-history"
-        className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden"
-      >
-        <div className="px-6 py-4 border-b border-slate-100">
-          <h3 className="font-heading font-bold text-slate-900">📋 Lịch Sử Yêu Cầu Của Bạn</h3>
-          <p className="font-body text-xs text-slate-400 mt-0.5">{requests.length} yêu cầu</p>
-        </div>
-        {requests.length === 0 ? (
-          <div className="p-8 text-center">
-            <p className="text-3xl mb-2">📭</p>
-            <p className="font-body text-slate-400 mb-3">Bạn chưa có yêu cầu nào</p>
-            <button
-              data-testid="account-request-empty-open"
-              type="button"
-              onClick={openRequestForm}
-              className="font-body font-bold text-sm text-red-600 hover:text-red-700"
-            >
-              + Gửi yêu cầu đầu tiên
-            </button>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-50">
-            {requests.map((request) => {
-              const status = statusConfig[request.status] || {
-                label: "Đang cập nhật",
-                color: "bg-slate-100 text-slate-600",
-              };
-              const stageIndex = getRequestStageIndex(request.status);
-              const isCancelled = request.status === "CANCELLED";
-
-              return (
-                <div key={request.id} className="px-6 py-5">
-                  <div className="flex flex-col gap-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-body font-semibold text-sm text-slate-800">
-                            {serviceLabels[request.service] || request.service}
-                          </p>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${status.color}`}>
-                            {status.label}
-                          </span>
-                        </div>
-                        <p className="font-body text-[10px] text-slate-300 mt-1">{request.createdAtLabel}</p>
-                      </div>
-                      <p className="font-body text-xs font-semibold text-slate-500 sm:text-right">
-                        {getRequestNextAction(request.status)}
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-2" aria-label="Tiến độ yêu cầu">
-                      {requestStages.map((stage, index) => {
-                        const isReached = !isCancelled && index <= stageIndex;
-                        const isCurrent = !isCancelled && stage.key === request.status;
-
-                        return (
-                          <div key={stage.key} className="min-w-0">
-                            <span
-                              className={`block h-1.5 rounded-full ${
-                                isReached ? "bg-red-500" : "bg-slate-100"
-                              }`}
-                            />
-                            <span
-                              className={`mt-1 block truncate text-[10px] font-body ${
-                                isCurrent ? "font-bold text-red-600" : "text-slate-400"
-                              }`}
-                            >
-                              {stage.label}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {request.message ? (
-                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                        <p className="font-body text-xs text-slate-500 break-words">{request.message}</p>
-                      </div>
-                    ) : null}
-                    {request.status === "COMPLETED" ? (
-                      <div>
-                        <button
-                          data-testid="account-review-from-request"
-                          type="button"
-                          onClick={() => openReviewForRequest(request)}
-                          className="rounded-xl bg-yellow-100 px-3 py-2 text-xs font-body font-bold text-yellow-800 transition-colors hover:bg-yellow-200"
-                        >
-                          Đánh giá dịch vụ này
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <RequestHistorySection
+        requests={requests}
+        reviewedServiceOrderIds={reviewedServiceOrderIds}
+        onReviewRequest={openReviewForRequest}
+      />
     </div>
   );
 }

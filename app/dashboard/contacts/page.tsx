@@ -35,6 +35,7 @@ export default async function ContactsManagementPage() {
       },
       serviceOrder: {
         select: {
+          deletedAt: true,
           id: true,
           orderCode: true,
           status: true,
@@ -48,6 +49,13 @@ export default async function ContactsManagementPage() {
     <ContactsManagementClient
       initialContacts={contacts.map((contact) => ({
         ...contact,
+        serviceOrder: contact.serviceOrder && !contact.serviceOrder.deletedAt
+          ? {
+              id: contact.serviceOrder.id,
+              orderCode: contact.serviceOrder.orderCode,
+              status: contact.serviceOrder.status,
+            }
+          : null,
         createdAt: contact.createdAt.toISOString(),
       }))}
     />

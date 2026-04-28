@@ -27,6 +27,10 @@ function normalizePricingData(body: Record<string, unknown>) {
   };
 }
 
+function normalizePricingName(name: string) {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 // GET — List all pricing items (public)
 export async function GET() {
   try {
@@ -47,7 +51,25 @@ export async function POST(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const body = await request.json();
-    const item = await prisma.pricingItem.create({ data: normalizePricingData(body) });
+    const pricingData = normalizePricingData(body);
+    const existingItems = await prisma.pricingItem.findMany({
+      where: { category: pricingData.category },
+      orderBy: [{ active: "desc" }, { updatedAt: "desc" }],
+    });
+    const existingItem = existingItems.find((item) => (
+      normalizePricingName(item.name) === normalizePricingName(pricingData.name)
+    ));
+
+    if (existingItem) {
+      return NextResponse.json({
+        success: true,
+        item: existingItem,
+        existed: true,
+        message: "Mục giá này đã có sẵn trong dashboard.",
+      });
+    }
+
+    const item = await prisma.pricingItem.create({ data: pricingData });
     await recordAuditLog({
       action: "PRICING_CREATE",
       actor: admin,
@@ -73,8 +95,32 @@ export async function PATCH(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const { id, ...data } = await request.json();
+    const pricingData = normalizePricingData(data);
     const previousItem = await prisma.pricingItem.findUnique({ where: { id } });
-    const item = await prisma.pricingItem.update({ where: { id }, data: normalizePricingData(data) });
+
+    if (!previousItem) {
+      return NextResponse.json(
+        { success: false, message: "Không tìm thấy mục giá cần cập nhật." },
+        { status: 404 }
+      );
+    }
+
+    const sameCategoryItems = await prisma.pricingItem.findMany({
+      where: { category: pricingData.category, NOT: { id } },
+      select: { id: true, name: true },
+    });
+    const duplicateItem = sameCategoryItems.find((item) => (
+      normalizePricingName(item.name) === normalizePricingName(pricingData.name)
+    ));
+
+    if (duplicateItem) {
+      return NextResponse.json(
+        { success: false, message: "Nhóm này đã có mục giá cùng tên. Vui lòng sửa mục hiện có hoặc đổi tên." },
+        { status: 409 }
+      );
+    }
+
+    const item = await prisma.pricingItem.update({ where: { id }, data: pricingData });
     await recordAuditLog({
       action: "PRICING_UPDATE",
       actor: admin,

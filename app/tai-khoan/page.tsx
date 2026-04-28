@@ -5,39 +5,29 @@ import {
   logPrismaAvailabilityWarning,
   prisma,
 } from "@/lib/prisma";
+import { normalizeServiceOrderStatus } from "@/lib/service-orders";
 import { getCurrentSessionUser } from "@/lib/session";
+import { formatVietnamDate, formatVietnamDateTime } from "@/lib/vietnam-time";
 
-const vietnamDateFormatter = new Intl.DateTimeFormat("vi-VN", {
-  day: "2-digit",
-  month: "2-digit",
-  timeZone: "Asia/Ho_Chi_Minh",
-  year: "numeric",
-});
-
-const vietnamDateTimeFormatter = new Intl.DateTimeFormat("vi-VN", {
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  month: "2-digit",
-  timeZone: "Asia/Ho_Chi_Minh",
-  year: "numeric",
-});
-
-function formatVietnamDate(date: Date) {
-  return vietnamDateFormatter.format(date);
-}
-
-function formatVietnamDateTime(date: Date) {
-  return vietnamDateTimeFormatter.format(date);
-}
-
-async function loadAccountCollections(userId: string, phone: string, referralCode: string | null) {
+async function loadAccountCollections(userId: string, phone: string, referralCode: string | null, loyaltyPoints: number) {
   try {
     const [requests, warranties, serviceOrders, coupons, referralCount] = await Promise.all([
       prisma.contactRequest.findMany({
         where: {
           deletedAt: null,
           OR: [{ userId }, { phone }],
+        },
+        include: {
+          serviceOrder: {
+            select: {
+              customerVisible: true,
+              deletedAt: true,
+              id: true,
+              review: { select: { deletedAt: true, id: true } },
+              status: true,
+              updatedAt: true,
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -64,7 +54,17 @@ async function loadAccountCollections(userId: string, phone: string, referralCod
         include: {
           redemptions: {
             where: { userId },
-            select: { id: true },
+            select: {
+              id: true,
+              contactRequest: {
+                select: {
+                  id: true,
+                  serviceOrder: { select: { id: true } },
+                  status: true,
+                },
+              },
+              serviceOrder: { select: { id: true } },
+            },
             take: 1,
           },
         },
@@ -81,45 +81,75 @@ async function loadAccountCollections(userId: string, phone: string, referralCod
         .filter((coupon) => {
           const isExpired = coupon.expiresAt ? coupon.expiresAt.getTime() <= nowMs : false;
           const hasUsesLeft = coupon.usedCount < coupon.usageLimit;
-          const isOwned = coupon.redemptions.length > 0;
-          return isOwned || (!isExpired && hasUsesLeft);
+          const redemption = coupon.redemptions[0];
+          const isOwned = Boolean(redemption);
+          const isUsed = Boolean(redemption?.serviceOrder || redemption?.contactRequest?.serviceOrder);
+          return !isUsed && (isOwned || (!isExpired && hasUsesLeft && coupon.pointsCost <= loyaltyPoints));
         })
-        .map((coupon) => ({
-          id: coupon.id,
-          code: coupon.code,
-          description: coupon.description,
-          discount: coupon.discount,
-          pointsCost: coupon.pointsCost,
-          remainingUses: Math.max(0, coupon.usageLimit - coupon.usedCount),
-          expiresAtLabel: coupon.expiresAt ? formatVietnamDate(coupon.expiresAt) : null,
-          isOwned: coupon.redemptions.length > 0,
-        })),
+        .map((coupon) => {
+          const redemption = coupon.redemptions[0];
+          const redemptionStatus: "AVAILABLE" | "OWNED" | "PENDING" = redemption?.contactRequest
+            ? "PENDING"
+            : redemption
+              ? "OWNED"
+              : "AVAILABLE";
+
+          return {
+            redemptionId: redemption?.id ?? null,
+            redemptionStatus,
+            id: coupon.id,
+            code: coupon.code,
+            description: coupon.description,
+            discount: coupon.discount,
+            pointsCost: coupon.pointsCost,
+            remainingUses: Math.max(0, coupon.usageLimit - coupon.usedCount),
+            expiresAtLabel: coupon.expiresAt ? formatVietnamDate(coupon.expiresAt) : null,
+            isOwned: coupon.redemptions.length > 0,
+          };
+        }),
       referralCount,
       dataWarning: null,
-      requests: requests.map((request) => ({
-        id: request.id,
-        service: request.service,
-        message: request.message,
-        status: request.status,
-        createdAt: request.createdAt.toISOString(),
-        createdAtLabel: formatVietnamDateTime(request.createdAt),
-        updatedAtLabel: formatVietnamDateTime(request.updatedAt),
-      })),
-      serviceOrders: serviceOrders.map((order) => ({
-        id: order.id,
-        orderCode: order.orderCode,
-        service: order.service,
-        productName: order.productName,
-        status: order.status,
-        orderDateLabel: formatVietnamDate(order.orderDate),
-        quotedPrice: order.quotedPrice,
-        paidAmount: order.paidAmount,
-        couponCode: order.couponCode,
-        couponDiscount: order.couponDiscount,
-        discountAmount: order.discountAmount,
-        warrantyEndDateLabel: order.warrantyEndDate ? formatVietnamDate(order.warrantyEndDate) : null,
-        notes: order.notes,
-      })),
+      requests: requests.map((request) => {
+        const linkedOrder = request.serviceOrder
+          && !request.serviceOrder.deletedAt
+          && request.serviceOrder.customerVisible
+          ? request.serviceOrder
+          : null;
+        const status = linkedOrder ? normalizeServiceOrderStatus(linkedOrder.status) : normalizeServiceOrderStatus(request.status);
+        const updatedAt = linkedOrder?.updatedAt || request.updatedAt;
+
+        return {
+          id: request.id,
+          service: request.service,
+          message: request.message,
+          status,
+          serviceOrderId: linkedOrder?.id || null,
+          reviewId: linkedOrder?.review?.id || null,
+          createdAt: request.createdAt.toISOString(),
+          createdAtLabel: formatVietnamDateTime(request.createdAt),
+          updatedAt: updatedAt.toISOString(),
+          updatedAtLabel: formatVietnamDateTime(updatedAt),
+        };
+      }),
+      serviceOrders: serviceOrders.map((order) => {
+        const status = normalizeServiceOrderStatus(order.status);
+
+        return {
+          id: order.id,
+          orderCode: order.orderCode,
+          service: order.service,
+          productName: order.productName,
+          status,
+          orderDateLabel: formatVietnamDate(order.orderDate),
+          quotedPrice: order.quotedPrice,
+          paidAmount: order.paidAmount,
+          couponCode: order.couponCode,
+          couponDiscount: order.couponDiscount,
+          discountAmount: order.discountAmount,
+          warrantyEndDateLabel: status === "COMPLETED" && order.warrantyEndDate ? formatVietnamDate(order.warrantyEndDate) : null,
+          notes: order.notes,
+        };
+      }),
       warranties: warranties.map((warranty) => ({
         id: warranty.id,
         serialNo: warranty.serialNo,
@@ -160,7 +190,8 @@ export default async function AccountPage() {
   const { requests, warranties, serviceOrders, coupons, referralCount, dataWarning } = await loadAccountCollections(
     user.id,
     user.phone,
-    user.referralCode
+    user.referralCode,
+    user.loyaltyPoints
   );
 
   return (

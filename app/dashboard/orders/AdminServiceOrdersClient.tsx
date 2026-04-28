@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 import { calculateCouponDiscount, getPayableAmount, getRemainingAmount } from "@/lib/coupon-discounts";
+import { formatVietnamDate, todayVietnamText } from "@/lib/vietnam-time";
 
 interface ServiceOrderData {
   id: string;
@@ -65,6 +66,11 @@ interface ServiceOrderData {
 }
 
 type SortMode = "newest" | "oldest" | "debt" | "customer";
+type AccountFilter = "ALL" | "REGISTERED" | "NO_ACCOUNT";
+type CouponFilter = "ALL" | "WITH_COUPON" | "WITHOUT_COUPON";
+type PaymentFilter = "ALL" | "DEBT" | "PAID";
+type WarrantyFilter = "ALL" | "WITH_WARRANTY" | "WITHOUT_WARRANTY";
+const ORDER_PAGE_SIZE = 8;
 
 const serviceLabels: Record<string, string> = {
   DONG_PIN: "Đóng pin",
@@ -76,23 +82,18 @@ const serviceLabels: Record<string, string> = {
 };
 
 const statusConfig: Record<string, { label: string; color: string; hint: string }> = {
-  RECEIVED: {
-    label: "Mới nhận",
-    color: "bg-slate-100 text-slate-700 border-slate-200",
-    hint: "Kiểm tra thông tin khách và thiết bị.",
+  PENDING: {
+    label: "Chờ xử lý",
+    color: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    hint: "Tiếp nhận thông tin, kiểm tra lại khách và thiết bị.",
   },
-  CHECKING: {
-    label: "Đang kiểm tra",
-    color: "bg-amber-100 text-amber-800 border-amber-200",
-    hint: "Đo/test thiết bị rồi ghi phương án.",
-  },
-  QUOTED: {
-    label: "Đã báo giá",
+  CONTACTED: {
+    label: "Đã liên hệ",
     color: "bg-blue-100 text-blue-800 border-blue-200",
-    hint: "Chờ khách chốt hoặc hẹn ngày làm.",
+    hint: "Đã gọi/chốt thông tin, tiếp tục báo phương án hoặc lịch làm.",
   },
   IN_PROGRESS: {
-    label: "Đang làm",
+    label: "Đang xử lý",
     color: "bg-orange-100 text-orange-800 border-orange-200",
     hint: "Cập nhật tiến độ nếu khách hỏi.",
   },
@@ -101,13 +102,8 @@ const statusConfig: Record<string, { label: string; color: string; hint: string 
     color: "bg-green-100 text-green-800 border-green-200",
     hint: "Kiểm tra thanh toán và bảo hành.",
   },
-  DELIVERED: {
-    label: "Đã giao",
-    color: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    hint: "Có thể mời khách đánh giá.",
-  },
   CANCELLED: {
-    label: "Đã huỷ",
+    label: "Hủy",
     color: "bg-red-100 text-red-800 border-red-200",
     hint: "Giữ lịch sử để tránh chăm sóc trùng.",
   },
@@ -115,7 +111,7 @@ const statusConfig: Record<string, { label: string; color: string; hint: string 
 
 const sourceLabels: Record<string, string> = {
   MANUAL: "Nhập tay",
-  IMPORT: "Import",
+  IMPORT: "Nhập từ Excel/CSV",
   PHONE: "Điện thoại",
   ZALO: "Zalo",
   FACEBOOK: "Facebook",
@@ -151,12 +147,11 @@ const importColumns = [
 ] as const;
 
 function formatDate(value: string | null) {
-  if (!value) return "Chưa có";
-  return new Date(value).toLocaleDateString("vi-VN");
+  return formatVietnamDate(value) || "Chưa có";
 }
 
 function todayText() {
-  return new Date().toLocaleDateString("vi-VN");
+  return todayVietnamText();
 }
 
 function formatMoney(value: number | null | undefined) {
@@ -318,7 +313,13 @@ export default function AdminServiceOrdersClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [serviceFilter, setServiceFilter] = useState("ALL");
+  const [sourceFilter, setSourceFilter] = useState("ALL");
+  const [accountFilter, setAccountFilter] = useState<AccountFilter>("ALL");
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("ALL");
+  const [warrantyFilter, setWarrantyFilter] = useState<WarrantyFilter>("ALL");
+  const [couponFilter, setCouponFilter] = useState<CouponFilter>("ALL");
   const [sortMode, setSortMode] = useState<SortMode>("newest");
+  const [page, setPage] = useState(1);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [warrantyCreatingId, setWarrantyCreatingId] = useState<string | null>(null);
@@ -342,7 +343,7 @@ export default function AdminServiceOrdersClient({
     service: "DONG_PIN",
     solution: "",
     source: "MANUAL",
-    status: "RECEIVED",
+    status: "PENDING",
     warrantyMonths: "6",
   });
 
@@ -372,6 +373,25 @@ export default function AdminServiceOrdersClient({
       .filter((order) => {
         const matchesStatus = statusFilter === "ALL" || order.status === statusFilter;
         const matchesService = serviceFilter === "ALL" || order.service === serviceFilter;
+        const matchesSource = sourceFilter === "ALL" || order.source === sourceFilter;
+        const hasAccount = Boolean(order.user || order.customer.userId);
+        const matchesAccount =
+          accountFilter === "ALL"
+          || (accountFilter === "REGISTERED" && hasAccount)
+          || (accountFilter === "NO_ACCOUNT" && !hasAccount);
+        const debt = getDebt(order);
+        const matchesPayment =
+          paymentFilter === "ALL"
+          || (paymentFilter === "DEBT" && debt > 0)
+          || (paymentFilter === "PAID" && debt === 0);
+        const matchesWarranty =
+          warrantyFilter === "ALL"
+          || (warrantyFilter === "WITH_WARRANTY" && Boolean(order.warranty))
+          || (warrantyFilter === "WITHOUT_WARRANTY" && !order.warranty);
+        const matchesCoupon =
+          couponFilter === "ALL"
+          || (couponFilter === "WITH_COUPON" && Boolean(order.couponCode))
+          || (couponFilter === "WITHOUT_COUPON" && !order.couponCode);
         const matchesSearch =
           !query ||
           order.orderCode.toLowerCase().includes(query) ||
@@ -382,7 +402,14 @@ export default function AdminServiceOrdersClient({
           (order.solution || "").toLowerCase().includes(query) ||
           (order.notes || "").toLowerCase().includes(query);
 
-        return matchesStatus && matchesService && matchesSearch;
+        return matchesStatus
+          && matchesService
+          && matchesSource
+          && matchesAccount
+          && matchesPayment
+          && matchesWarranty
+          && matchesCoupon
+          && matchesSearch;
       })
       .sort((first, second) => {
         if (sortMode === "oldest") {
@@ -396,11 +423,41 @@ export default function AdminServiceOrdersClient({
         }
         return new Date(second.orderDate).getTime() - new Date(first.orderDate).getTime();
       });
-  }, [orders, searchQuery, serviceFilter, sortMode, statusFilter]);
+  }, [accountFilter, couponFilter, orders, paymentFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredOrders.length / ORDER_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const visibleOrders = filteredOrders.slice((currentPage - 1) * ORDER_PAGE_SIZE, currentPage * ORDER_PAGE_SIZE);
+  const hasActiveFilters = searchQuery.trim().length > 0
+    || statusFilter !== "ALL"
+    || serviceFilter !== "ALL"
+    || sourceFilter !== "ALL"
+    || accountFilter !== "ALL"
+    || paymentFilter !== "ALL"
+    || warrantyFilter !== "ALL"
+    || couponFilter !== "ALL"
+    || sortMode !== "newest";
+
+  const resetFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("ALL");
+    setServiceFilter("ALL");
+    setSourceFilter("ALL");
+    setAccountFilter("ALL");
+    setPaymentFilter("ALL");
+    setWarrantyFilter("ALL");
+    setCouponFilter("ALL");
+    setSortMode("newest");
+    setPage(1);
+  };
 
   useEffect(() => {
     setImportFailures([]);
   }, [importText]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [accountFilter, couponFilter, paymentFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
 
   const scrollToWorkArea = useCallback((
     panelRef: React.RefObject<HTMLElement | null>,
@@ -451,6 +508,7 @@ export default function AdminServiceOrdersClient({
       productName: params.get("productName") || "",
       service: normalizeFormService(params.get("service")),
       source: "CONTACT",
+      status: params.get("status") || "PENDING",
       warrantyMonths: "6",
     }));
     openCreateForm();
@@ -475,7 +533,7 @@ export default function AdminServiceOrdersClient({
       service: "DONG_PIN",
       solution: "",
       source: "MANUAL",
-      status: "RECEIVED",
+      status: "PENDING",
       warrantyMonths: "6",
     });
   };
@@ -707,7 +765,7 @@ export default function AdminServiceOrdersClient({
           <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Sổ đơn nội bộ</p>
           <h2 className="font-heading text-xl font-extrabold text-slate-900">Đơn Dịch Vụ & Đơn Cũ</h2>
           <p className="font-body text-sm text-slate-500">
-            Nhập đơn từ tiệm, điện thoại, Zalo hoặc import lại sổ cũ theo số điện thoại khách.
+            Nhập đơn từ tiệm, điện thoại, Zalo hoặc nhập lại sổ cũ theo số điện thoại khách.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -717,7 +775,7 @@ export default function AdminServiceOrdersClient({
             onClick={openImportPanel}
             className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-slate-800"
           >
-            Import CSV/Excel
+            Nhập từ Excel/CSV
           </button>
           <button
             type="button"
@@ -964,9 +1022,9 @@ export default function AdminServiceOrdersClient({
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="font-heading text-lg font-bold text-slate-900">Import từ Excel</h3>
+              <h3 className="font-heading text-lg font-bold text-slate-900">Nhập từ Excel/CSV</h3>
               <p className="font-body text-sm text-slate-500">
-                Lập file theo đúng thứ tự cột, rồi lưu dạng CSV UTF-8 hoặc copy bảng từ Excel dán vào đây.
+                Lập file theo đúng thứ tự cột, rồi lưu dạng CSV UTF-8 hoặc sao chép bảng từ Excel dán vào đây.
               </p>
             </div>
             <button
@@ -1011,7 +1069,7 @@ export default function AdminServiceOrdersClient({
               disabled={isImporting || importPreview.length === 0}
               className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-body font-bold text-white disabled:bg-slate-300"
             >
-              {isImporting ? "Đang import..." : `Import ${importPreview.length} đơn`}
+              {isImporting ? "Đang nhập..." : `Nhập ${importPreview.length} đơn`}
             </button>
             <button
               type="button"
@@ -1039,12 +1097,12 @@ export default function AdminServiceOrdersClient({
       ) : null}
 
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
           <input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Tìm mã đơn, SĐT, khách hàng, sản phẩm, ghi chú"
-            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none focus:border-red-400"
+            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none focus:border-red-400 md:col-span-2 xl:col-span-2"
           />
           <select
             value={statusFilter}
@@ -1069,6 +1127,62 @@ export default function AdminServiceOrdersClient({
             ))}
           </select>
           <select
+            data-testid="dashboard-orders-source-filter"
+            value={sourceFilter}
+            onChange={(event) => setSourceFilter(event.target.value)}
+            title="Lọc nguồn đơn"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+          >
+            <option value="ALL">Tất cả nguồn</option>
+            {Object.entries(sourceLabels).map(([key, label]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </select>
+          <select
+            data-testid="dashboard-orders-account-filter"
+            value={accountFilter}
+            onChange={(event) => setAccountFilter(event.target.value as AccountFilter)}
+            title="Lọc tài khoản khách"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+          >
+            <option value="ALL">Tất cả tài khoản</option>
+            <option value="REGISTERED">Có tài khoản</option>
+            <option value="NO_ACCOUNT">Chưa có tài khoản</option>
+          </select>
+          <select
+            data-testid="dashboard-orders-payment-filter"
+            value={paymentFilter}
+            onChange={(event) => setPaymentFilter(event.target.value as PaymentFilter)}
+            title="Lọc thanh toán"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+          >
+            <option value="ALL">Tất cả công nợ</option>
+            <option value="DEBT">Còn nợ</option>
+            <option value="PAID">Đã thu đủ</option>
+          </select>
+          <select
+            data-testid="dashboard-orders-warranty-filter"
+            value={warrantyFilter}
+            onChange={(event) => setWarrantyFilter(event.target.value as WarrantyFilter)}
+            title="Lọc bảo hành"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+          >
+            <option value="ALL">Tất cả bảo hành</option>
+            <option value="WITH_WARRANTY">Có bảo hành</option>
+            <option value="WITHOUT_WARRANTY">Chưa có bảo hành</option>
+          </select>
+          <select
+            data-testid="dashboard-orders-coupon-filter"
+            value={couponFilter}
+            onChange={(event) => setCouponFilter(event.target.value as CouponFilter)}
+            title="Lọc mã giảm giá"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+          >
+            <option value="ALL">Tất cả mã giảm giá</option>
+            <option value="WITH_COUPON">Có mã giảm giá</option>
+            <option value="WITHOUT_COUPON">Không có mã</option>
+          </select>
+          <select
             value={sortMode}
             onChange={(event) => setSortMode(event.target.value as SortMode)}
             title="Sắp xếp đơn"
@@ -1080,9 +1194,20 @@ export default function AdminServiceOrdersClient({
             <option value="customer">Tên khách A-Z</option>
           </select>
         </div>
-        <p className="mt-3 font-body text-xs text-slate-400">
-          Hiển thị {filteredOrders.length} / {orders.length} đơn
-        </p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="font-body text-xs text-slate-400">
+            Hiển thị {visibleOrders.length} / {filteredOrders.length} đơn khớp lọc, tổng {orders.length} đơn
+          </p>
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="self-start rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-50 sm:self-auto"
+            >
+              Xóa lọc
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -1091,8 +1216,8 @@ export default function AdminServiceOrdersClient({
             <p className="font-body text-sm text-slate-400">Chưa có đơn nào khớp bộ lọc.</p>
           </div>
         ) : (
-          filteredOrders.map((order) => {
-            const status = statusConfig[order.status] || statusConfig.RECEIVED;
+          visibleOrders.map((order) => {
+            const status = statusConfig[order.status] || statusConfig.PENDING;
             const debt = getDebt(order);
             const payable = getPayableAmount(order.quotedPrice, order.discountAmount);
             return (
@@ -1212,7 +1337,7 @@ export default function AdminServiceOrdersClient({
                       <p className="rounded-xl bg-green-50 px-3 py-2 text-xs font-body font-bold text-green-700">
                         BH: {order.warranty.serialNo}
                       </p>
-                    ) : ["COMPLETED", "DELIVERED"].includes(order.status) ? (
+                    ) : order.status === "COMPLETED" ? (
                       <button
                         type="button"
                         onClick={() => createWarrantyFromOrder(order)}
@@ -1234,7 +1359,7 @@ export default function AdminServiceOrdersClient({
                     >
                       {deletingId === order.id ? "Đang xoá..." : "Xoá"}
                     </button>
-                    {order.warrantyEndDate ? (
+                    {order.status === "COMPLETED" && order.warrantyEndDate ? (
                       <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-body text-slate-500 sm:col-span-3">
                         Bảo hành đến: <strong>{formatDate(order.warrantyEndDate)}</strong>
                       </p>
@@ -1246,6 +1371,31 @@ export default function AdminServiceOrdersClient({
           })
         )}
       </div>
+      {filteredOrders.length > ORDER_PAGE_SIZE ? (
+        <div className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm sm:flex-row">
+          <p className="font-body text-sm font-semibold text-slate-500">
+            Trang {currentPage} / {pageCount}
+          </p>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={currentPage === 1}
+              className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 disabled:bg-slate-100 disabled:text-slate-300 sm:flex-none"
+            >
+              Trước
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+              disabled={currentPage === pageCount}
+              className="min-h-11 flex-1 rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
+            >
+              Tiếp
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

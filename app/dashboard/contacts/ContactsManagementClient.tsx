@@ -42,7 +42,7 @@ const serviceLabels: Record<string, string> = {
   DEN_NLMT: "☀️ Đèn NLMT",
   PIN_LUU_TRU: "⚡ Pin Lưu Trữ",
   CAMERA: "📹 Camera",
-  CUSTOM: "🔧 Custom",
+  CUSTOM: "🔧 Theo yêu cầu",
   KHAC: "📞 Khác",
   battery: "🔋 Đóng Pin",
   camera: "📹 Camera",
@@ -217,8 +217,16 @@ function getLeadHeat(contact: ContactRequest) {
   };
 }
 
-function buildServiceOrderHref(contact: ContactRequest) {
+function buildServiceOrderHref(contact: ContactRequest, overrideStatus?: string) {
   const orderDefault = serviceOrderDefaults[contact.service] || serviceOrderDefaults.KHAC;
+  const requestedStatus = overrideStatus || contact.status;
+  const statusMap: Record<string, string> = {
+    CANCELLED: "CANCELLED",
+    COMPLETED: "COMPLETED",
+    CONTACTED: "CONTACTED",
+    IN_PROGRESS: "IN_PROGRESS",
+    PENDING: "PENDING",
+  };
   const params = new URLSearchParams({
     customerName: contact.name,
     customerPhone: contact.phone,
@@ -227,6 +235,7 @@ function buildServiceOrderHref(contact: ContactRequest) {
     productName: orderDefault.productName,
     service: orderDefault.service,
     source: "CONTACT",
+    status: statusMap[requestedStatus] || "PENDING",
   });
   params.set("contactRequestId", contact.id);
   if (contact.couponRedemption) {
@@ -309,6 +318,13 @@ export default function ContactsManagementClient({
     const currentContact = contacts.find((contact) => contact.id === id);
     if (!currentContact || currentContact.status === status) return;
 
+    if (!currentContact.serviceOrder && status !== "PENDING") {
+      setSelectedContactId(null);
+      router.push(buildServiceOrderHref(currentContact, status));
+      showToast("Tạo đơn dịch vụ trước, trạng thái sẽ đồng bộ lại yêu cầu tư vấn.", "success");
+      return;
+    }
+
     const previousStatus = currentContact.status;
     setPendingStatusId(id);
     setContacts((prev) =>
@@ -372,7 +388,7 @@ export default function ContactsManagementClient({
   };
 
   const deleteContact = (id: string) => {
-    showConfirm("Bạn có chắc chắn muốn xoá yêu cầu này không?", async () => {
+    showConfirm("Xoá yêu cầu tư vấn này khỏi danh sách quản trị?", async () => {
       setDeletingId(id);
 
       try {
@@ -719,10 +735,10 @@ export default function ContactsManagementClient({
                   <button
                     onClick={() => deleteContact(contact.id)}
                     disabled={deletingId === contact.id}
-                    className="p-2 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 disabled:bg-slate-100 disabled:text-slate-300 transition-colors"
+                    className="rounded-lg bg-red-50 px-3 py-2 text-xs font-body font-bold text-red-600 transition-colors hover:bg-red-100 disabled:bg-slate-100 disabled:text-slate-300"
                     title="Xoá"
                   >
-                    {deletingId === contact.id ? "..." : "🗑️"}
+                    {deletingId === contact.id ? "Đang xoá..." : "Xoá"}
                   </button>
                 </div>
               </div>
@@ -810,7 +826,10 @@ export default function ContactsManagementClient({
                 <button
                   data-testid="dashboard-contact-create-order"
                   type="button"
-                  onClick={() => router.push(buildServiceOrderHref(selectedContact))}
+                  onClick={() => {
+                    setSelectedContactId(null);
+                    router.push(buildServiceOrderHref(selectedContact));
+                  }}
                   disabled={Boolean(selectedContact.serviceOrder)}
                   className="rounded-xl border border-red-100 bg-red-50 p-4 font-body text-sm font-bold text-red-700 transition-colors hover:bg-red-100"
                 >

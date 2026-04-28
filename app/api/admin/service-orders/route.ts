@@ -8,6 +8,7 @@ import {
   serviceOrderInclude,
   ServiceOrderValidationError,
   serviceOrderStatuses,
+  normalizeServiceOrderStatus,
 } from "@/lib/service-orders";
 import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { createInvalidJsonResponse, readJsonBody } from "@/lib/api-route";
@@ -15,9 +16,14 @@ import { calculateCouponDiscount, getPayableAmount } from "@/lib/coupon-discount
 import { prisma } from "@/lib/prisma";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 import { sanitizeText } from "@/lib/sanitize";
-import { createWarrantyForServiceOrder, DEFAULT_WARRANTY_MONTHS, WarrantyValidationError } from "@/lib/warranties";
+import {
+  archiveWarrantyForServiceOrder,
+  createWarrantyForServiceOrder,
+  DEFAULT_WARRANTY_MONTHS,
+  WarrantyValidationError,
+} from "@/lib/warranties";
 
-const warrantyAutoStatuses = new Set(["COMPLETED", "DELIVERED"]);
+const warrantyAutoStatuses = new Set(["COMPLETED"]);
 
 export async function GET() {
   try {
@@ -125,11 +131,14 @@ export async function PATCH(request: Request) {
     const updateData: Prisma.ServiceOrderUpdateInput = {};
 
     if (typeof body.status === "string") {
-      const status = sanitizeText(body.status).toUpperCase();
+      const status = normalizeServiceOrderStatus(body.status);
       if (!serviceOrderStatuses.includes(status as (typeof serviceOrderStatuses)[number])) {
         return NextResponse.json({ success: false, message: "Trạng thái đơn không hợp lệ." }, { status: 400 });
       }
       updateData.status = status;
+      if (!warrantyAutoStatuses.has(status)) {
+        updateData.warrantyEndDate = null;
+      }
     }
 
     if (typeof body.notes === "string") {
@@ -182,6 +191,28 @@ export async function PATCH(request: Request) {
           entity: "Warranty",
           entityId: result.warranty.id,
           newData: toAuditJson(result.warranty),
+          request,
+        });
+      }
+      const refreshedOrder = await prisma.serviceOrder.findUnique({
+        where: { id: order.id },
+        include: serviceOrderInclude,
+      });
+      if (refreshedOrder) order = refreshedOrder;
+    } else if (
+      typeof updateData.status === "string"
+      && !warrantyAutoStatuses.has(updateData.status)
+      && order.warranty
+    ) {
+      const archivedWarranty = await archiveWarrantyForServiceOrder(prisma, order.id);
+      if (archivedWarranty) {
+        await recordAuditLog({
+          action: "WARRANTY_AUTO_ARCHIVE_FROM_SERVICE_ORDER",
+          actor: admin,
+          entity: "Warranty",
+          entityId: archivedWarranty.id,
+          oldData: toAuditJson(order.warranty),
+          newData: toAuditJson(archivedWarranty),
           request,
         });
       }
@@ -244,10 +275,23 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, message: "Không tìm thấy đơn dịch vụ." }, { status: 404 });
     }
 
-    const order = await prisma.serviceOrder.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-      include: serviceOrderInclude,
+    const order = await prisma.$transaction(async (tx) => {
+      const deletedOrder = await tx.serviceOrder.update({
+        where: { id },
+        data: { couponRedemptionId: null, deletedAt: new Date(), warrantyEndDate: null },
+        include: serviceOrderInclude,
+      });
+
+      await archiveWarrantyForServiceOrder(tx, id);
+
+      if (previousOrder.contactRequestId) {
+        await tx.contactRequest.update({
+          where: { id: previousOrder.contactRequestId },
+          data: { couponRedemptionId: null, deletedAt: new Date() },
+        });
+      }
+
+      return deletedOrder;
     });
     await recordAuditLog({
       action: "SERVICE_ORDER_DELETE",

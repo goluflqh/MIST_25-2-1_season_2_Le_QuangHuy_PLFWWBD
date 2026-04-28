@@ -242,6 +242,138 @@
   }
 }
 
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  [role="button"] {
+    -webkit-tap-highlight-color: rgba(220, 38, 38, 0.14);
+    touch-action: manipulation;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [tabindex]:not([tabindex="-1"]) {
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      opacity 150ms ease,
+      transform 120ms ease;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 3px solid rgba(220, 38, 38, 0.35);
+    outline-offset: 2px;
+  }
+
+  button:disabled,
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    button:active:not(:disabled),
+    a:active,
+    summary:active,
+    [role="button"]:active {
+      transform: scale(0.99);
+      filter: brightness(0.98);
+    }
+
+    button:active:not(:disabled),
+    a:active,
+    summary:active,
+    [role="button"]:active {
+      transition-duration: 80ms;
+    }
+
+    button[aria-expanded="true"]:not(.admin-menu-toggle),
+    [role="button"][aria-expanded="true"] {
+      background-color: rgba(248, 250, 252, 0.95);
+    }
+  }
+
+  @media (max-width: 640px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      min-height: 44px;
+      font-size: 17px;
+      line-height: 1.5;
+    }
+
+    [data-testid^="dashboard"],
+    [data-testid="account-page"] {
+      font-size: 1rem;
+      line-height: 1.5rem;
+    }
+
+    .text-xs {
+      font-size: 0.8125rem;
+      line-height: 1.125rem;
+    }
+
+    [class*="text-[10px]"],
+    [class*="text-[11px]"] {
+      font-size: 0.75rem;
+      line-height: 1rem;
+    }
+
+    [data-testid^="dashboard"] :is(p, li, label, dd, dt):is(.text-sm, .text-xs),
+    [data-testid="account-page"] :is(p, li, label, dd, dt):is(.text-sm, .text-xs),
+    [data-testid^="dashboard"] label > span,
+    [data-testid="account-page"] label > span {
+      font-size: 0.9375rem;
+      line-height: 1.375rem;
+    }
+
+    [data-testid^="dashboard"] :is(p, li, label, dd, dt):is([class*="text-[10px]"], [class*="text-[11px]"]),
+    [data-testid="account-page"] :is(p, li, label, dd, dt):is([class*="text-[10px]"], [class*="text-[11px]"]) {
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+    }
+
+    [data-testid^="dashboard"] .text-xl,
+    [data-testid="account-page"] .text-xl {
+      font-size: 1.375rem;
+      line-height: 1.875rem;
+    }
+
+    [data-testid^="dashboard"] :is(input, select, textarea),
+    [data-testid="account-page"] :is(input, select, textarea) {
+      font-size: 1rem;
+      line-height: 1.5rem;
+    }
+
+    [data-testid^="dashboard"] :is(label > span, p, code),
+    [data-testid="account-page"] :is(label > span, p, code) {
+      text-wrap: pretty;
+    }
+
+    [data-testid^="dashboard"] :is(button, a, [role="button"]),
+    [data-testid="account-page"] :is(button, a, [role="button"]) {
+      min-height: unset;
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

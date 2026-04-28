@@ -88,18 +88,21 @@ model ContactRequest {
 }
 
 model Review {
-  id        String    @id @default(cuid())
-  userId    String
-  rating    Int
-  comment   String
-  service   String    @default("KHAC")
-  approved  Boolean   @default(false)
-  deletedAt DateTime?
-  createdAt DateTime  @default(now())
+  id             String    @id @default(cuid())
+  userId         String
+  serviceOrderId String?   @unique
+  rating         Int
+  comment        String
+  service        String    @default("KHAC")
+  approved       Boolean   @default(false)
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceOrder ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([serviceOrderId])
   @@index([approved])
   @@index([createdAt])
   @@index([approved, createdAt])
@@ -217,7 +220,7 @@ model ServiceOrder {
   productName        String
   issueDescription   String?
   solution           String?
-  status             String    @default("RECEIVED")
+  status             String    @default("PENDING")
   source             String    @default("MANUAL")
   orderDate          DateTime  @default(now())
   quotedPrice        Int?
@@ -240,6 +243,7 @@ model ServiceOrder {
   customer         Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
   user             User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   warranty         Warranty?
+  review           Review?
 
   @@index([customerId])
   @@index([userId])

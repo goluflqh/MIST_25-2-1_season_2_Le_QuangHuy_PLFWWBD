@@ -1,21 +1,7 @@
+import { buildVietnamDate } from "@/lib/vietnam-time";
+
 interface ParseAdminDateOptions {
   endOfDay?: boolean;
-}
-
-function buildLocalDate(year: number, month: number, day: number, endOfDay: boolean) {
-  const parsed = new Date(year, month - 1, day);
-  const isValid =
-    parsed.getFullYear() === year &&
-    parsed.getMonth() === month - 1 &&
-    parsed.getDate() === day;
-
-  if (!isValid) return null;
-
-  if (endOfDay) {
-    parsed.setHours(23, 59, 59, 999);
-  }
-
-  return parsed;
 }
 
 export function parseAdminDateInput(
@@ -40,7 +26,7 @@ export function parseAdminDateInput(
 
   const vietnameseDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (vietnameseDate) {
-    return buildLocalDate(
+    return buildVietnamDate(
       Number(vietnameseDate[3]),
       Number(vietnameseDate[2]),
       Number(vietnameseDate[1]),
@@ -50,7 +36,7 @@ export function parseAdminDateInput(
 
   const isoDate = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (isoDate) {
-    return buildLocalDate(
+    return buildVietnamDate(
       Number(isoDate[1]),
       Number(isoDate[2]),
       Number(isoDate[3]),

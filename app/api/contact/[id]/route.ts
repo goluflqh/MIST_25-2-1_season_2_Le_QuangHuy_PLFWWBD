@@ -3,6 +3,7 @@ import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { mapContactStatusToOrderStatus } from "@/lib/service-orders";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
+import { archiveWarrantyForServiceOrder, createWarrantyForServiceOrder, DEFAULT_WARRANTY_MONTHS } from "@/lib/warranties";
 
 // PATCH /api/contact/[id] — Admin updates contact status + notes
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -26,18 +27,48 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const previousContact = await prisma.contactRequest.findUnique({
       where: { id },
-      include: { serviceOrder: { select: { id: true, status: true } } },
+      include: { serviceOrder: { select: { deletedAt: true, id: true, status: true, warrantyMonths: true } } },
     });
+    if (!previousContact || previousContact.deletedAt) {
+      return NextResponse.json({ success: false, message: "Không tìm thấy yêu cầu tư vấn." }, { status: 404 });
+    }
+
+    if (
+      status
+      && status !== "PENDING"
+      && (!previousContact.serviceOrder || previousContact.serviceOrder.deletedAt)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "SERVICE_ORDER_REQUIRED",
+          message: "Can tao don dich vu truoc khi chuyen yeu cau sang trang thai xu ly, hoan thanh hoac huy.",
+        },
+        { status: 409 }
+      );
+    }
+
     const updated = await prisma.contactRequest.update({
       where: { id },
       data: updateData,
     });
 
-    if (status && previousContact?.serviceOrder) {
+    if (status && previousContact.serviceOrder && !previousContact.serviceOrder.deletedAt) {
+      const nextOrderStatus = mapContactStatusToOrderStatus(status);
       await prisma.serviceOrder.update({
         where: { id: previousContact.serviceOrder.id },
-        data: { status: mapContactStatusToOrderStatus(status) },
+        data: {
+          status: nextOrderStatus,
+          ...(nextOrderStatus === "COMPLETED" ? {} : { warrantyEndDate: null }),
+        },
       });
+      if (nextOrderStatus === "COMPLETED") {
+        await createWarrantyForServiceOrder(prisma, previousContact.serviceOrder.id, {
+          warrantyMonths: previousContact.serviceOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
+        });
+      } else {
+        await archiveWarrantyForServiceOrder(prisma, previousContact.serviceOrder.id);
+      }
     }
     await recordAuditLog({
       action: "CONTACT_UPDATE",
@@ -63,13 +94,37 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (!admin) return forbiddenResponse("Không có quyền.");
 
     const { id } = await params;
-    const deletedContact = await prisma.contactRequest.delete({ where: { id } });
+    const previousContact = await prisma.contactRequest.findUnique({
+      where: { id },
+      include: { serviceOrder: { select: { deletedAt: true, id: true } } },
+    });
+    if (!previousContact || previousContact.deletedAt) {
+      return NextResponse.json({ success: false, message: "Không tìm thấy yêu cầu tư vấn." }, { status: 404 });
+    }
+
+    const deletedContact = await prisma.$transaction(async (tx) => {
+      const contact = await tx.contactRequest.update({
+        where: { id },
+        data: { couponRedemptionId: null, deletedAt: new Date() },
+      });
+
+      if (previousContact.serviceOrder && !previousContact.serviceOrder.deletedAt) {
+        await tx.serviceOrder.update({
+          where: { id: previousContact.serviceOrder.id },
+          data: { couponRedemptionId: null, deletedAt: new Date(), warrantyEndDate: null },
+        });
+        await archiveWarrantyForServiceOrder(tx, previousContact.serviceOrder.id);
+      }
+
+      return contact;
+    });
     await recordAuditLog({
       action: "CONTACT_DELETE",
       actor: admin,
       entity: "ContactRequest",
       entityId: deletedContact.id,
-      oldData: toAuditJson(deletedContact),
+      oldData: toAuditJson(previousContact),
+      newData: toAuditJson(deletedContact),
       request,
     });
     return NextResponse.json({ success: true });

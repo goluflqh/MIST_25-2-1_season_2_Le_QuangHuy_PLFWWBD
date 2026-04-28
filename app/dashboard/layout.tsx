@@ -17,14 +17,14 @@ export default async function AdminLayout({
   const counts = await getAdminNotificationCounts();
 
   return (
-    <div className="flex min-h-[calc(100vh-100px)]">
+    <div className="relative flex min-h-[calc(100vh-100px)]">
       <AdminSidebar initialCounts={counts} />
 
       {/* Main Content */}
       <div className="flex-1 bg-slate-50">
-        <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+        <header className="bg-white border-b border-slate-200 py-4 pl-20 pr-5 flex items-center justify-between md:px-6">
           <h1 className="font-heading font-bold text-xl text-slate-900">Bảng Điều Khiển</h1>
-          <span className="text-sm text-slate-500 font-body">Admin: {admin.name}</span>
+          <span className="hidden text-sm text-slate-500 font-body sm:inline">Admin: {admin.name}</span>
         </header>
         <div className="p-6">
           <NotifyProvider>{children}</NotifyProvider>

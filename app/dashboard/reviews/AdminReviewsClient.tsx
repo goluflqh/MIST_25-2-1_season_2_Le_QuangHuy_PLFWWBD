@@ -21,7 +21,7 @@ const serviceLabels: Record<string, string> = {
   DEN_NLMT: "☀️ NLMT",
   PIN_LUU_TRU: "⚡ Lưu Trữ",
   CAMERA: "📹 Camera",
-  CUSTOM: "🔧 Custom",
+  CUSTOM: "🔧 Theo yêu cầu",
   KHAC: "📞 Khác",
 };
 

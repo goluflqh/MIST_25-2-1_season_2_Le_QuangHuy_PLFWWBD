@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNotify } from "@/components/NotifyProvider";
 
 interface PricingItem {
@@ -48,6 +48,10 @@ function sortItems(items: PricingItem[]) {
   });
 }
 
+function getPricingSignature(item: Pick<PricingItem, "category" | "name">) {
+  return `${item.category}:${item.name.trim().replace(/\s+/g, " ").toLowerCase()}`;
+}
+
 function sanitizeIntegerText(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -65,11 +69,14 @@ export default function AdminPricingClient({
   initialItems: PricingItem[];
 }) {
   const { showToast, showConfirm } = useNotify();
+  const bootstrapInFlightRef = useRef(false);
   const [items, setItems] = useState<PricingItem[]>(initialItems);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(emptyItem);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState(emptyItem);
   const [isSaving, setIsSaving] = useState(false);
+  const [savingEditId, setSavingEditId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(false);
@@ -109,6 +116,15 @@ export default function AdminPricingClient({
       });
   }, [categoryFilter, items, searchQuery, sortMode]);
 
+  const missingDefaultItems = useMemo(() => {
+    return defaultItems.filter((defaultItem) => (
+      !items.some((item) => (
+        getPricingSignature(item) === getPricingSignature(defaultItem)
+      ))
+    ));
+  }, [defaultItems, items]);
+  const canImportDefaultPricing = items.length === 0 && missingDefaultItems.length > 0;
+
   const resetFilters = () => {
     setSearchQuery("");
     setCategoryFilter("all");
@@ -116,15 +132,17 @@ export default function AdminPricingClient({
   };
 
   const bootstrapDefaultPricing = async () => {
-    if (defaultItems.length === 0 || items.length > 0) return;
+    if (bootstrapInFlightRef.current || missingDefaultItems.length === 0) return;
 
+    bootstrapInFlightRef.current = true;
     setIsBootstrapping(true);
     setFormError(null);
 
     try {
       const created: PricingItem[] = [];
+      const itemsToCreate = missingDefaultItems;
 
-      for (const item of defaultItems) {
+      for (const item of itemsToCreate) {
         const response = await fetch("/api/admin/pricing", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -139,34 +157,46 @@ export default function AdminPricingClient({
         created.push(data.item);
       }
 
-      setItems(sortItems(created));
-      showToast(`Đã nhập ${created.length} mục giá mẫu vào dashboard.`, "success");
+      setItems((prev) => {
+        const seen = new Set(prev.map(getPricingSignature));
+        const merged = [...prev];
+
+        for (const item of created) {
+          const signature = getPricingSignature(item);
+          if (!seen.has(signature)) {
+            seen.add(signature);
+            merged.push(item);
+          }
+        }
+
+        return sortItems(merged);
+      });
+      showToast(`Đã bổ sung ${created.length} mục giá mẫu còn thiếu vào dashboard.`, "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Chưa nhập được bảng giá mẫu.";
       setFormError(message);
       showToast(message, "error");
     } finally {
+      bootstrapInFlightRef.current = false;
       setIsBootstrapping(false);
     }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const method = editingId ? "PATCH" : "POST";
     const payload = {
       ...formData,
       sortOrder: parseIntegerField(formData.sortOrder, 0),
     };
-    const body = editingId ? { id: editingId, ...payload } : payload;
 
     setIsSaving(true);
     setFormError(null);
 
     try {
       const response = await fetch("/api/admin/pricing", {
-        method,
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
 
@@ -177,15 +207,10 @@ export default function AdminPricingClient({
         return;
       }
 
-      setItems((prev) => sortItems(
-        editingId
-          ? prev.map((item) => (item.id === editingId ? data.item : item))
-          : [...prev, data.item]
-      ));
+      setItems((prev) => sortItems([...prev, data.item]));
       setShowForm(false);
       setFormData(emptyItem);
-      setEditingId(null);
-      showToast(editingId ? "Đã cập nhật mục giá." : "Đã thêm mục giá mới.", "success");
+      showToast("Đã thêm mục giá mới.", "success");
     } catch {
       const message = "Không thể lưu mục giá lúc này.";
       setFormError(message);
@@ -196,7 +221,7 @@ export default function AdminPricingClient({
   };
 
   const startEdit = (item: PricingItem) => {
-    setFormData({
+    setEditFormData({
       category: item.category,
       name: item.name,
       price: item.price,
@@ -207,7 +232,44 @@ export default function AdminPricingClient({
     });
     setEditingId(item.id);
     setFormError(null);
-    setShowForm(true);
+    setShowForm(false);
+  };
+
+  const saveInlineEdit = async (id: string) => {
+    const payload = {
+      ...editFormData,
+      sortOrder: parseIntegerField(editFormData.sortOrder, 0),
+    };
+
+    setSavingEditId(id);
+    setFormError(null);
+
+    try {
+      const response = await fetch("/api/admin/pricing", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...payload }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        const message = data.message || "Lỗi khi lưu mục giá.";
+        setFormError(message);
+        showToast(message, "error");
+        return;
+      }
+
+      setItems((prev) => sortItems(prev.map((item) => (item.id === id ? data.item : item))));
+      setEditingId(null);
+      setEditFormData(emptyItem);
+      showToast("Đã cập nhật mục giá.", "success");
+    } catch {
+      const message = "Không thể lưu mục giá lúc này.";
+      setFormError(message);
+      showToast(message, "error");
+    } finally {
+      setSavingEditId(null);
+    }
   };
 
   const deleteItem = (id: string) => {
@@ -248,7 +310,7 @@ export default function AdminPricingClient({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {items.length === 0 && defaultItems.length > 0 ? (
+          {canImportDefaultPricing ? (
             <button
               onClick={bootstrapDefaultPricing}
               disabled={isBootstrapping}
@@ -336,7 +398,7 @@ export default function AdminPricingClient({
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
-          <h3 className="font-heading font-bold text-slate-900">{editingId ? "Sửa" : "Thêm"} Mục Giá</h3>
+          <h3 className="font-heading font-bold text-slate-900">Thêm Mục Giá</h3>
           {formError && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-body text-red-600">
               {formError}
@@ -361,9 +423,9 @@ export default function AdminPricingClient({
           </div>
           <div className="flex gap-2">
             <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-red-600 text-white rounded-xl font-body font-bold text-sm disabled:bg-slate-300">
-              {isSaving ? "Đang lưu..." : editingId ? "Cập Nhật" : "Thêm"}
+              {isSaving ? "Đang lưu..." : "Thêm"}
             </button>
-            <button type="button" onClick={() => { setShowForm(false); setEditingId(null); setFormError(null); }} className="px-6 py-2.5 bg-slate-100 text-slate-600 rounded-xl font-body font-bold text-sm">Huỷ</button>
+            <button type="button" onClick={() => { setShowForm(false); setFormError(null); }} className="px-6 py-2.5 bg-slate-100 text-slate-600 rounded-xl font-body font-bold text-sm">Huỷ</button>
           </div>
         </form>
       )}
@@ -387,30 +449,124 @@ export default function AdminPricingClient({
                 {category.label} ({categoryItems.length})
               </h3>
               <div className="overflow-hidden rounded-xl border border-slate-100 bg-white">
-                {categoryItems.map((item) => (
-                  <div
-                    key={item.id}
-                    data-testid="dashboard-pricing-item"
-                    className={`flex items-center gap-4 border-b border-slate-50 px-5 py-3.5 last:border-0 ${deletingId === item.id ? "opacity-60" : "hover:bg-slate-50/50"}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-body text-sm font-semibold text-slate-800">{item.name}</p>
-                      {item.description && <p className="font-body text-xs text-slate-400">{item.description}</p>}
-                      {item.note && <p className="font-body text-[10px] text-slate-300">{item.note}</p>}
-                    </div>
-                    <span className="shrink-0 font-heading text-sm font-bold text-red-600">{item.price} {item.unit}</span>
-                    <div className="flex shrink-0 gap-1">
-                      <button onClick={() => startEdit(item)} className="rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">Sửa</button>
-                      <button
-                        onClick={() => deleteItem(item.id)}
-                        disabled={deletingId === item.id}
-                        className="rounded-lg bg-red-50 px-2 py-1 text-[10px] font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                {categoryItems.map((item) => {
+                  const isEditing = editingId === item.id;
+
+                  if (isEditing) {
+                    return (
+                      <form
+                        key={item.id}
+                        data-testid="dashboard-pricing-item"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void saveInlineEdit(item.id);
+                        }}
+                        className="border-b border-slate-50 bg-slate-50/70 px-5 py-4 last:border-0"
                       >
-                        {deletingId === item.id ? "..." : "Xoá"}
-                      </button>
+                        <div className="grid gap-3 lg:grid-cols-[150px_1.2fr_1fr_90px_90px]">
+                          <select
+                            value={editFormData.category}
+                            onChange={(event) => setEditFormData({ ...editFormData, category: event.target.value })}
+                            title="Danh mục"
+                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body"
+                          >
+                            {categories.map((categoryOption) => (
+                              <option key={categoryOption.key} value={categoryOption.key}>{categoryOption.label}</option>
+                            ))}
+                          </select>
+                          <input
+                            value={editFormData.name}
+                            onChange={(event) => setEditFormData({ ...editFormData, name: event.target.value })}
+                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body"
+                            placeholder="Tên mục giá"
+                            required
+                          />
+                          <input
+                            value={editFormData.price}
+                            onChange={(event) => setEditFormData({ ...editFormData, price: event.target.value })}
+                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body"
+                            placeholder="Giá"
+                            required
+                          />
+                          <input
+                            value={editFormData.unit}
+                            onChange={(event) => setEditFormData({ ...editFormData, unit: event.target.value })}
+                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body"
+                            placeholder="Đơn vị"
+                          />
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={editFormData.sortOrder}
+                            onChange={(event) => setEditFormData({ ...editFormData, sortOrder: sanitizeIntegerText(event.target.value) })}
+                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body"
+                            placeholder="Thứ tự"
+                          />
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <input
+                            value={editFormData.description || ""}
+                            onChange={(event) => setEditFormData({ ...editFormData, description: event.target.value })}
+                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body"
+                            placeholder="Mô tả"
+                          />
+                          <input
+                            value={editFormData.note || ""}
+                            onChange={(event) => setEditFormData({ ...editFormData, note: event.target.value })}
+                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body"
+                            placeholder="Ghi chú"
+                          />
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="submit"
+                            disabled={savingEditId === item.id}
+                            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-200 disabled:text-slate-400"
+                          >
+                            {savingEditId === item.id ? "Đang lưu..." : "Lưu dòng này"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditFormData(emptyItem);
+                              setFormError(null);
+                            }}
+                            disabled={savingEditId === item.id}
+                            className="rounded-xl bg-white px-4 py-2 text-sm font-body font-bold text-slate-600 ring-1 ring-slate-200 disabled:text-slate-300"
+                          >
+                            Huỷ
+                          </button>
+                        </div>
+                      </form>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={item.id}
+                      data-testid="dashboard-pricing-item"
+                      className={`flex flex-col gap-3 border-b border-slate-50 px-5 py-4 last:border-0 sm:flex-row sm:items-center ${deletingId === item.id ? "opacity-60" : "hover:bg-slate-50/50"}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-body text-sm font-semibold text-slate-800">{item.name}</p>
+                        {item.description && <p className="font-body text-xs text-slate-400">{item.description}</p>}
+                        {item.note && <p className="font-body text-[10px] text-slate-300">{item.note}</p>}
+                      </div>
+                      <span className="shrink-0 font-heading text-sm font-bold text-red-600">{item.price} {item.unit}</span>
+                      <div className="flex shrink-0 gap-2">
+                        <button onClick={() => startEdit(item)} className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">Sửa</button>
+                        <button
+                          onClick={() => deleteItem(item.id)}
+                          disabled={deletingId === item.id}
+                          className="rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                        >
+                          {deletingId === item.id ? "..." : "Xoá"}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
