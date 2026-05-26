@@ -317,8 +317,8 @@ export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
         ["Tổng đơn hàng", serializedOrders.length, ""],
         ["Tổng đã thu", totalPaid, ""],
         ["Tổng còn phải thu khách", totalDebt, "Chỉ tính đơn đã xác nhận giá"],
-        ["Tổng công nợ đối tác", partnerBalance, ""],
-        ["Long còn nợ", longBalance, "Mục tiêu đã chốt: 12.720.000đ"],
+        ["Tổng Minh Hồng phải trả đối tác", partnerBalance, ""],
+        ["Minh Hồng phải trả Long", longBalance, "Mục tiêu đã chốt: 12.720.000đ"],
       ],
     },
     {
@@ -352,7 +352,7 @@ export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
     {
       title: "Công nợ đối tác",
       rows: [
-        ["Mã", "Đối tác", "SĐT", "Loại", "Trạng thái", "Còn nợ", "Tăng nợ", "Giảm nợ", "Số giao dịch", "Ghi chú", "Cập nhật"],
+        ["Mã", "Đối tác", "SĐT", "Loại", "Trạng thái", "Minh Hồng phải trả", "Tăng phải trả", "Giảm phải trả", "Số giao dịch", "Ghi chú", "Cập nhật"],
         ...partnerRows,
       ],
     },

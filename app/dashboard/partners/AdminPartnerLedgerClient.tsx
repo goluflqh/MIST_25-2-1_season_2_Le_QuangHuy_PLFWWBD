@@ -306,11 +306,11 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
           <p className="mt-1 font-body text-xs text-slate-500">{metrics.payablePartners} đối tác còn phải trả</p>
         </div>
         <div className="rounded-2xl border border-red-100 bg-red-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-red-700">Tổng còn nợ</p>
+          <p className="font-body text-xs uppercase tracking-wider text-red-700">Tổng phải trả đối tác</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-red-700">{formatMoney(metrics.balance)}</p>
         </div>
         <div className="rounded-2xl border border-amber-100 bg-amber-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-amber-700">Long còn nợ</p>
+          <p className="font-body text-xs uppercase tracking-wider text-amber-700">Minh Hồng phải trả Long</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-amber-700">{formatMoney(longPartner?.balance || 0)}</p>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -483,7 +483,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
           >
             {partners.map((partner) => (
               <option key={partner.id} value={partner.id}>
-                {partner.name} · {formatMoney(partner.balance)}
+                {partner.name} · phải trả {formatMoney(partner.balance)}
               </option>
             ))}
           </select>
@@ -501,11 +501,11 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
         </div>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="font-body text-xs text-slate-500">
-            Đang xem {allEntries.length} giao dịch · tổng còn nợ {formatMoney(metrics.balance)}
+            Đang xem {allEntries.length} giao dịch · Minh Hồng phải trả {formatMoney(metrics.balance)}
           </p>
           {selectedPartner ? (
             <p className="font-body text-xs font-bold text-red-700">
-              {selectedPartner.name}: {formatMoney(selectedPartner.balance)}
+              Minh Hồng phải trả {selectedPartner.name}: {formatMoney(selectedPartner.balance)}
             </p>
           ) : null}
         </div>
@@ -532,8 +532,8 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                 </span>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 font-body text-xs text-slate-500">
-                <span>Tăng nợ: <strong>{formatMoney(partner.totals.increase)}</strong></span>
-                <span>Giảm nợ: <strong>{formatMoney(partner.totals.decrease)}</strong></span>
+                <span>Tăng phải trả: <strong>{formatMoney(partner.totals.increase)}</strong></span>
+                <span>Giảm phải trả: <strong>{formatMoney(partner.totals.decrease)}</strong></span>
               </div>
               {partner.notes ? <p className="mt-2 font-body text-xs text-slate-400">{partner.notes}</p> : null}
             </button>
