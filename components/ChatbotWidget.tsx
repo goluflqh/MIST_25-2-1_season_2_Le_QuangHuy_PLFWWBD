@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   analyzeChatbotMessage,
@@ -232,6 +233,7 @@ function getCurrentSourcePath() {
 }
 
 export default function ChatbotWidget() {
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -245,6 +247,7 @@ export default function ChatbotWidget() {
   const [isLoading, setIsLoading] = useState(false);
   const [pendingMeta, setPendingMeta] = useState<AssistantMeta | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isDashboardPath = pathname?.startsWith("/dashboard") ?? false;
   const loadingCopy = getChatbotLoadingCopy(pendingMeta?.intent, pendingMeta?.serviceLabel);
 
   useEffect(() => {
@@ -414,6 +417,10 @@ export default function ChatbotWidget() {
       </div>
     );
   };
+
+  if (isDashboardPath) {
+    return null;
+  }
 
   return (
     <>

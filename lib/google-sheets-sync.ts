@@ -185,7 +185,7 @@ async function prepareSpreadsheet(accessToken: string, spreadsheetId: string) {
       },
       {
         autoResizeDimensions: {
-          dimensions: { dimension: "COLUMNS", sheetId: sheet.sheetId, startIndex: 0, endIndex: 16 },
+          dimensions: { dimension: "COLUMNS", sheetId: sheet.sheetId, startIndex: 0, endIndex: 21 },
         },
       },
     ]);
@@ -222,7 +222,7 @@ function formatOrderStatus(status: string) {
 function formatEntryType(entryType: string) {
   const labels: Record<string, string> = {
     ADJUSTMENT: "Điều chỉnh",
-    OPENING_BALANCE: "Đầu kỳ",
+    OPENING_BALANCE: "Số dư chốt",
     PAYMENT: "Thanh toán",
     PURCHASE: "Mua hàng",
     RETURN: "Trả hàng",
@@ -252,32 +252,38 @@ export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
     const debt = priceStatus === "CONFIRMED"
       ? getRemainingAmount(order.quotedPrice, order.discountAmount, order.paidAmount)
       : 0;
+    const sourceRowLabel = order.sourceName && order.sourceRow
+      ? `${order.sourceName}:A${order.sourceRow}:K${order.sourceRow}`
+      : order.sourceRow
+        ? `Dòng ${order.sourceRow}`
+        : "";
 
     return [
       order.orderCode,
       formatVietnamDate(order.orderDate),
       order.customerName,
       order.customerPhone,
-      order.customerAddress || "",
-      order.service,
       order.productName,
-      formatOrderStatus(order.status),
-      formatPriceStatus(priceStatus),
-      order.quotedPrice ?? "",
-      order.discountAmount,
-      payable,
+      priceStatus === "CONFIRMED" || priceStatus === "FREE" ? order.quotedPrice ?? 0 : "",
       order.paidAmount,
       debt,
+      order.notes || "",
+      formatPriceStatus(priceStatus),
+      sourceRowLabel,
       order.source,
+      order.customerAddress || "",
+      order.service,
+      formatOrderStatus(order.status),
+      order.discountAmount,
+      payable,
       order.warranty?.serialNo || "",
       order.issueDescription || "",
       order.solution || "",
-      order.notes || "",
       formatVietnamDateTime(order.updatedAt),
     ];
   });
-  const totalDebt = orderRows.reduce((sum, row) => sum + Number(row[13] || 0), 0);
-  const totalPaid = orderRows.reduce((sum, row) => sum + Number(row[12] || 0), 0);
+  const totalDebt = orderRows.reduce((sum, row) => sum + Number(row[7] || 0), 0);
+  const totalPaid = orderRows.reduce((sum, row) => sum + Number(row[6] || 0), 0);
   const partnerBalance = serializedPartners.reduce((sum, partner) => sum + partner.balance, 0);
   const topPayablePartnerRows = [...serializedPartners]
     .filter((partner) => partner.balance > 0)
@@ -311,10 +317,12 @@ export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
       partner.name,
       formatEntryType(entry.entryType),
       entry.description,
+      entry.category || "",
       entry.quantity ?? "",
       entry.unit || "",
       entry.unitPrice ?? "",
       entry.amount,
+      entry.receivedGoods === null || entry.receivedGoods === undefined ? "" : entry.receivedGoods ? "Có" : "Không",
       entry.signedAmount,
       entry.countsInDebt ? "Có" : "Không",
       entry.sourceName || "",
@@ -348,21 +356,22 @@ export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
           "Ngày đơn",
           "Khách",
           "SĐT",
-          "Địa chỉ",
-          "Dịch vụ",
           "Sản phẩm",
-          "Trạng thái",
-          "Tình trạng giá",
-          "Giá gốc",
-          "Giảm",
-          "Phải thu",
+          "Tổng tiền",
           "Đã thu",
           "Còn nợ",
+          "Ghi chú",
+          "Trạng thái dữ liệu",
+          "Dòng gốc",
           "Nguồn",
+          "Địa chỉ",
+          "Dịch vụ",
+          "Trạng thái xử lý",
+          "Giảm",
+          "Phải thu sau giảm",
           "Bảo hành",
           "Tình trạng",
           "Phương án",
-          "Ghi chú",
           "Cập nhật",
         ],
         ...orderRows,
@@ -378,7 +387,7 @@ export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
     {
       title: "Giao dịch đối tác",
       rows: [
-        ["Ngày", "Mã đối tác", "Đối tác", "Loại", "Nội dung", "Số lượng", "Đơn vị", "Đơn giá", "Số tiền nhập", "Tác động công nợ", "Tính công nợ", "Nguồn/người bán", "Mã dòng cũ", "Dòng gốc", "Phương thức", "Chứng từ", "Ghi chú", "Tạo lúc"],
+        ["Ngày nhập", "Mã đối tác", "Đối tác công nợ", "Loại giao dịch", "Tên hàng/Nội dung", "Loại", "Số lượng", "Đơn vị", "Đơn giá", "Thành tiền", "Đã nhận hàng", "Tác động công nợ", "Tính công nợ", "Người bán/nguồn gốc", "Mã dòng cũ", "Dòng gốc", "Phương thức", "Chứng từ", "Ghi chú", "Tạo lúc"],
         ...ledgerRows,
       ],
     },

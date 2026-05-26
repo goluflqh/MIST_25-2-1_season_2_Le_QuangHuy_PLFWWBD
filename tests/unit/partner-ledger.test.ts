@@ -46,6 +46,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
         amount: 20_230_000,
         description: "Số dư chốt",
         reference: "CHOT-2026-05-07",
+        category: "Số dư cũ",
         quantity: null,
         unit: null,
         unitPrice: null,
@@ -53,6 +54,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
         sourceCode: "NHAP_HANG:NH-0001",
         sourceRow: 2,
         paymentMethod: null,
+        receivedGoods: true,
         countsInDebt: true,
         notes: null,
         deletedAt: null,
@@ -67,6 +69,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
         amount: 7_490_000,
         description: "300 cell EVE 25P",
         reference: "NH-0002",
+        category: "Cell",
         quantity: 300,
         unit: "cell",
         unitPrice: 24_967,
@@ -74,6 +77,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
         sourceCode: "NHAP_HANG:NH-0002",
         sourceRow: 3,
         paymentMethod: null,
+        receivedGoods: true,
         countsInDebt: true,
         notes: null,
         deletedAt: null,
@@ -88,6 +92,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
         amount: 45_000_000,
         description: "Thanh toán cũ để đối chiếu",
         reference: "TT-OLD",
+        category: null,
         quantity: null,
         unit: null,
         unitPrice: null,
@@ -95,6 +100,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
         sourceCode: "THANH_TOAN:TT-OLD",
         sourceRow: 2,
         paymentMethod: "Chuyển khoản",
+        receivedGoods: null,
         countsInDebt: false,
         notes: null,
         deletedAt: null,
@@ -109,6 +115,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
         amount: 15_000_000,
         description: "Trả trước cho Long",
         reference: "TT-0002",
+        category: null,
         quantity: null,
         unit: null,
         unitPrice: null,
@@ -116,6 +123,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
         sourceCode: "THANH_TOAN:TT-0002",
         sourceRow: 3,
         paymentMethod: "Chuyển khoản",
+        receivedGoods: null,
         countsInDebt: true,
         notes: null,
         deletedAt: null,
@@ -132,5 +140,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
   assert.equal(serialized.totals.purchased, 7_490_000);
   assert.equal(serialized.totals.paid, 60_000_000);
   assert.equal(serialized.totals.referenceOnly, 45_000_000);
+  assert.equal(serialized.ledgerEntries[1].category, "Cell");
+  assert.equal(serialized.ledgerEntries[1].receivedGoods, true);
   assert.equal(serialized.ledgerEntries[2].signedAmount, 0);
 });

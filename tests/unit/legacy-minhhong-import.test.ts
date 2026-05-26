@@ -14,12 +14,14 @@ const sampleRows: LegacyWorkbookRows = {
       code: "NH-0001",
       date: "07/05/2026",
       debtPartner: "Long",
+      category: "Số dư cũ",
       sourceName: "Chốt công nợ",
       description: "Nợ tạm tính đến 07/05/2026",
       quantity: 1,
       unit: "lần",
       unitPrice: 20_230_000,
       amount: 20_230_000,
+      receivedGoods: "Có",
       countsInDebt: "Có",
       sourceRow: 2,
     },
@@ -27,12 +29,14 @@ const sampleRows: LegacyWorkbookRows = {
       code: "NH-0002",
       date: "2026-05-08",
       debtPartner: "Long",
+      category: "Cell",
       sourceName: "Long",
       description: "300cell eve 25p",
       quantity: 300,
       unit: "cell",
       unitPrice: 24_966.666,
       amount: 7_490_000,
+      receivedGoods: "Có",
       countsInDebt: "Có",
       sourceRow: 3,
     },
@@ -64,6 +68,7 @@ const sampleRows: LegacyWorkbookRows = {
       code: "TH-0001",
       date: "09/05/2026",
       partner: "Long",
+      category: "Cell lỗi",
       description: "Trả cell lỗi",
       quantity: 10,
       unitPrice: 150_000,
@@ -125,12 +130,20 @@ test("builds partner ledger entries from purchase, payment and return tabs only"
 
   assert.equal(entries.length, 5);
   assert.equal(entries[0].entryType, "OPENING_BALANCE");
+  assert.equal(entries[0].category, "Số dư cũ");
+  assert.equal(entries[0].receivedGoods, true);
+  assert.match(entries[0].notes || "", /07\/05\/2026/);
+  assert.match(entries[0].notes || "", /08\/05\/2026/);
   assert.equal(entries[1].entryType, "PURCHASE");
+  assert.equal(entries[1].category, "Cell");
   assert.equal(entries[1].quantity, 300);
+  assert.equal(entries[1].receivedGoods, true);
   assert.equal(entries[1].unit, "cell");
   assert.equal(entries[2].entryType, "PAYMENT");
   assert.equal(entries[2].countsInDebt, false);
+  assert.match(entries[2].notes || "", /không cộng lại/);
   assert.equal(entries[4].entryType, "RETURN");
+  assert.equal(entries[4].category, "Cell lỗi");
   assert.equal(entries[4].countsInDebt, false);
 });
 
@@ -142,6 +155,8 @@ test("keeps customer sheet rows separate as service-order imports", () => {
   assert.equal(partnerEntries.some((entry) => entry.sourceCode.startsWith("DON_KHACH")), false);
   assert.equal(serviceOrders[0].orderCode, "DH-0001");
   assert.equal(serviceOrders[0].source, "IMPORT");
+  assert.equal(serviceOrders[0].sourceName, "Đơn hàng đã bán");
+  assert.equal(serviceOrders[0].sourceRow, 2);
   assert.equal(serviceOrders[0].priceStatus, "CONFIRMED");
   assert.equal(serviceOrders[0].quotedPrice, 1_200_000);
   assert.equal(serviceOrders[0].paidAmount, 700_000);

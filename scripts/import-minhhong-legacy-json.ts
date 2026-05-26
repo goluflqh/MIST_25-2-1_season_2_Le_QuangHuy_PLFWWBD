@@ -50,6 +50,7 @@ async function main() {
 
     const entryData = {
       amount: entry.amount,
+      category: entry.category,
       countsInDebt: entry.countsInDebt,
       description: entry.description,
       entryDate: new Date(entry.entryDate),
@@ -57,6 +58,7 @@ async function main() {
       notes: entry.notes,
       paymentMethod: entry.paymentMethod,
       quantity: entry.quantity,
+      receivedGoods: entry.receivedGoods,
       reference: entry.reference,
       sourceCode: entry.sourceCode,
       sourceName: entry.sourceName,

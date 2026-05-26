@@ -222,6 +222,8 @@ model ServiceOrder {
   solution           String?
   status             String    @default("PENDING")
   source             String    @default("MANUAL")
+  sourceName         String?
+  sourceRow          Int?
   orderDate          DateTime  @default(now())
   quotedPrice        Int?
   priceStatus        String    @default("PENDING_QUOTE")
@@ -252,6 +254,8 @@ model ServiceOrder {
   @@index([service])
   @@index([status])
   @@index([source])
+  @@index([sourceName])
+  @@index([sourceRow])
   @@index([priceStatus])
   @@index([orderDate])
   @@index([createdAt])
@@ -289,6 +293,7 @@ model PartnerLedgerEntry {
   amount        Int
   description   String
   reference     String?
+  category      String?
   quantity      Float?
   unit          String?
   unitPrice     Int?
@@ -296,6 +301,7 @@ model PartnerLedgerEntry {
   sourceCode    String?   @unique
   sourceRow     Int?
   paymentMethod String?
+  receivedGoods Boolean?
   countsInDebt  Boolean   @default(true)
   notes         String?
   deletedAt     DateTime?

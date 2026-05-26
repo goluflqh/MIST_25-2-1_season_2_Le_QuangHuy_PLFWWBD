@@ -165,6 +165,7 @@ export async function PATCH(request: Request) {
 
     const normalized = normalizePartnerEntryPayload({
       amount: previous.amount,
+      category: previous.category || "",
       countsInDebt: previous.countsInDebt,
       description: previous.description,
       entryDate: previous.entryDate,
@@ -174,6 +175,7 @@ export async function PATCH(request: Request) {
       paymentMethod: previous.paymentMethod || "",
       quantity: previous.quantity || "",
       reference: previous.reference || "",
+      receivedGoods: previous.receivedGoods ?? "",
       sourceCode: previous.sourceCode || "",
       sourceName: previous.sourceName || "",
       sourceRow: previous.sourceRow || "",

@@ -20,14 +20,19 @@ async function loginAdminRequest(request: APIRequestContext) {
   expect(response.ok()).toBeTruthy();
 }
 
-async function seedPartnerLedger(request: APIRequestContext, purchaseCount = 15) {
+async function seedPartnerLedger(
+  request: APIRequestContext,
+  purchaseCount = 15,
+  options: { code?: string; entryDate?: string; name?: string } = {}
+) {
   await loginAdminRequest(request);
-  const suffix = Date.now().toString().slice(-8);
+  const suffix = `${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
+  const entryDate = options.entryDate ?? "26/05/2026";
   const partnerResponse = await request.post("/api/admin/partner-ledger", {
     data: {
       kind: "partner",
-      code: `E2E_${suffix}`,
-      name: `E2E Đối tác ${suffix}`,
+      code: options.code ?? `E2E_${suffix}`,
+      name: options.name ?? `E2E Đối tác ${suffix}`,
       notes: "Đối tác kiểm thử phase 2",
       type: "SUPPLIER",
     },
@@ -41,7 +46,7 @@ async function seedPartnerLedger(request: APIRequestContext, purchaseCount = 15)
       data: {
         amount: 100_000 + index * 1_000,
         description: `E2E mua hàng ${suffix}-${index}`,
-        entryDate: "26/05/2026",
+        entryDate,
         entryType: "PURCHASE",
         partnerId: partner.id,
         quantity: 1,
@@ -60,7 +65,7 @@ async function seedPartnerLedger(request: APIRequestContext, purchaseCount = 15)
     const response = await request.post("/api/admin/partner-ledger", {
       data: {
         ...entry,
-        entryDate: "26/05/2026",
+        entryDate,
         partnerId: partner.id,
       },
     });
@@ -103,12 +108,14 @@ test.describe("Admin phase 2 workflows", () => {
     await page.goto("/dashboard/partners");
     await expect(page.getByTestId("dashboard-partner-ledger")).toBeVisible();
     await page.getByTestId("partner-search-input").fill(partner.code);
-    await page.getByTestId("partner-select").selectOption(partner.id);
+    await expect(page.getByTestId("partner-select")).toHaveValue(partner.id);
     await expect(page.getByRole("heading", { name: partner.name })).toBeVisible();
 
     await page.getByTestId("partner-open-entry-selected").click();
     await expect(page.getByTestId("partner-entry-dialog")).toBeVisible();
+    await expect(page.getByTestId("partner-entry-product")).toBeFocused();
     await page.getByTestId("partner-entry-mode-RETURN").click();
+    await expect(page.getByTestId("partner-entry-product")).toBeFocused();
     await page.getByTestId("partner-entry-product").fill("E2E trả lại phụ kiện");
     await page.getByTestId("partner-entry-quantity").fill("2");
     await page.getByTestId("partner-entry-unit-price").fill("25k");
@@ -122,7 +129,28 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("partner-history-dialog")).toBeVisible();
     await expect(page.getByTestId("partner-history-page-label")).toContainText("Trang 1 / 2");
     await page.getByTestId("partner-history-search").fill("thanh toán");
+    await page.getByTestId("partner-history-exact-date").fill("2026-05-26");
     await expect(page.getByTestId("partner-history-dialog")).toContainText("E2E thanh toán");
+    await page.getByTestId("partner-history-exact-date").fill("2026-05-25");
+    await expect(page.getByTestId("partner-history-dialog")).toContainText("Chưa có giao dịch nào khớp bộ lọc.");
+  });
+
+  test("partners search auto-selects the filtered result and add form focuses first field", async ({ page, request }) => {
+    const oldPartner = await seedPartnerLedger(request, 1, { code: `E2E_OLD_${Date.now()}`, name: `ZZZ đối tác cũ ${Date.now()}` });
+    const targetPartner = await seedPartnerLedger(request, 1, { code: `E2E_TARGET_${Date.now()}`, name: `AAA đối tác cần chọn ${Date.now()}` });
+
+    await login(page);
+    await page.goto("/dashboard/partners");
+    await expect(page.getByTestId("dashboard-partner-ledger")).toBeVisible();
+    await page.getByTestId("partner-select").selectOption(oldPartner.id);
+    await expect(page.getByRole("heading", { name: oldPartner.name })).toBeVisible();
+
+    await page.getByTestId("partner-search-input").fill(targetPartner.code);
+    await expect(page.getByTestId("partner-select")).toHaveValue(targetPartner.id);
+    await expect(page.getByRole("heading", { name: targetPartner.name })).toBeVisible();
+
+    await page.getByTestId("partner-add-button").click();
+    await expect(page.getByTestId("partner-form-name")).toBeFocused();
   });
 
   test("partners mobile layout has no page overflow and keeps bottom-sheet controls reachable", async ({ page, request }) => {
@@ -132,7 +160,7 @@ test.describe("Admin phase 2 workflows", () => {
     await login(page);
     await page.goto("/dashboard/partners");
     await page.getByTestId("partner-search-input").fill(partner.code);
-    await page.getByTestId("partner-select").selectOption(partner.id);
+    await expect(page.getByTestId("partner-select")).toHaveValue(partner.id);
 
     const hasPageOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2);
     expect(hasPageOverflow).toBe(false);
@@ -165,5 +193,14 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("dashboard-order-product-input")).toBeHidden({ timeout: 10_000 });
     await expect(page.getByText(updatedProduct)).toBeVisible();
     await expect(page.getByText("1.000.000đ").first()).toBeVisible();
+
+    await page.getByTestId("dashboard-orders-month-filter").fill("2026-05");
+    await expect(page.getByText(updatedProduct)).toBeVisible();
+    await page.getByTestId("dashboard-orders-exact-date-filter").fill("2026-05-25");
+    await expect(page.getByText("Chưa có đơn nào khớp bộ lọc.")).toBeVisible();
+    await page.getByTestId("dashboard-orders-exact-date-filter").fill("2026-05-26");
+    await page.getByTestId("dashboard-orders-from-date-filter").fill("2026-05-26");
+    await page.getByTestId("dashboard-orders-to-date-filter").fill("2026-05-26");
+    await expect(page.getByText(updatedProduct)).toBeVisible();
   });
 });

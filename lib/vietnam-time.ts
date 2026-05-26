@@ -86,6 +86,16 @@ export function getVietnamDateCode(date = new Date()) {
   ].join("");
 }
 
+export function getVietnamDateKey(value: Date | string | null | undefined) {
+  if (!value) return "";
+  const parts = getVietnamParts(typeof value === "string" ? new Date(value) : value);
+  return [
+    parts.year,
+    String(parts.month).padStart(2, "0"),
+    String(parts.day).padStart(2, "0"),
+  ].join("-");
+}
+
 export function todayVietnamText(date = new Date()) {
   return formatVietnamDate(date);
 }

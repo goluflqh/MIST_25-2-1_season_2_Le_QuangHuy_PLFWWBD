@@ -390,6 +390,8 @@ export function normalizeServiceOrderPayload(
     service: normalizeService(payload.service),
     solution: sanitizeText(String(payload.solution || "")) || null,
     source,
+    sourceName: sanitizeText(String(payload.sourceName || "")) || null,
+    sourceRow: parseOptionalInt(payload.sourceRow, 1_000_000),
     status,
     warrantyEndDate,
     warrantyMonths,

@@ -13,6 +13,7 @@ export interface LegacyPurchaseRow {
   unit?: unknown;
   unitPrice?: unknown;
   amount?: unknown;
+  receivedGoods?: unknown;
   countsInDebt?: unknown;
   sourceRow?: unknown;
 }
@@ -65,6 +66,7 @@ export interface LegacyWorkbookRows {
 
 export interface LegacyPartnerEntryImport {
   amount: number;
+  category: string | null;
   countsInDebt: boolean;
   description: string;
   entryDate: string;
@@ -75,6 +77,7 @@ export interface LegacyPartnerEntryImport {
   paymentMethod: string | null;
   quantity: number | null;
   reference: string | null;
+  receivedGoods: boolean | null;
   sourceCode: string;
   sourceName: string | null;
   sourceRow: number | null;
@@ -95,6 +98,8 @@ export interface LegacyServiceOrderImport {
   quotedPrice: number | null;
   service: "KHAC";
   source: "IMPORT";
+  sourceName: string;
+  sourceRow: number | null;
   status: "COMPLETED" | "PENDING";
 }
 
@@ -146,6 +151,31 @@ export function isLegacyDebtCounted(value: unknown) {
   return ["co", "có", "yes", "true", "1", "tinh", "tính"].includes(normalized);
 }
 
+function parseLegacyOptionalBoolean(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return value;
+  const normalized = compactKey(value);
+  if (["co", "có", "yes", "true", "1", "da", "đã"].includes(normalized)) return true;
+  if (["khong", "không", "no", "false", "0", "chua", "chưa"].includes(normalized)) return false;
+  return null;
+}
+
+function joinNotes(...parts: Array<string | null | undefined>) {
+  return parts.map((part) => sanitizeText(part || "")).filter(Boolean).join(" · ") || null;
+}
+
+function buildLegacyEntryNotes(base: unknown, countsInDebt: boolean, isOpeningBalance: boolean, receivedGoods?: boolean | null) {
+  const receivedNote = receivedGoods === null || receivedGoods === undefined ? "" : `Đã nhận hàng: ${receivedGoods ? "Có" : "Không"}`;
+  const confirmedBalanceNote = isOpeningBalance
+    ? "Số dư do Minh Hồng xác nhận đến 07/05/2026; nếu bảng cũ có chênh lệch thì ưu tiên số dư chốt này, từ 08/05/2026 trở đi tính theo từng dòng có Tính công nợ = Có."
+    : "";
+  const referenceOnlyNote = !countsInDebt
+    ? "Dòng cũ để đối chiếu, đã nằm trong số dư chốt Minh Hồng xác nhận nên không cộng lại vào số Minh Hồng phải trả."
+    : "";
+
+  return joinNotes(String(base || ""), receivedNote, confirmedBalanceNote, referenceOnlyNote);
+}
+
 function buildPartnerCode(name: string) {
   return sanitizeText(name)
     .toUpperCase()
@@ -177,21 +207,26 @@ export function buildLegacyPartnerEntries(rows: LegacyWorkbookRows) {
     const partnerName = sanitizeText(String(row.debtPartner || "Long"));
     const sourceRow = parseOptionalInt(row.sourceRow);
     const amount = parseMoneyText(row.amount);
-    const entryType = isOpeningBalanceRow(row) ? "OPENING_BALANCE" : "PURCHASE";
+    const openingBalance = isOpeningBalanceRow(row);
+    const entryType = openingBalance ? "OPENING_BALANCE" : "PURCHASE";
     const description = sanitizeText(String(row.description || "Mua hàng cũ"));
+    const countsInDebt = isLegacyDebtCounted(row.countsInDebt);
+    const receivedGoods = parseLegacyOptionalBoolean(row.receivedGoods);
 
     return {
       amount,
-      countsInDebt: isLegacyDebtCounted(row.countsInDebt),
+      category: sanitizeText(String(row.category || "")) || null,
+      countsInDebt,
       description,
       entryDate: parseDateText(row.date),
       entryType,
-      notes: sanitizeText(String(row.category || "")) || null,
+      notes: buildLegacyEntryNotes(null, countsInDebt, openingBalance, receivedGoods),
       partnerCode: buildPartnerCode(partnerName),
       partnerName,
       paymentMethod: null,
       quantity: parseOptionalQuantity(row.quantity),
       reference: sanitizeText(String(row.code || "")) || null,
+      receivedGoods,
       sourceCode: buildSourceCode("NHAP_HANG", row.code, sourceRow),
       sourceName: sanitizeText(String(row.sourceName || "")) || null,
       sourceRow,
@@ -203,19 +238,22 @@ export function buildLegacyPartnerEntries(rows: LegacyWorkbookRows) {
   const paymentEntries: LegacyPartnerEntryImport[] = rows.payments.map((row) => {
     const partnerName = sanitizeText(String(row.partner || "Long"));
     const sourceRow = parseOptionalInt(row.sourceRow);
+    const countsInDebt = isLegacyDebtCounted(row.countsInDebt);
 
     return {
       amount: parseMoneyText(row.amount),
-      countsInDebt: isLegacyDebtCounted(row.countsInDebt),
+      category: null,
+      countsInDebt,
       description: sanitizeText(String(row.notes || "Thanh toán cho đối tác")) || "Thanh toán cho đối tác",
       entryDate: parseDateText(row.date),
       entryType: "PAYMENT",
-      notes: sanitizeText(String(row.notes || "")) || null,
+      notes: buildLegacyEntryNotes(row.notes, countsInDebt, false),
       partnerCode: buildPartnerCode(partnerName),
       partnerName,
       paymentMethod: sanitizeText(String(row.paymentMethod || "")) || null,
       quantity: null,
       reference: sanitizeText(String(row.code || "")) || null,
+      receivedGoods: null,
       sourceCode: buildSourceCode("THANH_TOAN", row.code, sourceRow),
       sourceName: null,
       sourceRow,
@@ -227,19 +265,22 @@ export function buildLegacyPartnerEntries(rows: LegacyWorkbookRows) {
   const returnEntries: LegacyPartnerEntryImport[] = rows.returns.map((row) => {
     const partnerName = sanitizeText(String(row.partner || "Long"));
     const sourceRow = parseOptionalInt(row.sourceRow);
+    const countsInDebt = isLegacyDebtCounted(row.countsInDebt);
 
     return {
       amount: parseMoneyText(row.amount),
-      countsInDebt: isLegacyDebtCounted(row.countsInDebt),
+      category: sanitizeText(String(row.category || "")) || null,
+      countsInDebt,
       description: sanitizeText(String(row.description || "Trả hàng cho đối tác")) || "Trả hàng cho đối tác",
       entryDate: parseDateText(row.date),
       entryType: "RETURN",
-      notes: [sanitizeText(String(row.category || "")), sanitizeText(String(row.notes || ""))].filter(Boolean).join(" · ") || null,
+      notes: buildLegacyEntryNotes(row.notes, countsInDebt, false),
       partnerCode: buildPartnerCode(partnerName),
       partnerName,
       paymentMethod: null,
       quantity: parseOptionalQuantity(row.quantity),
       reference: sanitizeText(String(row.code || "")) || null,
+      receivedGoods: null,
       sourceCode: buildSourceCode("TRA_HANG", row.code, sourceRow),
       sourceName: null,
       sourceRow,
@@ -281,6 +322,8 @@ export function buildLegacyServiceOrders(rows: LegacyWorkbookRows) {
       quotedPrice: priceStatus === "CONFIRMED" ? totalAmount : priceStatus === "FREE" ? 0 : null,
       service: "KHAC",
       source: "IMPORT",
+      sourceName: "Đơn hàng đã bán",
+      sourceRow,
       status: paidAmount >= totalAmount && totalAmount > 0 ? "COMPLETED" : "PENDING",
     } satisfies LegacyServiceOrderImport;
   }).filter((order) => order.productName);

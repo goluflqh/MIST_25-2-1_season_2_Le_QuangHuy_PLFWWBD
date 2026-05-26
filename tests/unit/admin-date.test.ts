@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseAdminDateInput } from "../../lib/admin-date";
-import { formatVietnamDate, getVietnamCalendarParts } from "../../lib/vietnam-time";
+import { formatVietnamDate, getVietnamCalendarParts, getVietnamDateKey } from "../../lib/vietnam-time";
 
 test("parses Vietnamese day/month/year dates", () => {
   const parsed = parseAdminDateInput("30/04/2026", { endOfDay: true });
@@ -22,4 +22,10 @@ test("parses yyyy-mm-dd dates for existing API callers", () => {
 test("rejects impossible dates", () => {
   assert.equal(parseAdminDateInput("31/02/2026"), null);
   assert.equal(parseAdminDateInput("not a date"), null);
+});
+
+test("builds stable yyyy-mm-dd keys in Vietnam time", () => {
+  assert.equal(getVietnamDateKey(new Date("2026-05-07T17:30:00.000Z")), "2026-05-08");
+  assert.equal(getVietnamDateKey("2026-05-26T00:00:00.000Z"), "2026-05-26");
+  assert.equal(getVietnamDateKey(null), "");
 });

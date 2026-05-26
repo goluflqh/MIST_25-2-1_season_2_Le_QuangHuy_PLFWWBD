@@ -46,6 +46,7 @@ def convert_workbook(path):
             "unit": row.get("Đơn vị"),
             "unitPrice": row.get("Đơn giá"),
             "amount": row.get("Thành tiền"),
+            "receivedGoods": row.get("Đã nhận hàng"),
             "countsInDebt": row.get("Tính công nợ"),
             "sourceRow": row.get("__sourceRow"),
         })

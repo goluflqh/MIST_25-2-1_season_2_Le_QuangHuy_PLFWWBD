@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
-import { formatVietnamDate, todayVietnamText } from "@/lib/vietnam-time";
+import { formatVietnamDate, getVietnamDateKey, todayVietnamText } from "@/lib/vietnam-time";
 
 interface PartnerEntryData {
   id: string;
@@ -22,6 +22,8 @@ interface PartnerEntryData {
   sourceCode: string | null;
   sourceRow: number | null;
   paymentMethod: string | null;
+  category: string | null;
+  receivedGoods: boolean | null;
   countsInDebt: boolean;
   notes: string | null;
   createdAt: string;
@@ -181,10 +183,19 @@ function describeEntryMeta(entry: PartnerEntryData) {
 
 export default function AdminPartnerLedgerClient({ initialPartners }: { initialPartners: PartnerData[] }) {
   const { showToast, showConfirm } = useNotify();
+  const partnerFormRef = useRef<HTMLFormElement | null>(null);
+  const partnerFirstFieldRef = useRef<HTMLInputElement | null>(null);
+  const entryDialogPanelRef = useRef<HTMLFormElement | null>(null);
+  const entryProductRef = useRef<HTMLInputElement | null>(null);
+  const entryPaymentAmountRef = useRef<HTMLInputElement | null>(null);
   const [partners, setPartners] = useState(initialPartners);
   const [selectedPartnerId, setSelectedPartnerId] = useState(initialPartners[0]?.id || "");
   const [partnerQuery, setPartnerQuery] = useState("");
+  const [historyExactDate, setHistoryExactDate] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
+  const [historyFromDate, setHistoryFromDate] = useState("");
+  const [historyMonth, setHistoryMonth] = useState("");
+  const [historyToDate, setHistoryToDate] = useState("");
   const [historyType, setHistoryType] = useState<EntryFilter>("ALL");
   const [historyScope, setHistoryScope] = useState<EntryScope>("SELECTED");
   const [historyPage, setHistoryPage] = useState(1);
@@ -211,6 +222,13 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
   const entryLineTotal = Math.round(entryQuantity * entryUnitPrice);
   const isPaymentMode = entryForm.entryMode === "PAYMENT";
 
+  const focusPanel = useCallback((panel: HTMLElement | null, target: HTMLElement | null) => {
+    window.setTimeout(() => {
+      panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.focus({ preventScroll: true });
+    }, 80);
+  }, []);
+
   const metrics = useMemo(() => {
     return partners.reduce(
       (summary, partner) => {
@@ -227,8 +245,8 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
     );
   }, [partners]);
 
-  const filteredPartners = useMemo(() => {
-    const query = partnerQuery.trim().toLowerCase();
+  const getFilteredPartners = useCallback((value: string) => {
+    const query = value.trim().toLowerCase();
     if (!query) return partners;
 
     return partners.filter((partner) =>
@@ -237,7 +255,29 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
       || (partner.phone || "").toLowerCase().includes(query)
       || (partner.notes || "").toLowerCase().includes(query)
     );
-  }, [partnerQuery, partners]);
+  }, [partners]);
+
+  const filteredPartners = useMemo(() => getFilteredPartners(partnerQuery), [getFilteredPartners, partnerQuery]);
+
+  const updatePartnerQuery = useCallback((value: string) => {
+    setPartnerQuery(value);
+
+    const matches = getFilteredPartners(value);
+    if (matches.length === 0) return;
+
+    const selectedStillVisible = matches.some((partner) => partner.id === selectedPartnerId);
+    if (!selectedStillVisible) {
+      setSelectedPartnerId(matches[0].id);
+    }
+  }, [getFilteredPartners, selectedPartnerId]);
+
+  useEffect(() => {
+    if (filteredPartners.length === 0) return;
+    const selectedStillVisible = filteredPartners.some((partner) => partner.id === selectedPartnerId);
+    if (!selectedStillVisible) {
+      setSelectedPartnerId(filteredPartners[0].id);
+    }
+  }, [filteredPartners, selectedPartnerId]);
 
   const allEntries = useMemo<VisibleEntry[]>(() => {
     return partners
@@ -267,7 +307,12 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
       : allEntries;
 
     return baseEntries.filter((entry) => {
+      const dateKey = getVietnamDateKey(entry.entryDate);
       const matchesType = historyType === "ALL" || entry.entryType === historyType;
+      const matchesExactDate = !historyExactDate || dateKey === historyExactDate;
+      const matchesMonth = !historyMonth || dateKey.startsWith(historyMonth);
+      const matchesFromDate = !historyFromDate || dateKey >= historyFromDate;
+      const matchesToDate = !historyToDate || dateKey <= historyToDate;
       const matchesSearch = !query
         || entry.partnerName.toLowerCase().includes(query)
         || entry.partnerCode.toLowerCase().includes(query)
@@ -276,13 +321,37 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
         || (entry.notes || "").toLowerCase().includes(query)
         || (entry.sourceName || "").toLowerCase().includes(query)
         || (entry.sourceCode || "").toLowerCase().includes(query);
-      return matchesType && matchesSearch;
+      return matchesType && matchesExactDate && matchesMonth && matchesFromDate && matchesToDate && matchesSearch;
     });
-  }, [allEntries, historyQuery, historyScope, historyType, selectedPartner]);
+  }, [allEntries, historyExactDate, historyFromDate, historyMonth, historyQuery, historyScope, historyToDate, historyType, selectedPartner]);
+
+  const historyStats = useMemo(() => {
+    return historyEntries.reduce(
+      (summary, entry) => {
+        if (entry.entryType === "PURCHASE") summary.purchased += entry.amount;
+        if (entry.entryType === "PAYMENT") summary.paid += entry.amount;
+        if (entry.entryType === "RETURN") summary.returned += entry.amount;
+        summary.net += entry.signedAmount;
+        return summary;
+      },
+      { net: 0, paid: 0, purchased: 0, returned: 0 }
+    );
+  }, [historyEntries]);
 
   useEffect(() => {
     setHistoryPage(1);
-  }, [historyQuery, historyScope, historyType, selectedPartnerId]);
+  }, [historyExactDate, historyFromDate, historyMonth, historyQuery, historyScope, historyToDate, historyType, selectedPartnerId]);
+
+  useEffect(() => {
+    if (!showPartnerForm) return;
+    focusPanel(partnerFormRef.current, partnerFirstFieldRef.current);
+  }, [focusPanel, showPartnerForm]);
+
+  useEffect(() => {
+    if (!entryDialogMode) return;
+    const target = entryForm.entryMode === "PAYMENT" ? entryPaymentAmountRef.current : entryProductRef.current;
+    focusPanel(entryDialogPanelRef.current, target);
+  }, [entryDialogMode, entryForm.entryMode, focusPanel]);
 
   const historyPageCount = Math.max(1, Math.ceil(historyEntries.length / HISTORY_PAGE_SIZE));
   const currentHistoryPage = Math.min(historyPage, historyPageCount);
@@ -328,6 +397,10 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
   const openEntryDialog = (mode: EntryMode = "PURCHASE") => {
     setEntryForm((current) => ({ ...createEmptyEntryForm(mode), entryDate: current.entryDate || todayVietnamText() }));
     setEntryDialogMode(mode);
+  };
+
+  const togglePartnerForm = () => {
+    setShowPartnerForm((current) => !current);
   };
 
   const closeEntryDialog = () => {
@@ -499,7 +572,8 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
           </button>
           <button
             type="button"
-            onClick={() => setShowPartnerForm((current) => !current)}
+            onClick={togglePartnerForm}
+            data-testid="partner-add-button"
             className="min-h-11 rounded-lg bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200"
           >
             + Đối tác
@@ -537,11 +611,13 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
       </div>
 
       {showPartnerForm ? (
-        <form onSubmit={savePartner} className="rounded-lg border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
+        <form ref={partnerFormRef} onSubmit={savePartner} className="scroll-mt-24 rounded-lg border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <label className="space-y-1.5 xl:col-span-2">
               <span className="font-body text-xs font-bold text-slate-700">Tên đối tác</span>
               <input
+                ref={partnerFirstFieldRef}
+                data-testid="partner-form-name"
                 value={partnerForm.name}
                 onChange={(event) => setPartnerForm({ ...partnerForm, name: event.target.value })}
                 placeholder="Ví dụ: Long"
@@ -607,7 +683,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
           </div>
           <input
             value={partnerQuery}
-            onChange={(event) => setPartnerQuery(event.target.value)}
+            onChange={(event) => updatePartnerQuery(event.target.value)}
             placeholder="Tìm theo tên, mã, SĐT"
             className="mt-3 min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
             data-testid="partner-search-input"
@@ -707,7 +783,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
       {entryDialogMode ? (
         <div className="fixed inset-0 z-50 flex items-end bg-slate-950/35 p-0 sm:items-center sm:justify-center sm:p-4" data-testid="partner-entry-dialog">
           <button type="button" className="absolute inset-0 cursor-default" aria-label="Đóng ghi giao dịch" onClick={closeEntryDialog} />
-          <form onSubmit={saveEntry} className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-lg bg-white p-4 shadow-2xl sm:max-w-3xl sm:rounded-lg sm:p-5">
+          <form ref={entryDialogPanelRef} onSubmit={saveEntry} className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-lg bg-white p-4 shadow-2xl sm:max-w-3xl sm:rounded-lg sm:p-5">
             <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 border-b border-slate-100 bg-white/95 px-4 py-4 backdrop-blur sm:-mx-5 sm:-mt-5 sm:px-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -754,6 +830,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                   <label className="space-y-1.5">
                     <span className="font-body text-xs font-bold text-slate-700">Số tiền thanh toán</span>
                     <input
+                      ref={entryPaymentAmountRef}
                       inputMode="numeric"
                       data-testid="partner-entry-payment-amount"
                       value={entryForm.paymentAmount}
@@ -787,6 +864,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                   <label className="space-y-1.5 lg:col-span-2">
                     <span className="font-body text-xs font-bold text-slate-700">Sản phẩm / nội dung</span>
                     <input
+                      ref={entryProductRef}
                       data-testid="partner-entry-product"
                       value={entryForm.productName}
                       onChange={(event) => setEntryForm({ ...entryForm, productName: event.target.value })}
@@ -882,13 +960,45 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                   Đóng
                 </button>
               </div>
-              <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_180px_180px]">
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_150px_150px_150px_150px_150px_150px]">
                 <input
                   value={historyQuery}
                   onChange={(event) => setHistoryQuery(event.target.value)}
                   placeholder="Tìm giao dịch, chứng từ, nguồn, ghi chú"
-                  className="min-h-11 rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
+                  className="min-h-11 rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400 md:col-span-2 xl:col-span-1"
                   data-testid="partner-history-search"
+                />
+                <input
+                  type="date"
+                  value={historyExactDate}
+                  onChange={(event) => setHistoryExactDate(event.target.value)}
+                  title="Chọn đúng một ngày"
+                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
+                  data-testid="partner-history-exact-date"
+                />
+                <input
+                  type="month"
+                  value={historyMonth}
+                  onChange={(event) => setHistoryMonth(event.target.value)}
+                  title="Lọc theo tháng"
+                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
+                  data-testid="partner-history-month"
+                />
+                <input
+                  type="date"
+                  value={historyFromDate}
+                  onChange={(event) => setHistoryFromDate(event.target.value)}
+                  title="Từ ngày"
+                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
+                  data-testid="partner-history-from-date"
+                />
+                <input
+                  type="date"
+                  value={historyToDate}
+                  onChange={(event) => setHistoryToDate(event.target.value)}
+                  title="Đến ngày"
+                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
+                  data-testid="partner-history-to-date"
                 />
                 <select
                   value={historyScope}
@@ -910,6 +1020,24 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                     <option key={key} value={key}>{config.label}</option>
                   ))}
                 </select>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg bg-red-50 px-3 py-2">
+                  <p className="font-body text-xs font-bold text-red-700">Đã mua trong lọc</p>
+                  <p className="font-heading text-base font-extrabold text-red-700">{formatMoney(historyStats.purchased)}</p>
+                </div>
+                <div className="rounded-lg bg-green-50 px-3 py-2">
+                  <p className="font-body text-xs font-bold text-green-700">Đã thanh toán</p>
+                  <p className="font-heading text-base font-extrabold text-green-700">{formatMoney(historyStats.paid)}</p>
+                </div>
+                <div className="rounded-lg bg-amber-50 px-3 py-2">
+                  <p className="font-body text-xs font-bold text-amber-700">Đã trả hàng</p>
+                  <p className="font-heading text-base font-extrabold text-amber-700">{formatMoney(historyStats.returned)}</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <p className="font-body text-xs font-bold text-slate-600">Tác động lọc</p>
+                  <p className="font-heading text-base font-extrabold text-slate-900">{formatMoney(historyStats.net)}</p>
+                </div>
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">

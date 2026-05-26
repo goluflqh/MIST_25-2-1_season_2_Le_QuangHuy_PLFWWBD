@@ -5,7 +5,7 @@ import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 import { calculateCouponDiscount, getPayableAmount, getRemainingAmount } from "@/lib/coupon-discounts";
 import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
-import { formatVietnamDate, todayVietnamText } from "@/lib/vietnam-time";
+import { formatVietnamDate, getVietnamDateKey, todayVietnamText } from "@/lib/vietnam-time";
 
 interface ServiceOrderData {
   id: string;
@@ -19,6 +19,8 @@ interface ServiceOrderData {
   solution: string | null;
   status: string;
   source: string;
+  sourceName: string | null;
+  sourceRow: number | null;
   orderDate: string;
   quotedPrice: number | null;
   priceStatus: string;
@@ -327,11 +329,15 @@ function parseImportText(text: string) {
     .filter(Boolean)
     .map((line) => splitDelimitedLine(line, delimiter));
 
-  const dataRows = rows[0] && looksLikeHeader(rows[0]) ? rows.slice(1) : rows;
+  const hasHeader = Boolean(rows[0] && looksLikeHeader(rows[0]));
+  const dataRows = (hasHeader ? rows.slice(1) : rows).map((cells, index) => ({
+    cells,
+    rowNumber: hasHeader ? index + 2 : index + 1,
+  }));
 
   return dataRows
-    .filter((cells) => cells.some((cell) => cell.trim()))
-    .map((cells) => {
+    .filter(({ cells }) => cells.some((cell) => cell.trim()))
+    .map(({ cells, rowNumber }) => {
       const hasPriceStatusColumn = cells.length >= importColumns.length;
 
       return {
@@ -350,6 +356,8 @@ function parseImportText(text: string) {
         warrantyMonths: hasPriceStatusColumn ? cells[12] || "" : cells[11] || "",
         notes: hasPriceStatusColumn ? cells[13] || "" : cells[12] || "",
         customerVisible: hasPriceStatusColumn ? cells[14] || "" : cells[13] || "",
+        sourceName: "Import đơn dịch vụ",
+        sourceRow: rowNumber,
       };
     });
 }
@@ -424,6 +432,10 @@ export default function AdminServiceOrdersClient({
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [serviceFilter, setServiceFilter] = useState("ALL");
   const [sourceFilter, setSourceFilter] = useState("ALL");
+  const [orderExactDate, setOrderExactDate] = useState("");
+  const [orderFromDate, setOrderFromDate] = useState("");
+  const [orderMonth, setOrderMonth] = useState("");
+  const [orderToDate, setOrderToDate] = useState("");
   const [accountFilter, setAccountFilter] = useState<AccountFilter>("ALL");
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("ALL");
   const [priceFilter, setPriceFilter] = useState<PriceFilter>("ALL");
@@ -466,9 +478,14 @@ export default function AdminServiceOrdersClient({
 
     return orders
       .filter((order) => {
+        const orderDateKey = getVietnamDateKey(order.orderDate);
         const matchesStatus = statusFilter === "ALL" || order.status === statusFilter;
         const matchesService = serviceFilter === "ALL" || order.service === serviceFilter;
         const matchesSource = sourceFilter === "ALL" || order.source === sourceFilter;
+        const matchesExactDate = !orderExactDate || orderDateKey === orderExactDate;
+        const matchesMonth = !orderMonth || orderDateKey.startsWith(orderMonth);
+        const matchesFromDate = !orderFromDate || orderDateKey >= orderFromDate;
+        const matchesToDate = !orderToDate || orderDateKey <= orderToDate;
         const hasAccount = Boolean(order.user || order.customer.userId);
         const matchesAccount =
           accountFilter === "ALL"
@@ -501,6 +518,10 @@ export default function AdminServiceOrdersClient({
         return matchesStatus
           && matchesService
           && matchesSource
+          && matchesExactDate
+          && matchesMonth
+          && matchesFromDate
+          && matchesToDate
           && matchesAccount
           && matchesPrice
           && matchesPayment
@@ -520,7 +541,19 @@ export default function AdminServiceOrdersClient({
         }
         return new Date(second.orderDate).getTime() - new Date(first.orderDate).getTime();
       });
-  }, [accountFilter, couponFilter, orders, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
+  }, [accountFilter, couponFilter, orderExactDate, orderFromDate, orderMonth, orderToDate, orders, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
+
+  const filteredOrderStats = useMemo(() => {
+    return filteredOrders.reduce(
+      (summary, order) => {
+        summary.debt += getDebt(order);
+        summary.paid += order.paidAmount;
+        summary.quoted += order.quotedPrice || 0;
+        return summary;
+      },
+      { debt: 0, paid: 0, quoted: 0 }
+    );
+  }, [filteredOrders]);
 
   const pageCount = Math.max(1, Math.ceil(filteredOrders.length / ORDER_PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -529,6 +562,10 @@ export default function AdminServiceOrdersClient({
     || statusFilter !== "ALL"
     || serviceFilter !== "ALL"
     || sourceFilter !== "ALL"
+    || orderExactDate !== ""
+    || orderFromDate !== ""
+    || orderMonth !== ""
+    || orderToDate !== ""
     || accountFilter !== "ALL"
     || paymentFilter !== "ALL"
     || priceFilter !== "ALL"
@@ -541,6 +578,10 @@ export default function AdminServiceOrdersClient({
     setStatusFilter("ALL");
     setServiceFilter("ALL");
     setSourceFilter("ALL");
+    setOrderExactDate("");
+    setOrderFromDate("");
+    setOrderMonth("");
+    setOrderToDate("");
     setAccountFilter("ALL");
     setPaymentFilter("ALL");
     setPriceFilter("ALL");
@@ -556,7 +597,7 @@ export default function AdminServiceOrdersClient({
 
   useEffect(() => {
     setPage(1);
-  }, [accountFilter, couponFilter, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
+  }, [accountFilter, couponFilter, orderExactDate, orderFromDate, orderMonth, orderToDate, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
 
   const scrollToWorkArea = useCallback((
     panelRef: React.RefObject<HTMLElement | null>,
@@ -1323,13 +1364,45 @@ export default function AdminServiceOrdersClient({
       ) : null}
 
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-9">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
           <input
             data-testid="dashboard-orders-search-input"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Tìm mã đơn, SĐT, khách hàng, sản phẩm, ghi chú"
-            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none focus:border-red-400 md:col-span-2 xl:col-span-2"
+            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none focus:border-red-400 md:col-span-2 xl:col-span-3"
+          />
+          <input
+            type="date"
+            value={orderExactDate}
+            onChange={(event) => setOrderExactDate(event.target.value)}
+            title="Chọn đúng một ngày"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+            data-testid="dashboard-orders-exact-date-filter"
+          />
+          <input
+            type="month"
+            value={orderMonth}
+            onChange={(event) => setOrderMonth(event.target.value)}
+            title="Lọc đơn theo tháng"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+            data-testid="dashboard-orders-month-filter"
+          />
+          <input
+            type="date"
+            value={orderFromDate}
+            onChange={(event) => setOrderFromDate(event.target.value)}
+            title="Từ ngày mua"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+            data-testid="dashboard-orders-from-date-filter"
+          />
+          <input
+            type="date"
+            value={orderToDate}
+            onChange={(event) => setOrderToDate(event.target.value)}
+            title="Đến ngày mua"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+            data-testid="dashboard-orders-to-date-filter"
           />
           <select
             value={statusFilter}
@@ -1432,6 +1505,20 @@ export default function AdminServiceOrdersClient({
             <option value="debt">Còn nợ nhiều</option>
             <option value="customer">Tên khách A-Z</option>
           </select>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-xl bg-slate-50 px-3 py-2">
+            <p className="font-body text-xs font-bold text-slate-600">Tổng tiền lọc</p>
+            <p className="font-heading text-base font-extrabold text-slate-900">{formatMoney(filteredOrderStats.quoted)}</p>
+          </div>
+          <div className="rounded-xl bg-green-50 px-3 py-2">
+            <p className="font-body text-xs font-bold text-green-700">Đã thu lọc</p>
+            <p className="font-heading text-base font-extrabold text-green-700">{formatMoney(filteredOrderStats.paid)}</p>
+          </div>
+          <div className="rounded-xl bg-red-50 px-3 py-2">
+            <p className="font-body text-xs font-bold text-red-700">Còn nợ lọc</p>
+            <p className="font-heading text-base font-extrabold text-red-700">{formatMoney(filteredOrderStats.debt)}</p>
+          </div>
         </div>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="font-body text-xs text-slate-400">

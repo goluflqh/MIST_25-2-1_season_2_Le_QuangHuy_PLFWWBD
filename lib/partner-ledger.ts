@@ -106,6 +106,16 @@ function parseCountsInDebt(value: unknown) {
   return !["0", "false", "khong", "không", "no", "n", "không tính", "khong tinh"].includes(normalized);
 }
 
+function parseOptionalBoolean(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return value;
+
+  const normalized = compactKey(value);
+  if (["1", "true", "yes", "y", "co", "có", "da nhan", "đã nhận"].includes(normalized)) return true;
+  if (["0", "false", "no", "n", "khong", "không", "chua", "chưa"].includes(normalized)) return false;
+  return null;
+}
+
 export function getPartnerEntrySignedAmount(entry: { amount: number; countsInDebt?: boolean; entryType: string }) {
   if (entry.countsInDebt === false) return 0;
 
@@ -173,6 +183,7 @@ export function normalizePartnerEntryPayload(payload: Record<string, unknown>) {
 
   return {
     amount,
+    category: sanitizeText(String(payload.category || "")) || null,
     countsInDebt: parseCountsInDebt(payload.countsInDebt ?? payload.countsInBalance ?? payload.includeInDebt),
     description: description || getDefaultEntryDescription(entryType),
     entryDate,
@@ -182,6 +193,7 @@ export function normalizePartnerEntryPayload(payload: Record<string, unknown>) {
     paymentMethod: sanitizeText(String(payload.paymentMethod || "")) || null,
     quantity: parseOptionalQuantity(payload.quantity),
     reference: sanitizeText(String(payload.reference || "")) || null,
+    receivedGoods: parseOptionalBoolean(payload.receivedGoods),
     sourceCode: sanitizeText(String(payload.sourceCode || "")) || null,
     sourceName: sanitizeText(String(payload.sourceName || "")) || null,
     sourceRow: parseOptionalPositiveInt(payload.sourceRow),
