@@ -21,12 +21,12 @@ export default async function AdminLayout({
       <AdminSidebar initialCounts={counts} />
 
       {/* Main Content */}
-      <div className="flex-1 bg-slate-50">
-        <header className="bg-white border-b border-slate-200 py-4 pl-20 pr-5 flex items-center justify-between md:px-6">
-          <h1 className="font-heading font-bold text-xl text-slate-900">Bảng Điều Khiển</h1>
+      <div className="min-w-0 flex-1 bg-slate-50">
+        <header className="bg-white border-b border-slate-200 py-4 pl-20 pr-4 flex items-center justify-between md:px-6">
+          <h1 className="font-heading font-bold text-lg text-slate-900 sm:text-xl">Bảng Điều Khiển</h1>
           <span className="hidden text-sm text-slate-500 font-body sm:inline">Admin: {admin.name}</span>
         </header>
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <NotifyProvider>{children}</NotifyProvider>
         </div>
       </div>

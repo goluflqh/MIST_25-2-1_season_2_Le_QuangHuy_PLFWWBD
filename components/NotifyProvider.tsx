@@ -38,11 +38,11 @@ export function NotifyProvider({ children }: { children: React.ReactNode }) {
       {children}
 
       {/* Toast container */}
-      <div className="fixed top-4 right-4 z-[999] space-y-2 pointer-events-none">
+      <div className="fixed inset-x-4 bottom-4 z-[999] space-y-2 pointer-events-none sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-4">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`pointer-events-auto px-4 py-3 rounded-xl shadow-lg text-sm font-body font-bold animate-fade-in-up ${
+            className={`pointer-events-auto px-4 py-3 rounded-xl shadow-lg text-sm font-body font-bold animate-fade-in-up sm:max-w-sm ${
               t.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
             }`}
           >
@@ -53,8 +53,8 @@ export function NotifyProvider({ children }: { children: React.ReactNode }) {
 
       {/* Confirm dialog */}
       {confirm && (
-        <div className="fixed inset-0 z-[998] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl p-6 max-w-sm mx-4 shadow-2xl animate-fade-in-up">
+        <div className="fixed inset-0 z-[998] flex items-end justify-center bg-black/40 p-4 backdrop-blur-sm sm:items-center">
+          <div className="max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl animate-fade-in-up sm:p-6">
             <p className="font-body text-sm text-slate-800 mb-5 whitespace-pre-line">{confirm.message}</p>
             <div className="flex gap-3 justify-end">
               <button

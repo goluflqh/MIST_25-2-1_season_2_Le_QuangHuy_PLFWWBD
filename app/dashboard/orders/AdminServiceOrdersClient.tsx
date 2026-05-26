@@ -234,8 +234,17 @@ function formatMoney(value: number | null | undefined) {
 }
 
 function parseMoneyText(value: string) {
-  const parsed = Number.parseInt(value.replace(/[^\d]/g, ""), 10);
-  return Number.isFinite(parsed) ? parsed : 0;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+  const multiplier = normalized.endsWith("k") ? 1000 : 1;
+  const rawNumber = multiplier === 1000 ? normalized.slice(0, -1) : normalized;
+  const parsed = Number.parseInt(rawNumber.replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(parsed) ? parsed * multiplier : 0;
+}
+
+function formatMoneyInputValue(value: string) {
+  if (!value.trim()) return "";
+  const parsed = parseMoneyText(value);
+  return parsed > 0 ? parsed.toLocaleString("vi-VN") : "";
 }
 
 function getDebt(order: ServiceOrderData) {
@@ -442,6 +451,7 @@ export default function AdminServiceOrdersClient({
   const [paymentInputs, setPaymentInputs] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [formData, setFormData] = useState<OrderFormState>(() => createEmptyOrderForm());
+  const editingOrder = editingId ? orders.find((order) => order.id === editingId) || null : null;
 
   const importPreview = useMemo(() => {
     if (!importText.trim()) return [];
@@ -634,7 +644,9 @@ export default function AdminServiceOrdersClient({
     setShowImport(false);
     setShowForm(true);
     setError("");
-    scrollToWorkArea(orderFormRef, orderFirstFieldRef);
+    window.setTimeout(() => {
+      orderFirstFieldRef.current?.focus({ preventScroll: true });
+    }, 50);
   };
 
   const saveOrderForm = async (event: React.FormEvent) => {
@@ -648,7 +660,9 @@ export default function AdminServiceOrdersClient({
       customerPhone: formData.customerPhone.trim(),
       issueDescription: formData.issueDescription.trim(),
       notes: formData.notes.trim(),
+      paidAmount: formData.paidAmount.trim() ? String(parseMoneyText(formData.paidAmount)) : "",
       productName: formData.productName.trim(),
+      quotedPrice: formData.quotedPrice.trim() ? String(parseMoneyText(formData.quotedPrice)) : "",
       solution: formData.solution.trim(),
     };
 
@@ -969,21 +983,40 @@ export default function AdminServiceOrdersClient({
       </div>
 
       {showForm ? (
-        <form
-          ref={orderFormRef}
-          onSubmit={saveOrderForm}
-          className="scroll-mt-28 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6"
-        >
-          <div className="mb-4">
-            <h3 className="font-heading text-lg font-bold text-slate-900">
-              {editingId ? "Sửa đầy đủ đơn" : "Thêm đơn nhanh"}
-            </h3>
-            <p className="font-body text-sm text-slate-500">
-              {editingId
-                ? "Cập nhật khách, SĐT, ngày, sản phẩm, giá, bảo hành, trạng thái, phương án và ghi chú."
-                : "Chỉ cần nhập tên, SĐT và sản phẩm. Nếu chưa có giá, để trạng thái giá là Chưa báo giá."}
-            </p>
-          </div>
+        <div className={editingId ? "fixed inset-0 z-50 flex items-end bg-slate-950/30 p-0 sm:items-stretch sm:justify-end" : ""}>
+          <form
+            ref={orderFormRef}
+            onSubmit={saveOrderForm}
+            className={editingId
+              ? "max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-slate-100 bg-white p-4 shadow-2xl sm:h-full sm:max-h-none sm:w-[min(760px,100vw)] sm:rounded-none sm:p-6"
+              : "scroll-mt-28 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6"}
+          >
+            <div className={`${editingId ? "sticky top-0 z-10 -mx-4 -mt-4 mb-4 border-b border-slate-100 bg-white/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6" : "mb-4"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-heading text-lg font-bold text-slate-900">
+                    {editingId ? "Sửa đơn đang xem" : "Thêm đơn nhanh"}
+                  </h3>
+                  <p className="font-body text-sm text-slate-500">
+                    {editingId && editingOrder
+                      ? `${editingOrder.orderCode} · ${editingOrder.customerName} · ${editingOrder.customerPhone}`
+                      : "Chỉ cần nhập tên, SĐT và sản phẩm. Nếu chưa có giá, để trạng thái giá là Chưa báo giá."}
+                  </p>
+                </div>
+                {editingId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForm(false);
+                      resetForm();
+                    }}
+                    className="min-h-11 rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200"
+                  >
+                    Đóng
+                  </button>
+                ) : null}
+              </div>
+            </div>
           {error ? (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-body text-red-600">
               {error}
@@ -1098,7 +1131,8 @@ export default function AdminServiceOrdersClient({
                   priceStatus: getNextPriceStatusForPrice(event.target.value, formData.priceStatus),
                   quotedPrice: event.target.value,
                 })}
-                placeholder="Ví dụ: 1500000"
+                onBlur={() => setFormData((current) => ({ ...current, quotedPrice: formatMoneyInputValue(current.quotedPrice) }))}
+                placeholder="Ví dụ: 100k hoặc 1.000.000"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
               />
             </label>
@@ -1139,7 +1173,8 @@ export default function AdminServiceOrdersClient({
                 inputMode="numeric"
                 value={formData.paidAmount}
                 onChange={(event) => setFormData({ ...formData, paidAmount: event.target.value })}
-                placeholder="Ví dụ: 500000"
+                onBlur={() => setFormData((current) => ({ ...current, paidAmount: formatMoneyInputValue(current.paidAmount) }))}
+                placeholder="Ví dụ: 100k hoặc 500.000"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
               />
             </label>
@@ -1210,8 +1245,9 @@ export default function AdminServiceOrdersClient({
             >
               Huỷ
             </button>
-          </div>
-        </form>
+            </div>
+          </form>
+        </div>
       ) : null}
 
       {showImport ? (
@@ -1545,6 +1581,7 @@ export default function AdminServiceOrdersClient({
                         inputMode="numeric"
                         value={paymentInputs[order.id] ?? ""}
                         onChange={(event) => setPaymentInputs((prev) => ({ ...prev, [order.id]: event.target.value }))}
+                        onBlur={() => setPaymentInputs((prev) => ({ ...prev, [order.id]: formatMoneyInputValue(prev[order.id] || "") }))}
                         placeholder={`Đã thu: ${formatMoney(order.paidAmount)}`}
                         className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-body outline-none focus:border-red-400"
                         title="Cập nhật số tiền đã thu"

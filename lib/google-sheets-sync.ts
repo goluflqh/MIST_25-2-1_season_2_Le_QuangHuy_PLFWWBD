@@ -279,7 +279,15 @@ export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
   const totalDebt = orderRows.reduce((sum, row) => sum + Number(row[13] || 0), 0);
   const totalPaid = orderRows.reduce((sum, row) => sum + Number(row[12] || 0), 0);
   const partnerBalance = serializedPartners.reduce((sum, partner) => sum + partner.balance, 0);
-  const longBalance = serializedPartners.find((partner) => partner.code === "LONG")?.balance || 0;
+  const topPayablePartnerRows = [...serializedPartners]
+    .filter((partner) => partner.balance > 0)
+    .sort((first, second) => second.balance - first.balance)
+    .slice(0, 5)
+    .map((partner) => [
+      `Minh Hồng phải trả ${partner.name}`,
+      partner.balance,
+      `${partner.ledgerEntries.length} giao dịch`,
+    ]);
   const partnerRows = serializedPartners.map((partner) => [
     partner.code,
     partner.name,
@@ -318,7 +326,7 @@ export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
         ["Tổng đã thu", totalPaid, ""],
         ["Tổng còn phải thu khách", totalDebt, "Chỉ tính đơn đã xác nhận giá"],
         ["Tổng Minh Hồng phải trả đối tác", partnerBalance, ""],
-        ["Minh Hồng phải trả Long", longBalance, "Mục tiêu đã chốt: 12.720.000đ"],
+        ...topPayablePartnerRows,
       ],
     },
     {

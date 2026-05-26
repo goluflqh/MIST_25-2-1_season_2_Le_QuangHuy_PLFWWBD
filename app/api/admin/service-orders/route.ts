@@ -198,26 +198,37 @@ export async function PATCH(request: Request) {
       });
       const existingCustomer = await tx.customer.findUnique({
         where: { phone: normalized.customerPhone },
-        select: { id: true, userId: true },
+        select: { id: true, phone: true, userId: true },
       });
       const contactUserId = !phoneChanged && previousOrder.contactRequest?.userId
         ? previousOrder.contactRequest.userId
         : null;
       const linkedCustomerUserId = linkedUser?.role === "CUSTOMER" ? linkedUser.id : null;
       const effectiveUserId = linkedCustomerUserId || existingCustomer?.userId || contactUserId || null;
+      const userCustomer = effectiveUserId
+        ? await tx.customer.findUnique({
+            where: { userId: effectiveUserId },
+            select: { id: true, phone: true },
+          })
+        : null;
+      const safeUserId = !userCustomer
+        || userCustomer.id === existingCustomer?.id
+        || userCustomer.phone === normalized.customerPhone
+        ? effectiveUserId
+        : null;
       const customer = await tx.customer.upsert({
         where: { phone: normalized.customerPhone },
         update: {
           address: normalized.customerAddress,
           deletedAt: null,
           name: normalized.customerName,
-          ...(effectiveUserId ? { userId: effectiveUserId } : {}),
+          ...(safeUserId ? { userId: safeUserId } : {}),
         },
         create: {
           address: normalized.customerAddress,
           name: normalized.customerName,
           phone: normalized.customerPhone,
-          userId: effectiveUserId,
+          userId: safeUserId,
         },
       });
 
@@ -226,7 +237,7 @@ export async function PATCH(request: Request) {
         data: {
           ...updateData,
           customer: { connect: { id: customer.id } },
-          user: effectiveUserId ? { connect: { id: effectiveUserId } } : { disconnect: true },
+          user: safeUserId ? { connect: { id: safeUserId } } : { disconnect: true },
         },
         include: serviceOrderInclude,
       });
