@@ -165,12 +165,20 @@ export async function PATCH(request: Request) {
 
     const normalized = normalizePartnerEntryPayload({
       amount: previous.amount,
+      countsInDebt: previous.countsInDebt,
       description: previous.description,
       entryDate: previous.entryDate,
       entryType: previous.entryType,
       notes: previous.notes || "",
       partnerId: previous.partnerId,
+      paymentMethod: previous.paymentMethod || "",
+      quantity: previous.quantity || "",
       reference: previous.reference || "",
+      sourceCode: previous.sourceCode || "",
+      sourceName: previous.sourceName || "",
+      sourceRow: previous.sourceRow || "",
+      unit: previous.unit || "",
+      unitPrice: previous.unitPrice || "",
       ...body,
     });
     const partner = await prisma.$transaction(async (tx) => {

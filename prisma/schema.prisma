@@ -282,23 +282,33 @@ model Partner {
 }
 
 model PartnerLedgerEntry {
-  id          String    @id @default(cuid())
-  partnerId   String
-  entryType   String
-  entryDate   DateTime  @default(now())
-  amount      Int
-  description String
-  reference   String?
-  notes       String?
-  deletedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  partnerId     String
+  entryType     String
+  entryDate     DateTime  @default(now())
+  amount        Int
+  description   String
+  reference     String?
+  quantity      Float?
+  unit          String?
+  unitPrice     Int?
+  sourceName    String?
+  sourceCode    String?   @unique
+  sourceRow     Int?
+  paymentMethod String?
+  countsInDebt  Boolean   @default(true)
+  notes         String?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
 
   @@index([partnerId])
   @@index([entryType])
   @@index([entryDate])
+  @@index([sourceName])
+  @@index([countsInDebt])
   @@index([deletedAt])
   @@index([partnerId, entryDate])
 }

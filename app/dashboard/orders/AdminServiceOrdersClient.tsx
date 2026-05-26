@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 import { calculateCouponDiscount, getPayableAmount, getRemainingAmount } from "@/lib/coupon-discounts";
+import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
 import { formatVietnamDate, todayVietnamText } from "@/lib/vietnam-time";
 
 interface ServiceOrderData {
@@ -231,20 +232,6 @@ function createEmptyOrderForm(): OrderFormState {
 function formatMoney(value: number | null | undefined) {
   if (!value) return "0đ";
   return `${value.toLocaleString("vi-VN")}đ`;
-}
-
-function parseMoneyText(value: string) {
-  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
-  const multiplier = normalized.endsWith("k") ? 1000 : 1;
-  const rawNumber = multiplier === 1000 ? normalized.slice(0, -1) : normalized;
-  const parsed = Number.parseInt(rawNumber.replace(/[^\d]/g, ""), 10);
-  return Number.isFinite(parsed) ? parsed * multiplier : 0;
-}
-
-function formatMoneyInputValue(value: string) {
-  if (!value.trim()) return "";
-  const parsed = parseMoneyText(value);
-  return parsed > 0 ? parsed.toLocaleString("vi-VN") : "";
 }
 
 function getDebt(order: ServiceOrderData) {
@@ -1090,6 +1077,7 @@ export default function AdminServiceOrdersClient({
             <label className="space-y-1.5 lg:col-span-2">
               <span className="font-body text-xs font-bold text-slate-600">Sản phẩm / thiết bị</span>
               <input
+                data-testid="dashboard-order-product-input"
                 value={formData.productName}
                 onChange={(event) => setFormData({ ...formData, productName: event.target.value })}
                 placeholder="Ví dụ: Pin xe điện 48V"
@@ -1125,6 +1113,7 @@ export default function AdminServiceOrdersClient({
               <span className="font-body text-xs font-bold text-slate-600">Giá báo gốc</span>
               <input
                 inputMode="numeric"
+                data-testid="dashboard-order-quoted-price-input"
                 value={formData.quotedPrice}
                 onChange={(event) => setFormData({
                   ...formData,
@@ -1171,6 +1160,7 @@ export default function AdminServiceOrdersClient({
               <span className="font-body text-xs font-bold text-slate-600">Đã thu</span>
               <input
                 inputMode="numeric"
+                data-testid="dashboard-order-paid-amount-input"
                 value={formData.paidAmount}
                 onChange={(event) => setFormData({ ...formData, paidAmount: event.target.value })}
                 onBlur={() => setFormData((current) => ({ ...current, paidAmount: formatMoneyInputValue(current.paidAmount) }))}
@@ -1230,6 +1220,7 @@ export default function AdminServiceOrdersClient({
           <div className="mt-5 flex flex-wrap gap-2">
             <button
               type="submit"
+              data-testid="dashboard-order-save-button"
               disabled={Boolean(editingId && savingId === editingId)}
               className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-body font-bold text-white hover:bg-red-700 disabled:bg-slate-300"
             >
@@ -1334,6 +1325,7 @@ export default function AdminServiceOrdersClient({
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-9">
           <input
+            data-testid="dashboard-orders-search-input"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Tìm mã đơn, SĐT, khách hàng, sản phẩm, ghi chú"
@@ -1547,6 +1539,7 @@ export default function AdminServiceOrdersClient({
                   <div className="grid gap-2 sm:grid-cols-3 xl:w-[430px]">
                     <button
                       type="button"
+                      data-testid="dashboard-order-edit-button"
                       onClick={() => editOrder(order)}
                       disabled={savingId === order.id}
                       className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-body font-bold text-white disabled:bg-slate-300 sm:col-span-3"
