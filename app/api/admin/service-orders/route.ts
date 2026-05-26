@@ -3,12 +3,11 @@ import { Prisma } from "@prisma/client";
 import {
   createServiceOrder,
   mapOrderStatusToContactStatus,
-  parseOptionalMoney,
+  normalizeServiceOrderPayload,
   serializeServiceOrder,
   serviceOrderInclude,
+  serviceOrderSources,
   ServiceOrderValidationError,
-  serviceOrderStatuses,
-  normalizeServiceOrderStatus,
 } from "@/lib/service-orders";
 import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { createInvalidJsonResponse, readJsonBody } from "@/lib/api-route";
@@ -128,27 +127,6 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: "Thiếu mã đơn cần cập nhật." }, { status: 400 });
     }
 
-    const updateData: Prisma.ServiceOrderUpdateInput = {};
-
-    if (typeof body.status === "string") {
-      const status = normalizeServiceOrderStatus(body.status);
-      if (!serviceOrderStatuses.includes(status as (typeof serviceOrderStatuses)[number])) {
-        return NextResponse.json({ success: false, message: "Trạng thái đơn không hợp lệ." }, { status: 400 });
-      }
-      updateData.status = status;
-      if (!warrantyAutoStatuses.has(status)) {
-        updateData.warrantyEndDate = null;
-      }
-    }
-
-    if (typeof body.notes === "string") {
-      updateData.notes = sanitizeText(body.notes) || null;
-    }
-
-    if (typeof body.customerVisible === "boolean") {
-      updateData.customerVisible = body.customerVisible;
-    }
-
     const previousOrder = await prisma.serviceOrder.findUnique({
       where: { id },
       include: serviceOrderInclude,
@@ -157,27 +135,101 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: "Không tìm thấy đơn dịch vụ." }, { status: 404 });
     }
 
-    if ("quotedPrice" in body) {
-      const quotedPrice = parseOptionalMoney(body.quotedPrice);
-      updateData.quotedPrice = quotedPrice;
-      updateData.discountAmount = calculateCouponDiscount(previousOrder.couponDiscount, quotedPrice);
-    }
+    const previousSource = serviceOrderSources.includes(previousOrder.source as (typeof serviceOrderSources)[number])
+      ? previousOrder.source as (typeof serviceOrderSources)[number]
+      : "MANUAL";
+    const normalized = normalizeServiceOrderPayload({
+      contactRequestId: previousOrder.contactRequestId || "",
+      couponRedemptionId: previousOrder.couponRedemptionId || "",
+      customerAddress: previousOrder.customerAddress || "",
+      customerName: previousOrder.customerName,
+      customerPhone: previousOrder.customerPhone,
+      customerVisible: previousOrder.customerVisible,
+      issueDescription: previousOrder.issueDescription || "",
+      notes: previousOrder.notes || "",
+      orderDate: previousOrder.orderDate,
+      paidAmount: previousOrder.paidAmount,
+      priceStatus: previousOrder.priceStatus,
+      productName: previousOrder.productName,
+      quotedPrice: previousOrder.quotedPrice ?? "",
+      service: previousOrder.service,
+      solution: previousOrder.solution || "",
+      source: previousOrder.source,
+      status: previousOrder.status,
+      warrantyEndDate: previousOrder.warrantyEndDate || "",
+      warrantyMonths: previousOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
+      ...body,
+    }, previousSource);
+    const discountAmount = normalized.priceStatus === "CONFIRMED"
+      ? calculateCouponDiscount(previousOrder.couponDiscount, normalized.quotedPrice)
+      : 0;
+    const paidAmount = normalized.priceStatus === "CONFIRMED"
+      ? Math.min(normalized.paidAmount, getPayableAmount(normalized.quotedPrice, discountAmount))
+      : normalized.priceStatus === "FREE"
+        ? 0
+        : normalized.paidAmount;
+    const phoneChanged = normalized.customerPhone !== previousOrder.customerPhone;
 
-    if ("paidAmount" in body) {
-      const paidAmount = parseOptionalMoney(body.paidAmount) || 0;
-      const quotedPrice = typeof updateData.quotedPrice === "number"
-        ? updateData.quotedPrice
-        : previousOrder.quotedPrice;
-      const discountAmount = typeof updateData.discountAmount === "number"
-        ? updateData.discountAmount
-        : previousOrder.discountAmount;
-      updateData.paidAmount = Math.min(paidAmount, getPayableAmount(quotedPrice, discountAmount));
-    }
+    const updateData: Prisma.ServiceOrderUpdateInput = {
+      customerAddress: normalized.customerAddress,
+      customerName: normalized.customerName,
+      customerPhone: normalized.customerPhone,
+      customerVisible: normalized.customerVisible,
+      discountAmount,
+      issueDescription: normalized.issueDescription,
+      notes: normalized.notes,
+      orderDate: normalized.orderDate,
+      paidAmount,
+      priceStatus: normalized.priceStatus,
+      productName: normalized.productName,
+      quotedPrice: normalized.quotedPrice,
+      service: normalized.service,
+      solution: normalized.solution,
+      source: normalized.source,
+      status: normalized.status,
+      warrantyEndDate: warrantyAutoStatuses.has(normalized.status) ? normalized.warrantyEndDate : null,
+      warrantyMonths: normalized.warrantyMonths,
+    };
 
-    let order = await prisma.serviceOrder.update({
-      where: { id },
-      data: updateData,
-      include: serviceOrderInclude,
+    let order = await prisma.$transaction(async (tx) => {
+      const linkedUser = await tx.user.findUnique({
+        where: { phone: normalized.customerPhone },
+        select: { id: true, role: true },
+      });
+      const existingCustomer = await tx.customer.findUnique({
+        where: { phone: normalized.customerPhone },
+        select: { id: true, userId: true },
+      });
+      const contactUserId = !phoneChanged && previousOrder.contactRequest?.userId
+        ? previousOrder.contactRequest.userId
+        : null;
+      const linkedCustomerUserId = linkedUser?.role === "CUSTOMER" ? linkedUser.id : null;
+      const effectiveUserId = linkedCustomerUserId || existingCustomer?.userId || contactUserId || null;
+      const customer = await tx.customer.upsert({
+        where: { phone: normalized.customerPhone },
+        update: {
+          address: normalized.customerAddress,
+          deletedAt: null,
+          name: normalized.customerName,
+          ...(effectiveUserId ? { userId: effectiveUserId } : {}),
+        },
+        create: {
+          address: normalized.customerAddress,
+          name: normalized.customerName,
+          phone: normalized.customerPhone,
+          userId: effectiveUserId,
+        },
+      });
+
+      return tx.serviceOrder.update({
+        where: { id },
+        data: {
+          ...updateData,
+          customer: { connect: { id: customer.id } },
+          user: effectiveUserId ? { connect: { id: effectiveUserId } } : { disconnect: true },
+        },
+        include: serviceOrderInclude,
+      });
     });
 
     if (typeof updateData.status === "string" && warrantyAutoStatuses.has(updateData.status) && order.warrantyMonths !== 0) {
@@ -243,6 +295,10 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, order: serializeServiceOrder(order) });
   } catch (error) {
     console.error("Service orders PATCH error:", error);
+    if (error instanceof ServiceOrderValidationError) {
+      return NextResponse.json({ success: false, message: error.message }, { status: error.status });
+    }
+
     if (error instanceof WarrantyValidationError) {
       return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     }

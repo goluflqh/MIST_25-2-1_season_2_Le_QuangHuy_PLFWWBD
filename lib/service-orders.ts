@@ -35,9 +35,17 @@ export const serviceOrderSources = [
   "OTHER",
 ] as const;
 
+export const serviceOrderPriceStatuses = [
+  "CONFIRMED",
+  "PENDING_QUOTE",
+  "FREE",
+  "LEGACY_MISSING",
+] as const;
+
 type ServiceOrderStatus = (typeof serviceOrderStatuses)[number];
 type ServiceOrderService = (typeof serviceOrderServices)[number];
 type ServiceOrderSource = (typeof serviceOrderSources)[number];
+type ServiceOrderPriceStatus = (typeof serviceOrderPriceStatuses)[number];
 type PrismaRunner = typeof prisma | Prisma.TransactionClient;
 
 export const serviceOrderInclude = {
@@ -217,6 +225,39 @@ function normalizeSource(value: unknown, fallback: ServiceOrderSource): ServiceO
   return fallback;
 }
 
+const priceStatusAliases: Record<string, ServiceOrderPriceStatus> = {
+  "0": "FREE",
+  "bao gia sau": "PENDING_QUOTE",
+  "chua bao gia": "PENDING_QUOTE",
+  "chưa báo giá": "PENDING_QUOTE",
+  "free": "FREE",
+  "mien phi": "FREE",
+  "miễn phí": "FREE",
+  "quen gia": "LEGACY_MISSING",
+  "quên giá": "LEGACY_MISSING",
+};
+
+export function normalizeServiceOrderPriceStatus(
+  value: unknown,
+  quotedPrice: number | null,
+  fallbackSource: ServiceOrderSource = "MANUAL"
+): ServiceOrderPriceStatus {
+  const raw = sanitizeText(String(value || "")).toUpperCase();
+  if (serviceOrderPriceStatuses.includes(raw as ServiceOrderPriceStatus)) {
+    return raw as ServiceOrderPriceStatus;
+  }
+
+  const alias = priceStatusAliases[compactKey(value)];
+  if (alias) return alias;
+
+  if (quotedPrice === null) {
+    return fallbackSource === "IMPORT" ? "LEGACY_MISSING" : "PENDING_QUOTE";
+  }
+
+  if (quotedPrice === 0) return "FREE";
+  return "CONFIRMED";
+}
+
 export function parseOptionalMoney(value: unknown) {
   if (value === null || value === undefined) return null;
 
@@ -294,6 +335,10 @@ export function normalizeServiceOrderPayload(
   const productName = sanitizeText(String(payload.productName || payload.product || ""));
   const orderDate = parseAdminDateInput(payload.orderDate) || new Date();
   const status = normalizeServiceOrderStatus(payload.status);
+  const source = normalizeSource(payload.source, fallbackSource);
+  const explicitPriceStatus = sanitizeText(String(payload.priceStatus || "")).length > 0;
+  let quotedPrice = parseOptionalMoney(payload.quotedPrice);
+  const priceStatus = normalizeServiceOrderPriceStatus(payload.priceStatus, quotedPrice, source);
   const warrantyMonths = parseOptionalInt(payload.warrantyMonths, 120) ?? DEFAULT_WARRANTY_MONTHS;
   const explicitWarrantyEndDate = parseAdminDateInput(payload.warrantyEndDate, { endOfDay: true });
   const warrantyEndDate = status === "COMPLETED"
@@ -312,6 +357,22 @@ export function normalizeServiceOrderPayload(
     throw new ServiceOrderValidationError("Vui lòng nhập sản phẩm hoặc thiết bị của đơn.");
   }
 
+  if (priceStatus === "CONFIRMED" && (!quotedPrice || quotedPrice <= 0)) {
+    throw new ServiceOrderValidationError("Đơn đã xác nhận giá cần có giá bán lớn hơn 0đ.");
+  }
+
+  if (priceStatus === "FREE") {
+    quotedPrice = 0;
+  }
+
+  if (
+    explicitPriceStatus
+    && (priceStatus === "PENDING_QUOTE" || priceStatus === "LEGACY_MISSING")
+    && quotedPrice !== null
+  ) {
+    throw new ServiceOrderValidationError("Nếu chưa báo giá hoặc quên giá, hãy để trống giá bán.");
+  }
+
   return {
     customerAddress: customerAddress || null,
     customerName,
@@ -323,11 +384,12 @@ export function normalizeServiceOrderPayload(
     notes: sanitizeText(String(payload.notes || "")) || null,
     orderDate,
     paidAmount: parseOptionalMoney(payload.paidAmount) || 0,
+    priceStatus,
     productName,
-    quotedPrice: parseOptionalMoney(payload.quotedPrice),
+    quotedPrice,
     service: normalizeService(payload.service),
     solution: sanitizeText(String(payload.solution || "")) || null,
-    source: normalizeSource(payload.source, fallbackSource),
+    source,
     status,
     warrantyEndDate,
     warrantyMonths,
@@ -428,7 +490,14 @@ export async function createServiceOrder(
       },
     });
     const orderCode = await getAvailableOrderCode(tx, payload.orderCode);
-    const discountAmount = calculateCouponDiscount(couponRedemption?.coupon.discount, normalized.quotedPrice);
+    const discountAmount = normalized.priceStatus === "CONFIRMED"
+      ? calculateCouponDiscount(couponRedemption?.coupon.discount, normalized.quotedPrice)
+      : 0;
+    const paidAmount = normalized.priceStatus === "CONFIRMED"
+      ? Math.min(normalized.paidAmount, getPayableAmount(normalized.quotedPrice, discountAmount))
+      : normalized.priceStatus === "FREE"
+        ? 0
+        : normalized.paidAmount;
 
     const order = await tx.serviceOrder.create({
       data: {
@@ -441,7 +510,7 @@ export async function createServiceOrder(
         customerVisible: normalized.customerVisible || Boolean(effectiveUserId && normalized.source === "CONTACT"),
         discountAmount,
         orderCode,
-        paidAmount: Math.min(normalized.paidAmount, getPayableAmount(normalized.quotedPrice, discountAmount)),
+        paidAmount,
         status: normalized.status,
         userId: effectiveUserId,
       },
@@ -463,12 +532,18 @@ export function serializeServiceOrder(
   order: Prisma.ServiceOrderGetPayload<{ include: typeof serviceOrderInclude }>
 ) {
   const status = normalizeServiceOrderStatus(order.status);
+  const priceStatus = normalizeServiceOrderPriceStatus(
+    order.priceStatus,
+    order.quotedPrice,
+    normalizeSource(order.source, "MANUAL")
+  );
   const warranty = status === "COMPLETED" && order.warranty && !order.warranty.deletedAt ? order.warranty : null;
 
   return {
     ...order,
     createdAt: order.createdAt.toISOString(),
     orderDate: order.orderDate.toISOString(),
+    priceStatus,
     status,
     updatedAt: order.updatedAt.toISOString(),
     warranty: warranty

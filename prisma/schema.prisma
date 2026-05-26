@@ -224,6 +224,7 @@ model ServiceOrder {
   source             String    @default("MANUAL")
   orderDate          DateTime  @default(now())
   quotedPrice        Int?
+  priceStatus        String    @default("PENDING_QUOTE")
   paidAmount         Int       @default(0)
   warrantyMonths     Int?
   warrantyEndDate    DateTime?
@@ -251,11 +252,55 @@ model ServiceOrder {
   @@index([service])
   @@index([status])
   @@index([source])
+  @@index([priceStatus])
   @@index([orderDate])
   @@index([createdAt])
   @@index([deletedAt])
   @@index([customerId, orderDate])
   @@index([customerVisible, userId])
+}
+
+model Partner {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  name      String
+  phone     String?
+  type      String    @default("SUPPLIER")
+  notes     String?
+  active    Boolean   @default(true)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  ledgerEntries PartnerLedgerEntry[]
+
+  @@index([code])
+  @@index([name])
+  @@index([type])
+  @@index([active])
+  @@index([deletedAt])
+}
+
+model PartnerLedgerEntry {
+  id          String    @id @default(cuid())
+  partnerId   String
+  entryType   String
+  entryDate   DateTime  @default(now())
+  amount      Int
+  description String
+  reference   String?
+  notes       String?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  @@index([partnerId])
+  @@index([entryType])
+  @@index([entryDate])
+  @@index([deletedAt])
+  @@index([partnerId, entryDate])
 }
 
 model AuditLog {

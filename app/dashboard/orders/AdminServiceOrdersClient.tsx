@@ -20,6 +20,7 @@ interface ServiceOrderData {
   source: string;
   orderDate: string;
   quotedPrice: number | null;
+  priceStatus: string;
   paidAmount: number;
   contactRequestId: string | null;
   couponRedemptionId: string | null;
@@ -69,8 +70,32 @@ type SortMode = "newest" | "oldest" | "debt" | "customer";
 type AccountFilter = "ALL" | "REGISTERED" | "NO_ACCOUNT";
 type CouponFilter = "ALL" | "WITH_COUPON" | "WITHOUT_COUPON";
 type PaymentFilter = "ALL" | "DEBT" | "PAID";
+type PriceFilter = "ALL" | "CONFIRMED" | "PENDING_QUOTE" | "FREE" | "LEGACY_MISSING";
 type WarrantyFilter = "ALL" | "WITH_WARRANTY" | "WITHOUT_WARRANTY";
 const ORDER_PAGE_SIZE = 8;
+
+interface OrderFormState {
+  contactRequestId: string;
+  customerAddress: string;
+  customerName: string;
+  customerPhone: string;
+  customerVisible: boolean;
+  couponCode: string;
+  couponDiscount: string;
+  couponRedemptionId: string;
+  issueDescription: string;
+  notes: string;
+  orderDate: string;
+  paidAmount: string;
+  priceStatus: string;
+  productName: string;
+  quotedPrice: string;
+  service: string;
+  solution: string;
+  source: string;
+  status: string;
+  warrantyMonths: string;
+}
 
 const serviceLabels: Record<string, string> = {
   DONG_PIN: "Đóng pin",
@@ -109,6 +134,29 @@ const statusConfig: Record<string, { label: string; color: string; hint: string 
   },
 };
 
+const priceStatusConfig: Record<string, { label: string; color: string; hint: string }> = {
+  CONFIRMED: {
+    label: "Đã xác nhận",
+    color: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    hint: "Đơn đã có giá bán rõ ràng.",
+  },
+  PENDING_QUOTE: {
+    label: "Chưa báo giá",
+    color: "bg-blue-50 text-blue-700 border-blue-200",
+    hint: "Để trống giá cho tới khi báo khách.",
+  },
+  FREE: {
+    label: "Miễn phí",
+    color: "bg-slate-50 text-slate-700 border-slate-200",
+    hint: "Không thu tiền đơn này.",
+  },
+  LEGACY_MISSING: {
+    label: "Quên giá",
+    color: "bg-amber-50 text-amber-700 border-amber-200",
+    hint: "Đơn cũ thiếu giá, cần bổ sung khi có dữ liệu.",
+  },
+};
+
 const sourceLabels: Record<string, string> = {
   MANUAL: "Nhập tay",
   IMPORT: "Nhập từ Excel/CSV",
@@ -139,6 +187,7 @@ const importColumns = [
   "tinh_trang",
   "phuong_an",
   "gia_bao",
+  "tinh_trang_gia",
   "da_thu",
   "trang_thai",
   "bao_hanh_thang",
@@ -154,6 +203,31 @@ function todayText() {
   return todayVietnamText();
 }
 
+function createEmptyOrderForm(): OrderFormState {
+  return {
+    contactRequestId: "",
+    customerAddress: "",
+    customerName: "",
+    customerPhone: "",
+    customerVisible: false,
+    couponCode: "",
+    couponDiscount: "",
+    couponRedemptionId: "",
+    issueDescription: "",
+    notes: "",
+    orderDate: todayText(),
+    paidAmount: "",
+    priceStatus: "PENDING_QUOTE",
+    productName: "",
+    quotedPrice: "",
+    service: "DONG_PIN",
+    solution: "",
+    source: "MANUAL",
+    status: "PENDING",
+    warrantyMonths: "6",
+  };
+}
+
 function formatMoney(value: number | null | undefined) {
   if (!value) return "0đ";
   return `${value.toLocaleString("vi-VN")}đ`;
@@ -165,7 +239,40 @@ function parseMoneyText(value: string) {
 }
 
 function getDebt(order: ServiceOrderData) {
+  if (order.priceStatus !== "CONFIRMED") return 0;
   return getRemainingAmount(order.quotedPrice, order.discountAmount, order.paidAmount);
+}
+
+function getNextPriceStatusForPrice(value: string, currentStatus: string) {
+  const hasPrice = /\d/.test(value);
+  if (hasPrice) return "CONFIRMED";
+  if (currentStatus === "CONFIRMED") return "PENDING_QUOTE";
+  return currentStatus;
+}
+
+function buildOrderFormData(order: ServiceOrderData): OrderFormState {
+  return {
+    contactRequestId: order.contactRequestId || "",
+    customerAddress: order.customerAddress || "",
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    customerVisible: order.customerVisible,
+    couponCode: order.couponCode || "",
+    couponDiscount: order.couponDiscount || "",
+    couponRedemptionId: order.couponRedemptionId || "",
+    issueDescription: order.issueDescription || "",
+    notes: order.notes || "",
+    orderDate: formatVietnamDate(order.orderDate) || todayText(),
+    paidAmount: order.paidAmount ? String(order.paidAmount) : "",
+    priceStatus: order.priceStatus || "PENDING_QUOTE",
+    productName: order.productName,
+    quotedPrice: order.quotedPrice ? String(order.quotedPrice) : "",
+    service: normalizeFormService(order.service),
+    solution: order.solution || "",
+    source: order.source,
+    status: order.status,
+    warrantyMonths: order.warrantyMonths === null || order.warrantyMonths === undefined ? "" : String(order.warrantyMonths),
+  };
 }
 
 function splitDelimitedLine(line: string, delimiter: string) {
@@ -228,22 +335,27 @@ function parseImportText(text: string) {
 
   return dataRows
     .filter((cells) => cells.some((cell) => cell.trim()))
-    .map((cells) => ({
-      orderDate: cells[0] || "",
-      customerName: cells[1] || "",
-      customerPhone: cells[2] || "",
-      customerAddress: cells[3] || "",
-      service: cells[4] || "",
-      productName: cells[5] || "",
-      issueDescription: cells[6] || "",
-      solution: cells[7] || "",
-      quotedPrice: cells[8] || "",
-      paidAmount: cells[9] || "",
-      status: cells[10] || "",
-      warrantyMonths: cells[11] || "",
-      notes: cells[12] || "",
-      customerVisible: cells[13] || "",
-    }));
+    .map((cells) => {
+      const hasPriceStatusColumn = cells.length >= importColumns.length;
+
+      return {
+        orderDate: cells[0] || "",
+        customerName: cells[1] || "",
+        customerPhone: cells[2] || "",
+        customerAddress: cells[3] || "",
+        service: cells[4] || "",
+        productName: cells[5] || "",
+        issueDescription: cells[6] || "",
+        solution: cells[7] || "",
+        quotedPrice: cells[8] || "",
+        priceStatus: hasPriceStatusColumn ? cells[9] || "" : "",
+        paidAmount: hasPriceStatusColumn ? cells[10] || "" : cells[9] || "",
+        status: hasPriceStatusColumn ? cells[11] || "" : cells[10] || "",
+        warrantyMonths: hasPriceStatusColumn ? cells[12] || "" : cells[11] || "",
+        notes: hasPriceStatusColumn ? cells[13] || "" : cells[12] || "",
+        customerVisible: hasPriceStatusColumn ? cells[14] || "" : cells[13] || "",
+      };
+    });
 }
 
 function buildTemplateCsv() {
@@ -257,6 +369,7 @@ function buildTemplateCsv() {
     "Pin chai nhanh",
     "Thay cell, kiểm tra BMS",
     "1500000",
+    "CONFIRMED",
     "500000",
     "COMPLETED",
     "6",
@@ -310,42 +423,25 @@ export default function AdminServiceOrdersClient({
   const [importText, setImportText] = useState("");
   const [importFailures, setImportFailures] = useState<Array<{ rowNumber: number; message: string }>>([]);
   const [isImporting, setIsImporting] = useState(false);
+  const [syncingSheet, setSyncingSheet] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [serviceFilter, setServiceFilter] = useState("ALL");
   const [sourceFilter, setSourceFilter] = useState("ALL");
   const [accountFilter, setAccountFilter] = useState<AccountFilter>("ALL");
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("ALL");
+  const [priceFilter, setPriceFilter] = useState<PriceFilter>("ALL");
   const [warrantyFilter, setWarrantyFilter] = useState<WarrantyFilter>("ALL");
   const [couponFilter, setCouponFilter] = useState<CouponFilter>("ALL");
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [page, setPage] = useState(1);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [warrantyCreatingId, setWarrantyCreatingId] = useState<string | null>(null);
   const [paymentInputs, setPaymentInputs] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
-  const [formData, setFormData] = useState({
-    contactRequestId: "",
-    customerAddress: "",
-    customerName: "",
-    customerPhone: "",
-    customerVisible: false,
-    couponCode: "",
-    couponDiscount: "",
-    couponRedemptionId: "",
-    issueDescription: "",
-    notes: "",
-    orderDate: todayText(),
-    paidAmount: "",
-    productName: "",
-    quotedPrice: "",
-    service: "DONG_PIN",
-    solution: "",
-    source: "MANUAL",
-    status: "PENDING",
-    warrantyMonths: "6",
-  });
+  const [formData, setFormData] = useState<OrderFormState>(() => createEmptyOrderForm());
 
   const importPreview = useMemo(() => {
     if (!importText.trim()) return [];
@@ -360,9 +456,11 @@ export default function AdminServiceOrdersClient({
         summary.discount += order.discountAmount || 0;
         summary.paid += order.paidAmount;
         summary.quoted += order.quotedPrice || 0;
+        if (order.priceStatus === "LEGACY_MISSING") summary.legacyMissing += 1;
+        if (order.priceStatus === "PENDING_QUOTE") summary.pendingQuote += 1;
         return summary;
       },
-      { debt: 0, discount: 0, paid: 0, quoted: 0, total: 0 }
+      { debt: 0, discount: 0, legacyMissing: 0, paid: 0, pendingQuote: 0, quoted: 0, total: 0 }
     );
   }, [orders]);
 
@@ -380,6 +478,7 @@ export default function AdminServiceOrdersClient({
           || (accountFilter === "REGISTERED" && hasAccount)
           || (accountFilter === "NO_ACCOUNT" && !hasAccount);
         const debt = getDebt(order);
+        const matchesPrice = priceFilter === "ALL" || order.priceStatus === priceFilter;
         const matchesPayment =
           paymentFilter === "ALL"
           || (paymentFilter === "DEBT" && debt > 0)
@@ -406,6 +505,7 @@ export default function AdminServiceOrdersClient({
           && matchesService
           && matchesSource
           && matchesAccount
+          && matchesPrice
           && matchesPayment
           && matchesWarranty
           && matchesCoupon
@@ -423,7 +523,7 @@ export default function AdminServiceOrdersClient({
         }
         return new Date(second.orderDate).getTime() - new Date(first.orderDate).getTime();
       });
-  }, [accountFilter, couponFilter, orders, paymentFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
+  }, [accountFilter, couponFilter, orders, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filteredOrders.length / ORDER_PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -434,6 +534,7 @@ export default function AdminServiceOrdersClient({
     || sourceFilter !== "ALL"
     || accountFilter !== "ALL"
     || paymentFilter !== "ALL"
+    || priceFilter !== "ALL"
     || warrantyFilter !== "ALL"
     || couponFilter !== "ALL"
     || sortMode !== "newest";
@@ -445,6 +546,7 @@ export default function AdminServiceOrdersClient({
     setSourceFilter("ALL");
     setAccountFilter("ALL");
     setPaymentFilter("ALL");
+    setPriceFilter("ALL");
     setWarrantyFilter("ALL");
     setCouponFilter("ALL");
     setSortMode("newest");
@@ -457,7 +559,7 @@ export default function AdminServiceOrdersClient({
 
   useEffect(() => {
     setPage(1);
-  }, [accountFilter, couponFilter, paymentFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
+  }, [accountFilter, couponFilter, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
 
   const scrollToWorkArea = useCallback((
     panelRef: React.RefObject<HTMLElement | null>,
@@ -470,6 +572,8 @@ export default function AdminServiceOrdersClient({
   }, []);
 
   const openCreateForm = useCallback(() => {
+    setEditingId(null);
+    setFormData(createEmptyOrderForm());
     setShowImport(false);
     setShowForm(true);
     setError("");
@@ -505,40 +609,35 @@ export default function AdminServiceOrdersClient({
       customerPhone,
       issueDescription: params.get("issueDescription") || "",
       notes: params.get("notes") || "",
+      priceStatus: "PENDING_QUOTE",
       productName: params.get("productName") || "",
       service: normalizeFormService(params.get("service")),
       source: "CONTACT",
       status: params.get("status") || "PENDING",
       warrantyMonths: "6",
     }));
-    openCreateForm();
-  }, [openCreateForm]);
+    setEditingId(null);
+    setShowImport(false);
+    setShowForm(true);
+    setError("");
+    scrollToWorkArea(orderFormRef, orderFirstFieldRef);
+  }, [scrollToWorkArea]);
 
   const resetForm = () => {
-    setFormData({
-      contactRequestId: "",
-      customerAddress: "",
-      customerName: "",
-      customerPhone: "",
-      customerVisible: false,
-      couponCode: "",
-      couponDiscount: "",
-      couponRedemptionId: "",
-      issueDescription: "",
-      notes: "",
-      orderDate: todayText(),
-      paidAmount: "",
-      productName: "",
-      quotedPrice: "",
-      service: "DONG_PIN",
-      solution: "",
-      source: "MANUAL",
-      status: "PENDING",
-      warrantyMonths: "6",
-    });
+    setEditingId(null);
+    setFormData(createEmptyOrderForm());
   };
 
-  const createOrder = async (event: React.FormEvent) => {
+  const editOrder = (order: ServiceOrderData) => {
+    setEditingId(order.id);
+    setFormData(buildOrderFormData(order));
+    setShowImport(false);
+    setShowForm(true);
+    setError("");
+    scrollToWorkArea(orderFormRef, orderFirstFieldRef);
+  };
+
+  const saveOrderForm = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
 
@@ -560,7 +659,24 @@ export default function AdminServiceOrdersClient({
       return;
     }
 
+    if (payload.priceStatus === "CONFIRMED" && parseMoneyText(payload.quotedPrice) <= 0) {
+      const message = "Đơn đã xác nhận giá cần có giá bán lớn hơn 0đ.";
+      setError(message);
+      showToast(message, "error");
+      return;
+    }
+
     try {
+      if (editingId) {
+        const saved = await updateOrder(editingId, payload, null);
+        if (!saved) return;
+
+        setShowForm(false);
+        resetForm();
+        showToast("Đã lưu đầy đủ đơn.", "success");
+        return;
+      }
+
       const response = await fetch("/api/admin/service-orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -586,12 +702,18 @@ export default function AdminServiceOrdersClient({
     }
   };
 
-  const updateOrder = async (id: string, patch: Partial<ServiceOrderData>) => {
+  const updateOrder = async (
+    id: string,
+    patch: Record<string, unknown>,
+    optimisticPatch: Partial<ServiceOrderData> | null = patch as Partial<ServiceOrderData>
+  ) => {
     const previousOrder = orders.find((order) => order.id === id);
-    if (!previousOrder) return;
+    if (!previousOrder) return false;
 
     setSavingId(id);
-    setOrders((prev) => prev.map((order) => (order.id === id ? { ...order, ...patch } : order)));
+    if (optimisticPatch) {
+      setOrders((prev) => prev.map((order) => (order.id === id ? { ...order, ...optimisticPatch } : order)));
+    }
 
     try {
       const response = await fetch("/api/admin/service-orders", {
@@ -602,21 +724,29 @@ export default function AdminServiceOrdersClient({
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        setOrders((prev) => prev.map((order) => (order.id === id ? previousOrder : order)));
+        if (optimisticPatch) {
+          setOrders((prev) => prev.map((order) => (order.id === id ? previousOrder : order)));
+        }
         showToast(data.message || "Chưa cập nhật được đơn.", "error");
-        return;
+        return false;
       }
 
       setOrders((prev) => prev.map((order) => (order.id === id ? data.order : order)));
-      showToast(
-        !previousOrder.warranty && data.order?.warranty
-          ? "Đã cập nhật đơn và tự tạo phiếu bảo hành 6 tháng."
-          : "Đã cập nhật đơn.",
-        "success"
-      );
+      if (!editingId) {
+        showToast(
+          !previousOrder.warranty && data.order?.warranty
+            ? "Đã cập nhật đơn và tự tạo phiếu bảo hành 6 tháng."
+            : "Đã cập nhật đơn.",
+          "success"
+        );
+      }
+      return true;
     } catch {
-      setOrders((prev) => prev.map((order) => (order.id === id ? previousOrder : order)));
+      if (optimisticPatch) {
+        setOrders((prev) => prev.map((order) => (order.id === id ? previousOrder : order)));
+      }
       showToast("Kết nối bị gián đoạn khi cập nhật đơn.", "error");
+      return false;
     } finally {
       setSavingId(null);
     }
@@ -754,6 +884,25 @@ export default function AdminServiceOrdersClient({
     reader.readAsText(file, "utf-8");
   };
 
+  const syncGoogleSheet = async () => {
+    setSyncingSheet(true);
+    try {
+      const response = await fetch("/api/admin/sheets-sync", { method: "POST" });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        showToast(data.message || "Chưa sync được Google Sheet.", "error");
+        return;
+      }
+
+      showToast(`Đã sync ${data.tabs?.length || 0} tab sang Google Sheet.`, "success");
+    } catch {
+      showToast("Kết nối bị gián đoạn khi sync Google Sheet.", "error");
+    } finally {
+      setSyncingSheet(false);
+    }
+  };
+
   const formQuotedPrice = parseMoneyText(formData.quotedPrice);
   const formDiscountAmount = calculateCouponDiscount(formData.couponDiscount, formQuotedPrice);
   const formPayableAmount = getPayableAmount(formQuotedPrice, formDiscountAmount);
@@ -769,6 +918,14 @@ export default function AdminServiceOrdersClient({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={syncGoogleSheet}
+            disabled={syncingSheet}
+            className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-200 disabled:bg-slate-200 disabled:text-slate-400"
+          >
+            {syncingSheet ? "Đang sync..." : "Sync Google Sheet"}
+          </button>
           <button
             type="button"
             data-testid="dashboard-orders-open-import"
@@ -797,6 +954,9 @@ export default function AdminServiceOrdersClient({
           <p className="font-body text-xs uppercase tracking-wider text-slate-400">Giá gốc đã báo</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{formatMoney(metrics.quoted)}</p>
           <p className="mt-1 font-body text-xs text-emerald-700">Đã giảm: {formatMoney(metrics.discount)}</p>
+          <p className="mt-1 font-body text-xs text-amber-700">
+            Quên giá {metrics.legacyMissing} · chưa báo {metrics.pendingQuote}
+          </p>
         </div>
         <div className="rounded-2xl border border-green-100 bg-green-50 p-5">
           <p className="font-body text-xs uppercase tracking-wider text-green-700">Đã thu</p>
@@ -811,13 +971,17 @@ export default function AdminServiceOrdersClient({
       {showForm ? (
         <form
           ref={orderFormRef}
-          onSubmit={createOrder}
+          onSubmit={saveOrderForm}
           className="scroll-mt-28 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6"
         >
           <div className="mb-4">
-            <h3 className="font-heading text-lg font-bold text-slate-900">Thêm đơn nhanh</h3>
+            <h3 className="font-heading text-lg font-bold text-slate-900">
+              {editingId ? "Sửa đầy đủ đơn" : "Thêm đơn nhanh"}
+            </h3>
             <p className="font-body text-sm text-slate-500">
-              Chỉ cần nhập tên, SĐT và sản phẩm. Các phần còn lại có thể bổ sung sau.
+              {editingId
+                ? "Cập nhật khách, SĐT, ngày, sản phẩm, giá, bảo hành, trạng thái, phương án và ghi chú."
+                : "Chỉ cần nhập tên, SĐT và sản phẩm. Nếu chưa có giá, để trạng thái giá là Chưa báo giá."}
             </p>
           </div>
           {error ? (
@@ -929,10 +1093,34 @@ export default function AdminServiceOrdersClient({
               <input
                 inputMode="numeric"
                 value={formData.quotedPrice}
-                onChange={(event) => setFormData({ ...formData, quotedPrice: event.target.value })}
+                onChange={(event) => setFormData({
+                  ...formData,
+                  priceStatus: getNextPriceStatusForPrice(event.target.value, formData.priceStatus),
+                  quotedPrice: event.target.value,
+                })}
                 placeholder="Ví dụ: 1500000"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
               />
+            </label>
+            <label className="space-y-1.5">
+              <span className="font-body text-xs font-bold text-slate-600">Tình trạng giá</span>
+              <select
+                value={formData.priceStatus}
+                onChange={(event) => setFormData({
+                  ...formData,
+                  priceStatus: event.target.value,
+                  quotedPrice: event.target.value === "FREE" ? "" : formData.quotedPrice,
+                })}
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
+                title="Tình trạng giá"
+              >
+                {Object.entries(priceStatusConfig).map(([key, config]) => (
+                  <option key={key} value={key}>{config.label}</option>
+                ))}
+              </select>
+              <p className="font-body text-xs text-slate-400">
+                {priceStatusConfig[formData.priceStatus]?.hint || priceStatusConfig.PENDING_QUOTE.hint}
+              </p>
             </label>
             {formData.couponRedemptionId ? (
               <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
@@ -1005,10 +1193,21 @@ export default function AdminServiceOrdersClient({
             </label>
           </div>
           <div className="mt-5 flex flex-wrap gap-2">
-            <button type="submit" className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-body font-bold text-white hover:bg-red-700">
-              Lưu đơn
+            <button
+              type="submit"
+              disabled={Boolean(editingId && savingId === editingId)}
+              className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-body font-bold text-white hover:bg-red-700 disabled:bg-slate-300"
+            >
+              {editingId && savingId === editingId ? "Đang lưu..." : "Lưu đơn"}
             </button>
-            <button type="button" onClick={() => setShowForm(false)} className="rounded-xl bg-slate-100 px-5 py-2.5 text-sm font-body font-bold text-slate-600 hover:bg-slate-200">
+            <button
+              type="button"
+              onClick={() => {
+                setShowForm(false);
+                resetForm();
+              }}
+              className="rounded-xl bg-slate-100 px-5 py-2.5 text-sm font-body font-bold text-slate-600 hover:bg-slate-200"
+            >
               Huỷ
             </button>
           </div>
@@ -1097,7 +1296,7 @@ export default function AdminServiceOrdersClient({
       ) : null}
 
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-9">
           <input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
@@ -1161,6 +1360,18 @@ export default function AdminServiceOrdersClient({
             <option value="PAID">Đã thu đủ</option>
           </select>
           <select
+            data-testid="dashboard-orders-price-filter"
+            value={priceFilter}
+            onChange={(event) => setPriceFilter(event.target.value as PriceFilter)}
+            title="Lọc tình trạng giá"
+            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+          >
+            <option value="ALL">Tất cả giá</option>
+            {Object.entries(priceStatusConfig).map(([key, config]) => (
+              <option key={key} value={key}>{config.label}</option>
+            ))}
+          </select>
+          <select
             data-testid="dashboard-orders-warranty-filter"
             value={warrantyFilter}
             onChange={(event) => setWarrantyFilter(event.target.value as WarrantyFilter)}
@@ -1218,8 +1429,16 @@ export default function AdminServiceOrdersClient({
         ) : (
           visibleOrders.map((order) => {
             const status = statusConfig[order.status] || statusConfig.PENDING;
+            const priceStatus = priceStatusConfig[order.priceStatus] || priceStatusConfig.PENDING_QUOTE;
             const debt = getDebt(order);
-            const payable = getPayableAmount(order.quotedPrice, order.discountAmount);
+            const payable = order.priceStatus === "CONFIRMED"
+              ? getPayableAmount(order.quotedPrice, order.discountAmount)
+              : 0;
+            const paymentTag = debt > 0
+              ? { label: "Còn nợ", color: "bg-red-50 text-red-700 border-red-200" }
+              : order.priceStatus === "CONFIRMED" || order.priceStatus === "FREE"
+                ? { label: "Đã thu đủ", color: "bg-green-50 text-green-700 border-green-200" }
+                : { label: "Chưa xác nhận", color: "bg-slate-50 text-slate-600 border-slate-200" };
             return (
               <div
                 key={order.id}
@@ -1238,6 +1457,12 @@ export default function AdminServiceOrdersClient({
                       <span className="rounded-full bg-slate-50 px-2.5 py-0.5 text-[10px] font-bold text-slate-500">
                         {sourceLabels[order.source] || order.source}
                       </span>
+                      <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${priceStatus.color}`}>
+                        {priceStatus.label}
+                      </span>
+                      <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${paymentTag.color}`}>
+                        {paymentTag.label}
+                      </span>
                       {order.user ? (
                         <span className="rounded-full bg-green-50 px-2.5 py-0.5 text-[10px] font-bold text-green-700">
                           Có tài khoản
@@ -1251,9 +1476,9 @@ export default function AdminServiceOrdersClient({
                     </p>
                     <div className="mt-3 grid gap-2 font-body text-xs text-slate-500 md:grid-cols-2 xl:grid-cols-4">
                       <span>Ngày đơn: <strong>{formatDate(order.orderDate)}</strong></span>
-                      <span>Giá gốc: <strong>{formatMoney(order.quotedPrice)}</strong></span>
+                      <span>Giá gốc: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(order.quotedPrice) : priceStatus.label}</strong></span>
                       <span>Giảm giá: <strong className="text-emerald-700">{formatMoney(order.discountAmount)}</strong></span>
-                      <span>Phải thu: <strong>{formatMoney(payable)}</strong></span>
+                      <span>Phải thu: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(payable) : priceStatus.label}</strong></span>
                       <span>Đã thu: <strong>{formatMoney(order.paidAmount)}</strong></span>
                       <span>Còn lại: <strong className={debt > 0 ? "text-red-600" : "text-green-700"}>{formatMoney(debt)}</strong></span>
                     </div>
@@ -1284,6 +1509,14 @@ export default function AdminServiceOrdersClient({
                     <p className="mt-3 font-body text-xs font-semibold text-slate-400">{status.hint}</p>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-3 xl:w-[430px]">
+                    <button
+                      type="button"
+                      onClick={() => editOrder(order)}
+                      disabled={savingId === order.id}
+                      className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-body font-bold text-white disabled:bg-slate-300 sm:col-span-3"
+                    >
+                      Sửa đầy đủ
+                    </button>
                     <select
                       value={order.status}
                       onChange={(event) => updateOrder(order.id, { status: event.target.value })}
