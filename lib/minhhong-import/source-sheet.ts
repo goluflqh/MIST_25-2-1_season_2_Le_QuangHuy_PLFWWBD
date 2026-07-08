@@ -68,6 +68,41 @@ export const MINHHONG_SOURCE_SHEET_EXPORTS = [
   { kind: "manual" as const, spreadsheetId: "1JHIFHgbUnTcDCqqysmh6D6DN8fMqQl5tUNdI7uVsoOw" },
 ] as const;
 
+export const MINHHONG_SOURCE_SHEET_LINK_TARGETS = [
+  {
+    id: "service-orders" as const,
+    kind: "legacy" as const,
+    label: "Sheet đơn khách",
+    scope: "service-orders" as const,
+    sheetName: "Đơn hàng đã bán",
+  },
+  {
+    id: "partners-current" as const,
+    kind: "manual" as const,
+    label: "Sheet đối tác",
+    scope: "partners" as const,
+    sheetName: "Đơn hàng mua từ long",
+  },
+  {
+    id: "partners-legacy-purchases" as const,
+    kind: "legacy" as const,
+    label: "Sheet nhập cũ",
+    scope: "partners" as const,
+    sheetName: "Sheet1",
+  },
+] as const;
+
+export type MinhHongSourceSheetLinkTargetId = (typeof MINHHONG_SOURCE_SHEET_LINK_TARGETS)[number]["id"];
+export type MinhHongSourceSheetLinkScope = "all" | "service-orders" | "partners";
+
+export interface MinhHongSourceSheetLink {
+  id: MinhHongSourceSheetLinkTargetId;
+  label: string;
+  sheetName: string;
+  spreadsheetId: string;
+  url: string;
+}
+
 const PARTNER_ROWS = [
   ["LONG", "Long", "Đối tác công nợ", "", "Đối tác công nợ chính hiện tại", "Đang theo dõi"],
   ["DT_SHOPEE", "Shopee", "Nguồn tham khảo", "", "Nguồn mua hộ qua Long trong dữ liệu cũ; chỉ tính công nợ riêng nếu Minh Hồng tự mua trực tiếp", "Nguồn tham khảo/mở rộng sau"],
@@ -674,6 +709,47 @@ function buildReconciliationRows(
 
 export function buildSourceSheetExportUrl(spreadsheetId: string) {
   return "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(spreadsheetId) + "/export?format=xlsx";
+}
+
+export function buildMinhHongSourceSheetEditUrl(spreadsheetId: string, sheetId: number) {
+  return "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(spreadsheetId) + "/edit#gid=" + sheetId;
+}
+
+export function getMinhHongSourceSheetLinkTargets(scope: MinhHongSourceSheetLinkScope) {
+  if (scope === "all") return [...MINHHONG_SOURCE_SHEET_LINK_TARGETS];
+  return MINHHONG_SOURCE_SHEET_LINK_TARGETS.filter((target) => target.scope === scope);
+}
+
+export function getDefaultMinhHongSourceSheetLinkTargetId(scope: MinhHongSourceSheetLinkScope) {
+  return getMinhHongSourceSheetLinkTargets(scope)[0]?.id || null;
+}
+
+function getSourceSheetExportByKind(kind: SourceExportKind) {
+  const source = MINHHONG_SOURCE_SHEET_EXPORTS.find((item) => item.kind === kind);
+  if (!source) throw new Error("Chưa cấu hình Google Sheet nguồn " + kind + ".");
+  return source;
+}
+
+export async function buildMinhHongSourceSheetLink(
+  targetId: MinhHongSourceSheetLinkTargetId,
+  fetchImpl: typeof fetch = fetch
+): Promise<MinhHongSourceSheetLink> {
+  const target = MINHHONG_SOURCE_SHEET_LINK_TARGETS.find((item) => item.id === targetId);
+  if (!target) throw new Error("Không tìm thấy link Sheet gốc cần mở.");
+  if (!hasGoogleServiceAccountCredentials()) {
+    throw new Error("Chưa cấu hình Google service account để lấy đúng tab Sheet gốc.");
+  }
+
+  const source = getSourceSheetExportByKind(target.kind);
+  const accessToken = await getGoogleAccessToken(fetchImpl);
+  const sheetId = await fetchSheetId(accessToken, source.spreadsheetId, target.sheetName, fetchImpl);
+  return {
+    id: target.id,
+    label: target.label,
+    sheetName: target.sheetName,
+    spreadsheetId: source.spreadsheetId,
+    url: buildMinhHongSourceSheetEditUrl(source.spreadsheetId, sheetId),
+  };
 }
 
 export async function fetchMinhHongSourceSheetExports(fetchImpl: typeof fetch = fetch): Promise<SourceExport[]> {

@@ -125,6 +125,12 @@ function partnerSummaryLine(preview: ImportResponse) {
   return `${entries.created} giao dịch mới · ${entries.updated} giao dịch đã sửa · ${entries.unchanged} giao dịch không đổi.`;
 }
 
+function sourceSheetLinkHref(scope: ImportScope, target?: string) {
+  const params = new URLSearchParams({ scope });
+  if (target) params.set("target", target);
+  return "/api/admin/minhhong-source-sheet-link?" + params.toString();
+}
+
 export default function MinhHongWorkbookImportPanel({ compact = false, onImported, scope = "all" }: MinhHongWorkbookImportPanelProps) {
   const { showToast } = useNotify();
   const serviceOrderScope = scope === "service-orders";
@@ -267,6 +273,26 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
           </button>
         </div>
         <div className={`${isMobileOpen ? "flex" : "hidden"} flex-col gap-2 sm:flex sm:flex-row sm:flex-wrap sm:items-center sm:justify-end`}>
+          <a
+            data-testid="minhhong-source-sheet-open"
+            href={sourceSheetLinkHref(scope, partnerScope ? "partners-current" : serviceOrderScope ? "service-orders" : undefined)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 font-body text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            {serviceOrderScope ? "Mở Sheet đơn khách" : partnerScope ? "Mở Sheet đối tác" : "Mở Sheet gốc"}
+          </a>
+          {partnerScope ? (
+            <a
+              data-testid="minhhong-source-sheet-open-legacy"
+              href={sourceSheetLinkHref(scope, "partners-legacy-purchases")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 font-body text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              Sheet nhập cũ
+            </a>
+          ) : null}
           <input
             data-testid="minhhong-workbook-file"
             type="file"

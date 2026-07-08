@@ -7,10 +7,12 @@ import ExcelJS from "exceljs";
 import { reconcileMinhHongWorkbook } from "../../lib/minhhong-import/reconciliation";
 import {
   applyMinhHongSourceSheetDateRepairs,
+  buildMinhHongSourceSheetEditUrl,
   buildMinhHongSourceSheetDateRepairsFromExports,
   buildMinhHongSourceImportWorkbook,
   buildSourceSheetExportUrl,
   fetchMinhHongSourceSheetExports,
+  getMinhHongSourceSheetLinkTargets,
   MINHHONG_SOURCE_SHEET_EXPORTS,
 } from "../../lib/minhhong-import/source-sheet";
 import { parseMinhHongAdminWorkbook } from "../../lib/minhhong-import/workbook-parser";
@@ -54,6 +56,21 @@ async function buildLegacyWorkbookWithExtraCustomerOrder() {
 
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
+
+test("builds page-specific source Sheet link targets for admins", () => {
+  assert.deepEqual(
+    getMinhHongSourceSheetLinkTargets("service-orders").map((target) => target.id),
+    ["service-orders"]
+  );
+  assert.deepEqual(
+    getMinhHongSourceSheetLinkTargets("partners").map((target) => target.id),
+    ["partners-current", "partners-legacy-purchases"]
+  );
+  assert.equal(
+    buildMinhHongSourceSheetEditUrl("sheet-id", 123),
+    "https://docs.google.com/spreadsheets/d/sheet-id/edit#gid=123"
+  );
+});
 
 async function buildLegacyWorkbookWithAmbiguousInvalidCustomerDate() {
   const workbook = new ExcelJS.Workbook();
