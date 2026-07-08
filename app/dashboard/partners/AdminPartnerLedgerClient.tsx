@@ -6,6 +6,7 @@ import MinhHongWorkbookImportPanel from "@/components/admin/MinhHongWorkbookImpo
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 import { adminTimePresetLabels, matchesAdminTimePreset, type AdminTimePreset } from "@/lib/admin-time-filter";
+import { summarizePartnerLedgerEntries } from "@/lib/financial-calculations";
 import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
 import { getPartnerEntryAmountLabel, getPartnerEntryDisplayDetails, getPartnerEntryHistoryNote } from "@/lib/partner-entry-display";
 import { getVisibleDebtPartners } from "@/lib/partner-legacy";
@@ -143,42 +144,18 @@ function upsertPartner(partners: PartnerData[], nextPartner: PartnerData) {
 }
 
 function getPartnerStats(partner: PartnerData) {
-  const fallback = partner.ledgerEntries.reduce(
-    (summary, entry, index) => {
-      if (entry.entryType === "OPENING_BALANCE") summary.openingBalance += entry.amount;
-      if (entry.entryType === "PURCHASE") summary.purchased += entry.amount;
-      if (entry.entryType === "PAYMENT") summary.paid += entry.amount;
-      if (entry.entryType === "RETURN") summary.returned += entry.amount;
-      if (entry.countsInDebt !== false && entry.entryType === "PURCHASE") summary.countedPurchased += entry.amount;
-      if (entry.countsInDebt !== false && entry.entryType === "PAYMENT") summary.countedPaid += entry.amount;
-      if (entry.countsInDebt !== false && entry.entryType === "RETURN") summary.countedReturned += entry.amount;
-      if (entry.countsInDebt === false) summary.referenceOnly += entry.amount;
-      if (index === 0) summary.latest = entry;
-      return summary;
-    },
-    {
-      countedPaid: 0,
-      countedPurchased: 0,
-      countedReturned: 0,
-      latest: null as PartnerEntryData | null,
-      openingBalance: 0,
-      paid: 0,
-      purchased: 0,
-      referenceOnly: 0,
-      returned: 0,
-    }
-  );
+  const fallbackTotals = summarizePartnerLedgerEntries(partner.ledgerEntries);
 
   return {
-    countedPaid: fallback.countedPaid,
-    countedPurchased: fallback.countedPurchased,
-    countedReturned: fallback.countedReturned,
-    latest: fallback.latest,
-    openingBalance: partner.totals.openingBalance ?? fallback.openingBalance,
-    paid: partner.totals.paid ?? fallback.paid,
-    purchased: partner.totals.purchased ?? fallback.purchased,
-    referenceOnly: partner.totals.referenceOnly ?? fallback.referenceOnly,
-    returned: partner.totals.returned ?? fallback.returned,
+    countedPaid: fallbackTotals.countedPaid,
+    countedPurchased: fallbackTotals.countedPurchased,
+    countedReturned: fallbackTotals.countedReturned,
+    latest: partner.ledgerEntries[0] || null,
+    openingBalance: partner.totals.openingBalance ?? fallbackTotals.openingBalance,
+    paid: partner.totals.paid ?? fallbackTotals.paid,
+    purchased: partner.totals.purchased ?? fallbackTotals.purchased,
+    referenceOnly: partner.totals.referenceOnly ?? fallbackTotals.referenceOnly,
+    returned: partner.totals.returned ?? fallbackTotals.returned,
   };
 }
 

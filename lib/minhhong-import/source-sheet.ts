@@ -596,18 +596,69 @@ function buildCustomerRows(
   return rows;
 }
 
-function buildReconciliationRows(manualWorkbook: ExcelJS.Workbook, customerRows: CellValue[][], issues: SourceIssue[]) {
-  const manual = buildManualSummary(manualWorkbook, issues);
+function isDebtCounted(value: CellValue) {
+  const normalized = clean(value).toLocaleLowerCase("vi-VN");
+  if (!normalized) return true;
+  return ["có", "co", "yes", "true", "1"].includes(normalized);
+}
+
+function isLongRow(row: CellValue[], partnerCodeIndex: number, partnerNameIndex: number) {
+  return clean(row[partnerCodeIndex]) === "LONG" || clean(row[partnerNameIndex]).toLocaleLowerCase("vi-VN") === "long";
+}
+
+function isOpeningPurchaseRow(row: CellValue[]) {
+  const text = `${clean(row[0])} ${clean(row[4])} ${clean(row[5])} ${clean(row[6])}`.toLocaleLowerCase("vi-VN");
+  return clean(row[0]) === "NH-0001"
+    || text.includes("số dư chốt")
+    || text.includes("nợ tạm tính")
+    || text.includes("chốt công nợ");
+}
+
+function buildPartnerReconciliationTotals(purchaseRows: CellValue[][], paymentRows: CellValue[][], returnRows: CellValue[][]) {
+  const longPurchaseRows = purchaseRows.filter((row) => isLongRow(row, 2, 3));
+  const longPaymentRows = paymentRows.filter((row) => isLongRow(row, 2, 3));
+  const longReturnRows = returnRows.filter((row) => isLongRow(row, 2, 3));
+  const openingBalance = longPurchaseRows
+    .filter((row) => isDebtCounted(row[12]) && isOpeningPurchaseRow(row))
+    .reduce((sum, row) => sum + money(row[10]), 0);
+  const countedPurchase = longPurchaseRows
+    .filter((row) => isDebtCounted(row[12]) && !isOpeningPurchaseRow(row))
+    .reduce((sum, row) => sum + money(row[10]), 0);
+  const countedPayment = longPaymentRows
+    .filter((row) => isDebtCounted(row[6]))
+    .reduce((sum, row) => sum + money(row[4]), 0);
+  const countedReturn = longReturnRows
+    .filter((row) => isDebtCounted(row[9]))
+    .reduce((sum, row) => sum + money(row[8]), 0);
+  const historicalPaid = longPaymentRows.reduce((sum, row) => sum + money(row[4]), 0);
+
+  return {
+    countedPayment,
+    countedPurchase,
+    historicalPaid,
+    openingBalance,
+    payable: openingBalance + countedPurchase - countedPayment - countedReturn,
+  };
+}
+
+function buildReconciliationRows(
+  purchaseRows: CellValue[][],
+  paymentRows: CellValue[][],
+  returnRows: CellValue[][],
+  customerRows: CellValue[][],
+  issues: SourceIssue[]
+) {
+  const partnerTotals = buildPartnerReconciliationTotals(purchaseRows, paymentRows, returnRows);
   const customerOrderTotal = customerRows.reduce((sum, row) => sum + money(row[5]), 0);
   const customerOrderPaid = customerRows.reduce((sum, row) => sum + money(row[6]), 0);
   const missingPriceRows = customerRows.filter((row) => clean(row[8]) === "Quên giá").length;
 
   return [
-    [MINHHONG_RECONCILIATION_KEYS[0], "Long - số dư chốt 07/05/2026", manual.openingBalance, "Tính vào công nợ hiện tại"],
-    [MINHHONG_RECONCILIATION_KEYS[1], "Long - phát sinh mua sau chốt", manual.countedPurchase, "Không gồm số dư chốt"],
-    [MINHHONG_RECONCILIATION_KEYS[2], "Long - đã thanh toán sau chốt", manual.paid, "Giảm công nợ hiện tại"],
-    [MINHHONG_RECONCILIATION_KEYS[3], "Long - Minh Hồng cần trả", manual.remaining, "Phải bằng 12.720.000 trước VPS"],
-    [MINHHONG_RECONCILIATION_KEYS[4], "Long - đã thanh toán lịch sử", 45_000_000 + manual.paid, "Gồm 45.000.000 tham khảo + 15.000.000 hiện tại"],
+    [MINHHONG_RECONCILIATION_KEYS[0], "Long - số dư chốt 07/05/2026", partnerTotals.openingBalance, "Tính vào công nợ hiện tại"],
+    [MINHHONG_RECONCILIATION_KEYS[1], "Long - phát sinh mua sau chốt", partnerTotals.countedPurchase, "Tính từ các dòng nhập hàng có cờ tính công nợ"],
+    [MINHHONG_RECONCILIATION_KEYS[2], "Long - đã thanh toán sau chốt", partnerTotals.countedPayment, "Tính từ các dòng thanh toán có cờ tính công nợ"],
+    [MINHHONG_RECONCILIATION_KEYS[3], "Long - Minh Hồng cần trả", partnerTotals.payable, "Số dư chốt + mua tính nợ - thanh toán tính nợ - trả hàng tính nợ"],
+    [MINHHONG_RECONCILIATION_KEYS[4], "Long - đã thanh toán lịch sử", partnerTotals.historicalPaid, "Gồm các dòng tham khảo và các khoản thanh toán tính công nợ"],
     [MINHHONG_RECONCILIATION_KEYS[5], "Đơn khách - số dòng nghiệp vụ", customerRows.length, "Không gồm các dòng DH-* rỗng"],
     [MINHHONG_RECONCILIATION_KEYS[6], "Đơn khách - tổng tiền", customerOrderTotal, "37 dòng có giá"],
     [MINHHONG_RECONCILIATION_KEYS[7], "Đơn khách - đã thu", customerOrderPaid, "Tổng tiền đã thu từ khách"],
@@ -790,7 +841,7 @@ export async function buildMinhHongSourceImportWorkbook(input: SourceWorkbookInp
   const paymentRows = buildPaymentRows(legacyWorkbook, manualWorkbook, issues);
   const returnRows = buildReturnRows(legacyWorkbook);
   const customerRows = buildCustomerRows(legacyWorkbook, issues);
-  const reconciliationRows = buildReconciliationRows(manualWorkbook, customerRows, issues);
+  const reconciliationRows = buildReconciliationRows(purchaseRows, paymentRows, returnRows, customerRows, issues);
 
   appendRows(outputWorkbook.addWorksheet("Đối tác"), MINHHONG_PARTNER_COLUMNS, PARTNER_ROWS);
   appendRows(outputWorkbook.addWorksheet("Nhập hàng"), MINHHONG_PURCHASE_COLUMNS, purchaseRows);

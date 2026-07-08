@@ -1,3 +1,5 @@
+import { getServiceOrderPayableAmount } from "@/lib/financial-calculations";
+
 export function calculateCouponDiscount(discount: string | null | undefined, quotedPrice: number | null | undefined) {
   const price = Math.max(Number(quotedPrice || 0), 0);
   const raw = String(discount || "").trim();
@@ -18,7 +20,7 @@ export function calculateCouponDiscount(discount: string | null | undefined, quo
 }
 
 export function getPayableAmount(quotedPrice: number | null | undefined, discountAmount: number | null | undefined) {
-  return Math.max(Number(quotedPrice || 0) - Number(discountAmount || 0), 0);
+  return getServiceOrderPayableAmount({ discountAmount, quotedPrice });
 }
 
 export function getRemainingAmount(
@@ -26,5 +28,6 @@ export function getRemainingAmount(
   discountAmount: number | null | undefined,
   paidAmount: number | null | undefined
 ) {
-  return Math.max(getPayableAmount(quotedPrice, discountAmount) - Number(paidAmount || 0), 0);
+  const paid = Math.max(Number(paidAmount || 0), 0);
+  return Math.max(getPayableAmount(quotedPrice, discountAmount) - paid, 0);
 }

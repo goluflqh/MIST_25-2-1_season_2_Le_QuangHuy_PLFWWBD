@@ -1,8 +1,15 @@
 import { Prisma } from "@prisma/client";
 import { parseAdminDateInput } from "@/lib/admin-date";
+import {
+  getPartnerBalance,
+  getPartnerEntrySignedAmount,
+  summarizePartnerLedgerEntries,
+} from "@/lib/financial-calculations";
 import { parseMoneyText } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 import { normalizePhone, sanitizeText } from "@/lib/sanitize";
+
+export { getPartnerBalance, getPartnerEntrySignedAmount } from "@/lib/financial-calculations";
 
 type PrismaRunner = typeof prisma | Prisma.TransactionClient;
 
@@ -116,24 +123,6 @@ function parseOptionalBoolean(value: unknown) {
   return null;
 }
 
-export function getPartnerEntrySignedAmount(entry: { amount: number; countsInDebt?: boolean; entryType: string }) {
-  if (entry.countsInDebt === false) return 0;
-
-  if (entry.entryType === "PAYMENT" || entry.entryType === "RETURN") {
-    return -Math.abs(entry.amount);
-  }
-
-  if (entry.entryType === "ADJUSTMENT") {
-    return entry.amount;
-  }
-
-  return Math.abs(entry.amount);
-}
-
-export function getPartnerBalance(entries: Array<{ amount: number; countsInDebt?: boolean; entryType: string }>) {
-  return entries.reduce((sum, entry) => sum + getPartnerEntrySignedAmount(entry), 0);
-}
-
 export async function getPartnerByCode(runner: PrismaRunner, code: string) {
   return runner.partner.findUnique({
     where: { code },
@@ -224,20 +213,7 @@ export function serializePartner(
     signedAmount: getPartnerEntrySignedAmount(entry),
     updatedAt: entry.updatedAt.toISOString(),
   }));
-  const totals = entries.reduce(
-    (summary, entry) => {
-      if (entry.entryType === "OPENING_BALANCE") summary.openingBalance += entry.amount;
-      if (entry.entryType === "PURCHASE") summary.purchased += entry.amount;
-      if (entry.entryType === "PAYMENT") summary.paid += entry.amount;
-      if (entry.entryType === "RETURN") summary.returned += entry.amount;
-      if (entry.entryType === "ADJUSTMENT") summary.adjusted += entry.signedAmount;
-      if (entry.countsInDebt === false) summary.referenceOnly += entry.amount;
-      if (entry.signedAmount > 0) summary.increase += entry.signedAmount;
-      if (entry.signedAmount < 0) summary.decrease += Math.abs(entry.signedAmount);
-      return summary;
-    },
-    { adjusted: 0, decrease: 0, increase: 0, openingBalance: 0, paid: 0, purchased: 0, referenceOnly: 0, returned: 0 }
-  );
+  const totals = summarizePartnerLedgerEntries(entries);
 
   return {
     ...partner,

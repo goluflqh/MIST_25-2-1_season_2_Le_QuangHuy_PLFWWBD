@@ -13,7 +13,8 @@ import {
   type AdminOrderSortMode,
 } from "@/lib/admin-order-display";
 import { adminTimePresetLabels, matchesAdminTimePreset, type AdminTimePreset } from "@/lib/admin-time-filter";
-import { calculateCouponDiscount, getPayableAmount, getRemainingAmount } from "@/lib/coupon-discounts";
+import { calculateCouponDiscount, getPayableAmount } from "@/lib/coupon-discounts";
+import { getServiceOrderReceivableDebt, summarizeServiceOrderFinancials } from "@/lib/financial-calculations";
 import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
 import { formatVietnamDate, getVietnamDateKey, todayVietnamText } from "@/lib/vietnam-time";
 
@@ -251,8 +252,7 @@ function formatMoney(value: number | null | undefined) {
 }
 
 function getDebt(order: ServiceOrderData) {
-  if (order.priceStatus !== "CONFIRMED") return 0;
-  return getRemainingAmount(order.quotedPrice, order.discountAmount, order.paidAmount);
+  return getServiceOrderReceivableDebt(order);
 }
 
 function getNextPriceStatusForPrice(value: string, currentStatus: string) {
@@ -473,19 +473,16 @@ export default function AdminServiceOrdersClient({
   }, [importText]);
 
   const metrics = useMemo(() => {
-    return orders.reduce(
-      (summary, order) => {
-        summary.total += 1;
-        summary.debt += getDebt(order);
-        summary.discount += order.discountAmount || 0;
-        summary.paid += order.paidAmount;
-        summary.quoted += order.quotedPrice || 0;
-        if (order.priceStatus === "LEGACY_MISSING") summary.legacyMissing += 1;
-        if (order.priceStatus === "PENDING_QUOTE") summary.pendingQuote += 1;
-        return summary;
-      },
-      { debt: 0, discount: 0, legacyMissing: 0, paid: 0, pendingQuote: 0, quoted: 0, total: 0 }
-    );
+    const financials = summarizeServiceOrderFinancials(orders);
+    return {
+      debt: financials.debt,
+      discount: financials.discount,
+      legacyMissing: orders.filter((order) => order.priceStatus === "LEGACY_MISSING").length,
+      paid: financials.paid,
+      pendingQuote: orders.filter((order) => order.priceStatus === "PENDING_QUOTE").length,
+      quoted: financials.quoted,
+      total: orders.length,
+    };
   }, [orders]);
 
   const filteredOrders = useMemo(() => {

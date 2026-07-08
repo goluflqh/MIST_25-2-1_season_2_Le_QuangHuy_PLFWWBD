@@ -456,6 +456,9 @@ test("imports new manual partner rows after the 12.720.000 debt checkpoint but b
     ),
     "new manual paid amount should be normalized into partner payment ledger"
   );
+  assert.equal(parsed.reconciliation.long_counted_purchase, parsed.partnerTotals.longCountedPurchase);
+  assert.equal(parsed.reconciliation.long_counted_payment, parsed.partnerTotals.longCountedPayment);
+  assert.equal(parsed.reconciliation.long_payable, parsed.partnerTotals.longPayable);
   assert.ok(
     reconciliation.blockingIssues.some((issue) =>
       issue.includes("Đơn hàng mua từ long dòng 5") && issue.includes("11.000.000")
