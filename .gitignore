@@ -15,6 +15,7 @@
 /playwright-report
 /test-results
 /.playwright-mcp/
+/output/
 /minhhong-*.png
 /mobile-home-before.*
 
@@ -61,6 +62,13 @@ prisma/dev.db-journal
 
 # local code graph metadata
 /.gitnexus/
+/.claude/
+/CLAUDE.md
+
+# local generated artifacts and private campaign drafts
+/marketing/
+scripts/__pycache__/
+*.pyc
 
 # generated visual drafts kept locally but not used by the app
 /public/showcase/generated/*-premium.png

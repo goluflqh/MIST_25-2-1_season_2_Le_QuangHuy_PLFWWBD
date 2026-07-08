@@ -139,6 +139,7 @@ test("serializes partner totals with purchase, payment, return and reference buc
   assert.equal(serialized.totals.openingBalance, 20_230_000);
   assert.equal(serialized.totals.purchased, 7_490_000);
   assert.equal(serialized.totals.paid, 60_000_000);
+  assert.equal(serialized.totals.returned, 0);
   assert.equal(serialized.totals.referenceOnly, 45_000_000);
   assert.equal(serialized.ledgerEntries[1].category, "Cell");
   assert.equal(serialized.ledgerEntries[1].receivedGoods, true);

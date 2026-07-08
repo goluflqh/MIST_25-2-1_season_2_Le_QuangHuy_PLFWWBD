@@ -1,8 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AdminVietnameseDateRangeFilter from "@/components/admin/AdminVietnameseDateRangeFilter";
+import MinhHongWorkbookImportPanel from "@/components/admin/MinhHongWorkbookImportPanel";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
+import {
+  compareAdminOrders,
+  getAdminOrderSortLabel,
+  matchesAdminOrderSearch,
+  shouldHideImportedFallbackDate,
+  type AdminOrderSortMode,
+} from "@/lib/admin-order-display";
+import { adminTimePresetLabels, matchesAdminTimePreset, type AdminTimePreset } from "@/lib/admin-time-filter";
 import { calculateCouponDiscount, getPayableAmount, getRemainingAmount } from "@/lib/coupon-discounts";
 import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
 import { formatVietnamDate, getVietnamDateKey, todayVietnamText } from "@/lib/vietnam-time";
@@ -69,7 +79,7 @@ interface ServiceOrderData {
   } | null;
 }
 
-type SortMode = "newest" | "oldest" | "debt" | "customer";
+type SortMode = AdminOrderSortMode;
 type AccountFilter = "ALL" | "REGISTERED" | "NO_ACCOUNT";
 type CouponFilter = "ALL" | "WITH_COUPON" | "WITHOUT_COUPON";
 type PaymentFilter = "ALL" | "DEBT" | "PAID";
@@ -200,6 +210,10 @@ const importColumns = [
 
 function formatDate(value: string | null) {
   return formatVietnamDate(value) || "Chưa có";
+}
+
+function formatOrderDate(order: ServiceOrderData) {
+  return shouldHideImportedFallbackDate(order) ? "Chưa có ngày" : formatDate(order.orderDate);
 }
 
 function todayText() {
@@ -432,16 +446,17 @@ export default function AdminServiceOrdersClient({
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [serviceFilter, setServiceFilter] = useState("ALL");
   const [sourceFilter, setSourceFilter] = useState("ALL");
-  const [orderExactDate, setOrderExactDate] = useState("");
-  const [orderFromDate, setOrderFromDate] = useState("");
-  const [orderMonth, setOrderMonth] = useState("");
-  const [orderToDate, setOrderToDate] = useState("");
+  const [showFilterControls, setShowFilterControls] = useState(true);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [orderTimePreset, setOrderTimePreset] = useState<AdminTimePreset>("ALL");
+  const [orderCustomFromDate, setOrderCustomFromDate] = useState("");
+  const [orderCustomToDate, setOrderCustomToDate] = useState("");
   const [accountFilter, setAccountFilter] = useState<AccountFilter>("ALL");
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("ALL");
   const [priceFilter, setPriceFilter] = useState<PriceFilter>("ALL");
   const [warrantyFilter, setWarrantyFilter] = useState<WarrantyFilter>("ALL");
   const [couponFilter, setCouponFilter] = useState<CouponFilter>("ALL");
-  const [sortMode, setSortMode] = useState<SortMode>("newest");
+  const [sortMode, setSortMode] = useState<SortMode>("excel");
   const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -474,18 +489,21 @@ export default function AdminServiceOrdersClient({
   }, [orders]);
 
   const filteredOrders = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+    const todayKey = getVietnamDateKey(new Date());
 
     return orders
       .filter((order) => {
-        const orderDateKey = getVietnamDateKey(order.orderDate);
+        const orderDateKey = shouldHideImportedFallbackDate(order) ? "" : getVietnamDateKey(order.orderDate);
         const matchesStatus = statusFilter === "ALL" || order.status === statusFilter;
         const matchesService = serviceFilter === "ALL" || order.service === serviceFilter;
         const matchesSource = sourceFilter === "ALL" || order.source === sourceFilter;
-        const matchesExactDate = !orderExactDate || orderDateKey === orderExactDate;
-        const matchesMonth = !orderMonth || orderDateKey.startsWith(orderMonth);
-        const matchesFromDate = !orderFromDate || orderDateKey >= orderFromDate;
-        const matchesToDate = !orderToDate || orderDateKey <= orderToDate;
+        const matchesTime = matchesAdminTimePreset(
+          orderDateKey,
+          orderTimePreset,
+          todayKey,
+          orderCustomFromDate,
+          orderCustomToDate
+        );
         const hasAccount = Boolean(order.user || order.customer.userId);
         const matchesAccount =
           accountFilter === "ALL"
@@ -505,23 +523,12 @@ export default function AdminServiceOrdersClient({
           couponFilter === "ALL"
           || (couponFilter === "WITH_COUPON" && Boolean(order.couponCode))
           || (couponFilter === "WITHOUT_COUPON" && !order.couponCode);
-        const matchesSearch =
-          !query ||
-          order.orderCode.toLowerCase().includes(query) ||
-          order.customerName.toLowerCase().includes(query) ||
-          order.customerPhone.toLowerCase().includes(query) ||
-          order.productName.toLowerCase().includes(query) ||
-          (order.issueDescription || "").toLowerCase().includes(query) ||
-          (order.solution || "").toLowerCase().includes(query) ||
-          (order.notes || "").toLowerCase().includes(query);
+        const matchesSearch = matchesAdminOrderSearch(order, searchQuery);
 
         return matchesStatus
           && matchesService
           && matchesSource
-          && matchesExactDate
-          && matchesMonth
-          && matchesFromDate
-          && matchesToDate
+          && matchesTime
           && matchesAccount
           && matchesPrice
           && matchesPayment
@@ -529,19 +536,12 @@ export default function AdminServiceOrdersClient({
           && matchesCoupon
           && matchesSearch;
       })
-      .sort((first, second) => {
-        if (sortMode === "oldest") {
-          return new Date(first.orderDate).getTime() - new Date(second.orderDate).getTime();
-        }
-        if (sortMode === "debt") {
-          return getDebt(second) - getDebt(first);
-        }
-        if (sortMode === "customer") {
-          return first.customerName.localeCompare(second.customerName, "vi");
-        }
-        return new Date(second.orderDate).getTime() - new Date(first.orderDate).getTime();
-      });
-  }, [accountFilter, couponFilter, orderExactDate, orderFromDate, orderMonth, orderToDate, orders, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
+      .sort((first, second) => compareAdminOrders(
+        { ...first, debtAmount: getDebt(first) },
+        { ...second, debtAmount: getDebt(second) },
+        sortMode
+      ));
+  }, [accountFilter, couponFilter, orderCustomFromDate, orderCustomToDate, orderTimePreset, orders, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
 
   const filteredOrderStats = useMemo(() => {
     return filteredOrders.reduce(
@@ -558,36 +558,38 @@ export default function AdminServiceOrdersClient({
   const pageCount = Math.max(1, Math.ceil(filteredOrders.length / ORDER_PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visibleOrders = filteredOrders.slice((currentPage - 1) * ORDER_PAGE_SIZE, currentPage * ORDER_PAGE_SIZE);
-  const hasActiveFilters = searchQuery.trim().length > 0
-    || statusFilter !== "ALL"
-    || serviceFilter !== "ALL"
-    || sourceFilter !== "ALL"
-    || orderExactDate !== ""
-    || orderFromDate !== ""
-    || orderMonth !== ""
-    || orderToDate !== ""
-    || accountFilter !== "ALL"
-    || paymentFilter !== "ALL"
-    || priceFilter !== "ALL"
-    || warrantyFilter !== "ALL"
-    || couponFilter !== "ALL"
-    || sortMode !== "newest";
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string; onClear: () => void }> = [];
+    if (searchQuery.trim()) chips.push({ key: "search", label: `Tìm: ${searchQuery.trim()}`, onClear: () => setSearchQuery("") });
+    if (orderTimePreset !== "ALL") chips.push({ key: "time", label: `Thời gian: ${adminTimePresetLabels[orderTimePreset]}`, onClear: () => { setOrderTimePreset("ALL"); setOrderCustomFromDate(""); setOrderCustomToDate(""); } });
+    if (statusFilter !== "ALL") chips.push({ key: "status", label: `Trạng thái: ${statusConfig[statusFilter]?.label || statusFilter}`, onClear: () => setStatusFilter("ALL") });
+    if (serviceFilter !== "ALL") chips.push({ key: "service", label: `Dịch vụ: ${serviceLabels[serviceFilter] || serviceFilter}`, onClear: () => setServiceFilter("ALL") });
+    if (sourceFilter !== "ALL") chips.push({ key: "source", label: `Nguồn: ${sourceLabels[sourceFilter] || sourceFilter}`, onClear: () => setSourceFilter("ALL") });
+    if (accountFilter !== "ALL") chips.push({ key: "account", label: accountFilter === "REGISTERED" ? "Có tài khoản" : "Chưa có tài khoản", onClear: () => setAccountFilter("ALL") });
+    if (paymentFilter !== "ALL") chips.push({ key: "payment", label: paymentFilter === "DEBT" ? "Còn nợ" : "Đã thu đủ", onClear: () => setPaymentFilter("ALL") });
+    if (priceFilter !== "ALL") chips.push({ key: "price", label: `Giá: ${priceStatusConfig[priceFilter]?.label || priceFilter}`, onClear: () => setPriceFilter("ALL") });
+    if (warrantyFilter !== "ALL") chips.push({ key: "warranty", label: warrantyFilter === "WITH_WARRANTY" ? "Có bảo hành" : "Chưa có bảo hành", onClear: () => setWarrantyFilter("ALL") });
+    if (couponFilter !== "ALL") chips.push({ key: "coupon", label: couponFilter === "WITH_COUPON" ? "Có mã giảm giá" : "Không có mã", onClear: () => setCouponFilter("ALL") });
+    if (sortMode !== "excel") chips.push({ key: "sort", label: `Sắp xếp: ${getAdminOrderSortLabel(sortMode)}`, onClear: () => setSortMode("excel") });
+    return chips;
+  }, [accountFilter, couponFilter, orderTimePreset, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
+
+  const hasActiveFilters = activeFilterChips.length > 0;
 
   const resetFilters = () => {
     setSearchQuery("");
     setStatusFilter("ALL");
     setServiceFilter("ALL");
     setSourceFilter("ALL");
-    setOrderExactDate("");
-    setOrderFromDate("");
-    setOrderMonth("");
-    setOrderToDate("");
+    setOrderTimePreset("ALL");
+    setOrderCustomFromDate("");
+    setOrderCustomToDate("");
     setAccountFilter("ALL");
     setPaymentFilter("ALL");
     setPriceFilter("ALL");
     setWarrantyFilter("ALL");
     setCouponFilter("ALL");
-    setSortMode("newest");
+    setSortMode("excel");
     setPage(1);
   };
 
@@ -597,7 +599,7 @@ export default function AdminServiceOrdersClient({
 
   useEffect(() => {
     setPage(1);
-  }, [accountFilter, couponFilter, orderExactDate, orderFromDate, orderMonth, orderToDate, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
+  }, [accountFilter, couponFilter, orderCustomFromDate, orderCustomToDate, orderTimePreset, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
 
   const scrollToWorkArea = useCallback((
     panelRef: React.RefObject<HTMLElement | null>,
@@ -927,22 +929,24 @@ export default function AdminServiceOrdersClient({
   };
 
   const syncGoogleSheet = async () => {
-    setSyncingSheet(true);
-    try {
-      const response = await fetch("/api/admin/sheets-sync", { method: "POST" });
-      const data = await response.json();
+    showConfirm("Xuất danh sách đơn bán/đơn dịch vụ hiện tại trên web sang tab WEB_Đơn hàng trong Google Sheet? Các tab gốc Minh Hồng và tab đối tác sẽ không bị ghi hoặc xoá.", async () => {
+      setSyncingSheet(true);
+      try {
+        const response = await fetch("/api/admin/sheets-sync?scope=service-orders", { method: "POST" });
+        const data = await response.json();
 
-      if (!response.ok || !data.success) {
-        showToast(data.message || "Chưa sync được Google Sheet.", "error");
-        return;
+        if (!response.ok || !data.success) {
+          showToast(data.message || "Chưa xuất được dữ liệu web sang Google Sheet.", "error");
+          return;
+        }
+
+        showToast(`Đã xuất ${data.tabs?.length || 0} tab đơn bán từ web sang Google Sheet.`, "success");
+      } catch {
+        showToast("Kết nối bị gián đoạn khi xuất web sang Google Sheet.", "error");
+      } finally {
+        setSyncingSheet(false);
       }
-
-      showToast(`Đã sync ${data.tabs?.length || 0} tab sang Google Sheet.`, "success");
-    } catch {
-      showToast("Kết nối bị gián đoạn khi sync Google Sheet.", "error");
-    } finally {
-      setSyncingSheet(false);
-    }
+    }, "Xuất");
   };
 
   const formQuotedPrice = parseMoneyText(formData.quotedPrice);
@@ -959,28 +963,28 @@ export default function AdminServiceOrdersClient({
             Nhập đơn từ tiệm, điện thoại, Zalo hoặc nhập lại sổ cũ theo số điện thoại khách.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <button
             type="button"
             onClick={syncGoogleSheet}
             disabled={syncingSheet}
-            className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-200 disabled:bg-slate-200 disabled:text-slate-400"
+            className="min-h-11 rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-200 disabled:bg-slate-200 disabled:text-slate-400"
           >
-            {syncingSheet ? "Đang sync..." : "Sync Google Sheet"}
+            {syncingSheet ? "Đang xuất…" : "Xuất web → Sheet"}
           </button>
           <button
             type="button"
             data-testid="dashboard-orders-open-import"
             onClick={openImportPanel}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-slate-800"
+            className="min-h-11 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-body font-bold text-white transition-colors hover:bg-slate-800"
           >
-            Nhập từ Excel/CSV
+            CSV đơn lẻ (nâng cao)
           </button>
           <button
             type="button"
             data-testid="dashboard-orders-open-create"
             onClick={openCreateForm}
-            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-red-700"
+            className="col-span-2 min-h-11 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-body font-bold text-white transition-colors hover:bg-red-700 sm:col-span-1"
           >
             + Thêm đơn
           </button>
@@ -1008,6 +1012,10 @@ export default function AdminServiceOrdersClient({
           <p className="font-body text-xs uppercase tracking-wider text-red-700">Còn phải thu</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-red-700">{formatMoney(metrics.debt)}</p>
         </div>
+      </div>
+
+      <div className="rounded-3xl border border-red-100 bg-red-50/40 p-3 shadow-sm sm:p-4">
+        <MinhHongWorkbookImportPanel scope="service-orders" onImported={() => window.location.reload()} />
       </div>
 
       {showForm ? (
@@ -1130,7 +1138,7 @@ export default function AdminServiceOrdersClient({
                     key={suggestion}
                     type="button"
                     onClick={() => setFormData({ ...formData, productName: suggestion })}
-                    className="rounded-full bg-slate-100 px-3 py-1 text-xs font-body font-bold text-slate-600 hover:bg-slate-200"
+                    className="min-h-10 rounded-full bg-slate-100 px-3 py-2 text-sm font-body font-bold text-slate-600 hover:bg-slate-200"
                   >
                     {suggestion}
                   </button>
@@ -1285,13 +1293,14 @@ export default function AdminServiceOrdersClient({
       {showImport ? (
         <div
           ref={importPanelRef}
+          data-testid="dashboard-orders-single-import-panel"
           className="scroll-mt-28 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="font-heading text-lg font-bold text-slate-900">Nhập từ Excel/CSV</h3>
+              <h3 className="font-heading text-lg font-bold text-slate-900">Nâng cao: nhập CSV/TSV một đơn</h3>
               <p className="font-body text-sm text-slate-500">
-                Lập file theo đúng thứ tự cột, rồi lưu dạng CSV UTF-8 hoặc sao chép bảng từ Excel dán vào đây.
+                Luồng chính là Sheet/Excel chuẩn ở phía trên. Mục này chỉ dùng khi cần nhập nhanh một danh sách đơn lẻ từ CSV/TSV.
               </p>
             </div>
             <button
@@ -1300,6 +1309,15 @@ export default function AdminServiceOrdersClient({
               className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200"
             >
               Tải mẫu CSV
+            </button>
+            <button
+              type="button"
+              data-testid="dashboard-orders-import-close"
+              onClick={() => setShowImport(false)}
+              aria-label="Đóng nhập CSV nâng cao"
+              className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200"
+            >
+              Đóng
             </button>
           </div>
           <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
@@ -1363,161 +1381,255 @@ export default function AdminServiceOrdersClient({
         </div>
       ) : null}
 
-      <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
-          <input
-            data-testid="dashboard-orders-search-input"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Tìm mã đơn, SĐT, khách hàng, sản phẩm, ghi chú"
-            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none focus:border-red-400 md:col-span-2 xl:col-span-3"
-          />
-          <input
-            type="date"
-            value={orderExactDate}
-            onChange={(event) => setOrderExactDate(event.target.value)}
-            title="Chọn đúng một ngày"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-            data-testid="dashboard-orders-exact-date-filter"
-          />
-          <input
-            type="month"
-            value={orderMonth}
-            onChange={(event) => setOrderMonth(event.target.value)}
-            title="Lọc đơn theo tháng"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-            data-testid="dashboard-orders-month-filter"
-          />
-          <input
-            type="date"
-            value={orderFromDate}
-            onChange={(event) => setOrderFromDate(event.target.value)}
-            title="Từ ngày mua"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-            data-testid="dashboard-orders-from-date-filter"
-          />
-          <input
-            type="date"
-            value={orderToDate}
-            onChange={(event) => setOrderToDate(event.target.value)}
-            title="Đến ngày mua"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-            data-testid="dashboard-orders-to-date-filter"
-          />
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-            title="Lọc trạng thái đơn"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+      <div
+        data-testid="dashboard-orders-filter-panel"
+        className="rounded-3xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm"
+      >
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <h3 className="font-heading text-base font-extrabold text-slate-900">Bộ lọc đơn hàng</h3>
+            <span className="font-body text-xs font-bold text-slate-500">{filteredOrders.length} đơn khớp</span>
+          </div>
+          <button
+            type="button"
+            data-testid="dashboard-orders-filter-controls-toggle"
+            aria-expanded={showFilterControls}
+            onClick={() => setShowFilterControls((current) => !current)}
+            className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-50"
           >
-            <option value="ALL">Tất cả trạng thái</option>
-            {Object.entries(statusConfig).map(([key, config]) => (
-              <option key={key} value={key}>{config.label}</option>
-            ))}
-          </select>
-          <select
-            value={serviceFilter}
-            onChange={(event) => setServiceFilter(event.target.value)}
-            title="Lọc dịch vụ"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-          >
-            <option value="ALL">Tất cả dịch vụ</option>
-            {Object.entries(serviceLabels).map(([key, label]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
-          <select
-            data-testid="dashboard-orders-source-filter"
-            value={sourceFilter}
-            onChange={(event) => setSourceFilter(event.target.value)}
-            title="Lọc nguồn đơn"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-          >
-            <option value="ALL">Tất cả nguồn</option>
-            {Object.entries(sourceLabels).map(([key, label]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
-          <select
-            data-testid="dashboard-orders-account-filter"
-            value={accountFilter}
-            onChange={(event) => setAccountFilter(event.target.value as AccountFilter)}
-            title="Lọc tài khoản khách"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-          >
-            <option value="ALL">Tất cả tài khoản</option>
-            <option value="REGISTERED">Có tài khoản</option>
-            <option value="NO_ACCOUNT">Chưa có tài khoản</option>
-          </select>
-          <select
-            data-testid="dashboard-orders-payment-filter"
-            value={paymentFilter}
-            onChange={(event) => setPaymentFilter(event.target.value as PaymentFilter)}
-            title="Lọc thanh toán"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-          >
-            <option value="ALL">Tất cả công nợ</option>
-            <option value="DEBT">Còn nợ</option>
-            <option value="PAID">Đã thu đủ</option>
-          </select>
-          <select
-            data-testid="dashboard-orders-price-filter"
-            value={priceFilter}
-            onChange={(event) => setPriceFilter(event.target.value as PriceFilter)}
-            title="Lọc tình trạng giá"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-          >
-            <option value="ALL">Tất cả giá</option>
-            {Object.entries(priceStatusConfig).map(([key, config]) => (
-              <option key={key} value={key}>{config.label}</option>
-            ))}
-          </select>
-          <select
-            data-testid="dashboard-orders-warranty-filter"
-            value={warrantyFilter}
-            onChange={(event) => setWarrantyFilter(event.target.value as WarrantyFilter)}
-            title="Lọc bảo hành"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-          >
-            <option value="ALL">Tất cả bảo hành</option>
-            <option value="WITH_WARRANTY">Có bảo hành</option>
-            <option value="WITHOUT_WARRANTY">Chưa có bảo hành</option>
-          </select>
-          <select
-            data-testid="dashboard-orders-coupon-filter"
-            value={couponFilter}
-            onChange={(event) => setCouponFilter(event.target.value as CouponFilter)}
-            title="Lọc mã giảm giá"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-          >
-            <option value="ALL">Tất cả mã giảm giá</option>
-            <option value="WITH_COUPON">Có mã giảm giá</option>
-            <option value="WITHOUT_COUPON">Không có mã</option>
-          </select>
-          <select
-            value={sortMode}
-            onChange={(event) => setSortMode(event.target.value as SortMode)}
-            title="Sắp xếp đơn"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
-          >
-            <option value="newest">Mới nhất</option>
-            <option value="oldest">Cũ nhất</option>
-            <option value="debt">Còn nợ nhiều</option>
-            <option value="customer">Tên khách A-Z</option>
-          </select>
+            <span>{showFilterControls ? "Thu gọn" : "Mở lọc"}</span>
+            <span aria-hidden="true" className="text-xs">{showFilterControls ? "▲" : "▼"}</span>
+          </button>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <div className="rounded-xl bg-slate-50 px-3 py-2">
+        {showFilterControls ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
+          <label className="space-y-1.5 md:col-span-2 xl:col-span-4">
+            <span className="font-body text-xs font-bold text-slate-600">Tìm kiếm</span>
+            <input
+              data-testid="dashboard-orders-search-input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Mã đơn, SĐT, khách hàng, sản phẩm, ghi chú"
+              className="min-h-11 w-full rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none focus:border-red-400"
+            />
+          </label>
+          <label className="space-y-1.5 xl:col-span-2">
+            <span className="font-body text-xs font-bold text-slate-600">Thời gian</span>
+            <select
+              value={orderTimePreset}
+              onChange={(event) => setOrderTimePreset(event.target.value as AdminTimePreset)}
+              title="Lọc thời gian"
+              className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+              data-testid="dashboard-orders-time-filter"
+            >
+              {Object.entries(adminTimePresetLabels).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          </label>
+          {orderTimePreset === "CUSTOM" ? (
+            <div className="md:col-span-2 xl:col-span-4" data-testid="dashboard-orders-date-range">
+              <AdminVietnameseDateRangeFilter
+                fromDataTestId="dashboard-orders-from-date-filter"
+                fromName="ordersFromDateFilter"
+                fromValue={orderCustomFromDate}
+                onFromChange={setOrderCustomFromDate}
+                onToChange={setOrderCustomToDate}
+                toDataTestId="dashboard-orders-to-date-filter"
+                toName="ordersToDateFilter"
+                toValue={orderCustomToDate}
+                className="grid gap-3 sm:grid-cols-2"
+              />
+            </div>
+          ) : null}
+          <label className="space-y-1.5 xl:col-span-2">
+            <span className="font-body text-xs font-bold text-slate-600">Trạng thái</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              title="Lọc trạng thái đơn"
+              className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+            >
+              <option value="ALL">Tất cả trạng thái</option>
+              {Object.entries(statusConfig).map(([key, config]) => (
+                <option key={key} value={key}>{config.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1.5 xl:col-span-2">
+            <span className="font-body text-xs font-bold text-slate-600">Sắp xếp</span>
+            <select
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value as SortMode)}
+              title="Sắp xếp đơn"
+              className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+            >
+              <option value="excel">Thứ tự bảng Excel</option>
+              <option value="newest">Mới nhất</option>
+              <option value="oldest">Cũ nhất</option>
+              <option value="debt">Còn nợ nhiều</option>
+              <option value="customer">Tên khách A-Z</option>
+            </select>
+          </label>
+          <label className="hidden space-y-1.5 md:block xl:col-span-2">
+            <span className="font-body text-xs font-bold text-slate-600">Dịch vụ</span>
+            <select
+              value={serviceFilter}
+              onChange={(event) => setServiceFilter(event.target.value)}
+              title="Lọc dịch vụ"
+              className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+            >
+              <option value="ALL">Tất cả dịch vụ</option>
+              {Object.entries(serviceLabels).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            data-testid="dashboard-orders-advanced-filters-toggle"
+            aria-expanded={showAdvancedFilters}
+            onClick={() => setShowAdvancedFilters((current) => !current)}
+            className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2 text-left text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-50 xl:col-span-2 xl:self-end"
+          >
+            <span>{showAdvancedFilters ? "Thu gọn lọc" : "Lọc nâng cao"}</span>
+            <span aria-hidden="true" className="text-lg leading-none">{showAdvancedFilters ? "−" : "+"}</span>
+          </button>
+          {showAdvancedFilters ? (
+            <div
+              data-testid="dashboard-orders-advanced-filters-panel"
+              className="grid gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3 md:col-span-2 md:grid-cols-2 xl:col-span-12 xl:grid-cols-7"
+            >
+              <label className="space-y-1.5 md:hidden">
+                <span className="font-body text-xs font-bold text-slate-600">Dịch vụ</span>
+                <select
+                  value={serviceFilter}
+                  onChange={(event) => setServiceFilter(event.target.value)}
+                  title="Lọc dịch vụ"
+                  className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                >
+                  <option value="ALL">Tất cả dịch vụ</option>
+                  {Object.entries(serviceLabels).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="font-body text-xs font-bold text-slate-600">Nguồn đơn</span>
+                <select
+                  data-testid="dashboard-orders-source-filter"
+                  value={sourceFilter}
+                  onChange={(event) => setSourceFilter(event.target.value)}
+                  title="Lọc nguồn đơn"
+                  className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                >
+                  <option value="ALL">Tất cả nguồn</option>
+                  {Object.entries(sourceLabels).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="font-body text-xs font-bold text-slate-600">Tài khoản khách</span>
+                <select
+                  data-testid="dashboard-orders-account-filter"
+                  value={accountFilter}
+                  onChange={(event) => setAccountFilter(event.target.value as AccountFilter)}
+                  title="Lọc tài khoản khách"
+                  className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                >
+                  <option value="ALL">Tất cả tài khoản</option>
+                  <option value="REGISTERED">Có tài khoản</option>
+                  <option value="NO_ACCOUNT">Chưa có tài khoản</option>
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="font-body text-xs font-bold text-slate-600">Thanh toán</span>
+                <select
+                  data-testid="dashboard-orders-payment-filter"
+                  value={paymentFilter}
+                  onChange={(event) => setPaymentFilter(event.target.value as PaymentFilter)}
+                  title="Lọc thanh toán"
+                  className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                >
+                  <option value="ALL">Tất cả công nợ</option>
+                  <option value="DEBT">Còn nợ</option>
+                  <option value="PAID">Đã thu đủ</option>
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="font-body text-xs font-bold text-slate-600">Tình trạng giá</span>
+                <select
+                  data-testid="dashboard-orders-price-filter"
+                  value={priceFilter}
+                  onChange={(event) => setPriceFilter(event.target.value as PriceFilter)}
+                  title="Lọc tình trạng giá"
+                  className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                >
+                  <option value="ALL">Tất cả giá</option>
+                  {Object.entries(priceStatusConfig).map(([key, config]) => (
+                    <option key={key} value={key}>{config.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="font-body text-xs font-bold text-slate-600">Bảo hành</span>
+                <select
+                  data-testid="dashboard-orders-warranty-filter"
+                  value={warrantyFilter}
+                  onChange={(event) => setWarrantyFilter(event.target.value as WarrantyFilter)}
+                  title="Lọc bảo hành"
+                  className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                >
+                  <option value="ALL">Tất cả bảo hành</option>
+                  <option value="WITH_WARRANTY">Có bảo hành</option>
+                  <option value="WITHOUT_WARRANTY">Chưa có bảo hành</option>
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="font-body text-xs font-bold text-slate-600">Mã giảm giá</span>
+                <select
+                  data-testid="dashboard-orders-coupon-filter"
+                  value={couponFilter}
+                  onChange={(event) => setCouponFilter(event.target.value as CouponFilter)}
+                  title="Lọc mã giảm giá"
+                  className="min-h-11 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                >
+                  <option value="ALL">Tất cả mã giảm giá</option>
+                  <option value="WITH_COUPON">Có mã giảm giá</option>
+                  <option value="WITHOUT_COUPON">Không có mã</option>
+                </select>
+              </label>
+            </div>
+          ) : null}
+          </div>
+        ) : null}
+        {activeFilterChips.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2" data-testid="dashboard-orders-active-filter-chips">
+            {activeFilterChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.onClear}
+                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 font-body text-xs font-bold text-slate-700 hover:bg-white"
+              >
+                {chip.label} ×
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="min-w-0 rounded-xl bg-slate-50 px-2.5 py-2 sm:px-3">
             <p className="font-body text-xs font-bold text-slate-600">Tổng tiền lọc</p>
-            <p className="font-heading text-base font-extrabold text-slate-900">{formatMoney(filteredOrderStats.quoted)}</p>
+            <p className="break-words font-heading text-sm font-extrabold leading-tight text-slate-900 sm:text-base">{formatMoney(filteredOrderStats.quoted)}</p>
           </div>
-          <div className="rounded-xl bg-green-50 px-3 py-2">
+          <div className="min-w-0 rounded-xl bg-green-50 px-2.5 py-2 sm:px-3">
             <p className="font-body text-xs font-bold text-green-700">Đã thu lọc</p>
-            <p className="font-heading text-base font-extrabold text-green-700">{formatMoney(filteredOrderStats.paid)}</p>
+            <p className="break-words font-heading text-sm font-extrabold leading-tight text-green-700 sm:text-base">{formatMoney(filteredOrderStats.paid)}</p>
           </div>
-          <div className="rounded-xl bg-red-50 px-3 py-2">
+          <div className="min-w-0 rounded-xl bg-red-50 px-2.5 py-2 sm:px-3">
             <p className="font-body text-xs font-bold text-red-700">Còn nợ lọc</p>
-            <p className="font-heading text-base font-extrabold text-red-700">{formatMoney(filteredOrderStats.debt)}</p>
+            <p className="break-words font-heading text-sm font-extrabold leading-tight text-red-700 sm:text-base">{formatMoney(filteredOrderStats.debt)}</p>
           </div>
         </div>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1536,13 +1648,13 @@ export default function AdminServiceOrdersClient({
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-5 md:space-y-3">
         {filteredOrders.length === 0 ? (
           <div className="rounded-2xl border border-slate-100 bg-white p-10 text-center shadow-sm">
             <p className="font-body text-sm text-slate-400">Chưa có đơn nào khớp bộ lọc.</p>
           </div>
         ) : (
-          visibleOrders.map((order) => {
+          visibleOrders.map((order, index) => {
             const status = statusConfig[order.status] || statusConfig.PENDING;
             const priceStatus = priceStatusConfig[order.priceStatus] || priceStatusConfig.PENDING_QUOTE;
             const debt = getDebt(order);
@@ -1554,43 +1666,77 @@ export default function AdminServiceOrdersClient({
               : order.priceStatus === "CONFIRMED" || order.priceStatus === "FREE"
                 ? { label: "Đã thu đủ", color: "bg-green-50 text-green-700 border-green-200" }
                 : { label: "Chưa xác nhận", color: "bg-slate-50 text-slate-600 border-slate-200" };
+            const sourceContext = [order.sourceName, order.sourceRow ? `dòng ${order.sourceRow}` : ""].filter(Boolean).join(" · ");
+            const boundaryClass = debt > 0
+              ? "border-l-red-500"
+              : order.status === "COMPLETED"
+                ? "border-l-green-500"
+                : "border-l-amber-400";
+            const toplineClass = debt > 0
+              ? "border-red-100 bg-red-50/95"
+              : order.status === "COMPLETED"
+                ? "border-green-100 bg-green-50/95"
+                : "border-amber-100 bg-amber-50/95";
             return (
               <div
                 key={order.id}
-                className={`rounded-2xl border bg-white p-5 shadow-sm ${deletingId === order.id ? "opacity-60" : "border-slate-100"}`}
+                data-testid="dashboard-order-card"
+                className={`overflow-visible rounded-2xl border border-l-4 border-slate-100 bg-white shadow-sm ${boundaryClass} ${deletingId === order.id ? "opacity-60" : ""}`}
               >
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <code className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700">{order.orderCode}</code>
-                      <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${status.color}`}>
-                        {status.label}
-                      </span>
-                      <span className="rounded-full bg-slate-50 px-2.5 py-0.5 text-[10px] font-bold text-slate-500">
-                        {serviceLabels[order.service] || order.service}
-                      </span>
-                      <span className="rounded-full bg-slate-50 px-2.5 py-0.5 text-[10px] font-bold text-slate-500">
-                        {sourceLabels[order.source] || order.source}
-                      </span>
-                      <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${priceStatus.color}`}>
-                        {priceStatus.label}
-                      </span>
-                      <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${paymentTag.color}`}>
-                        {paymentTag.label}
-                      </span>
-                      {order.user ? (
-                        <span className="rounded-full bg-green-50 px-2.5 py-0.5 text-[10px] font-bold text-green-700">
-                          Có tài khoản
+                <div
+                  data-testid="dashboard-order-card-topline"
+                  className={`sticky top-2 z-20 rounded-t-2xl border-b px-4 py-3 backdrop-blur md:static md:rounded-none md:border-b-0 md:bg-white md:px-5 md:pb-0 md:pt-5 md:backdrop-blur-0 ${toplineClass}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <code className="rounded bg-white/80 px-2 py-0.5 text-xs font-bold text-slate-700">{order.orderCode}</code>
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${status.color}`}>
+                          {status.label}
                         </span>
-                      ) : null}
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${paymentTag.color}`}>
+                          {paymentTag.label}
+                        </span>
+                        <span className="hidden rounded-full bg-white/70 px-2.5 py-1 text-xs font-bold text-slate-500 sm:inline-flex">
+                          {serviceLabels[order.service] || order.service}
+                        </span>
+                        <span className="hidden rounded-full bg-white/70 px-2.5 py-1 text-xs font-bold text-slate-500 sm:inline-flex">
+                          {sourceLabels[order.source] || order.source}
+                        </span>
+                        <span className={`hidden rounded-full border px-2.5 py-1 text-xs font-bold sm:inline-flex ${priceStatus.color}`}>
+                          {priceStatus.label}
+                        </span>
+                        {order.user ? (
+                          <span className="hidden rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700 sm:inline-flex">
+                            Có tài khoản
+                          </span>
+                        ) : null}
+                      </div>
+                      <h3 className="mt-2 font-heading text-lg font-extrabold leading-snug text-slate-950">{order.productName}</h3>
+                      <p className="mt-1 font-body text-sm font-semibold text-slate-600">
+                        {order.customerName} · {order.customerPhone}
+                        {order.customerAddress ? ` · ${order.customerAddress}` : ""}
+                      </p>
                     </div>
-                    <h3 className="mt-2 font-heading text-base font-extrabold text-slate-900">{order.productName}</h3>
-                    <p className="mt-1 font-body text-sm text-slate-600">
-                      {order.customerName} · {order.customerPhone}
-                      {order.customerAddress ? ` · ${order.customerAddress}` : ""}
-                    </p>
-                    <div className="mt-3 grid gap-2 font-body text-xs text-slate-500 md:grid-cols-2 xl:grid-cols-4">
-                      <span>Ngày đơn: <strong>{formatDate(order.orderDate)}</strong></span>
+                    <div className="shrink-0 rounded-xl bg-white/80 px-3 py-2 text-right shadow-sm md:hidden">
+                      <p className="font-body text-[10px] font-bold uppercase text-slate-500">Còn lại</p>
+                      <p className={`font-heading text-sm font-extrabold ${debt > 0 ? "text-red-700" : "text-green-700"}`}>
+                        {formatMoney(debt)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-4 px-4 pb-4 pt-3 sm:px-5 sm:pb-5 xl:flex-row xl:items-start">
+                  <div className="min-w-0 flex-1">
+                    <div className="mt-3 grid grid-cols-2 gap-2 font-body text-sm md:hidden">
+                      <span className="rounded-xl bg-slate-50 px-3 py-2 text-slate-600">Ngày: <strong>{formatOrderDate(order)}</strong></span>
+                      <span className="rounded-xl bg-slate-50 px-3 py-2 text-slate-600">Phải thu: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(payable) : priceStatus.label}</strong></span>
+                      <span className="rounded-xl bg-green-50 px-3 py-2 text-green-700">Đã thu: <strong>{formatMoney(order.paidAmount)}</strong></span>
+                      <span className="rounded-xl bg-red-50 px-3 py-2 text-red-700">Còn lại: <strong>{formatMoney(debt)}</strong></span>
+                    </div>
+                    <div className="mt-3 hidden gap-2 font-body text-xs text-slate-500 md:grid md:grid-cols-2 xl:grid-cols-4">
+                      <span>Ngày đơn: <strong>{formatOrderDate(order)}</strong></span>
+                      {sourceContext ? <span>Dòng gốc: <strong>{sourceContext}</strong></span> : null}
                       <span>Giá gốc: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(order.quotedPrice) : priceStatus.label}</strong></span>
                       <span>Giảm giá: <strong className="text-emerald-700">{formatMoney(order.discountAmount)}</strong></span>
                       <span>Phải thu: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(payable) : priceStatus.label}</strong></span>
@@ -1602,8 +1748,22 @@ export default function AdminServiceOrdersClient({
                         Mã ưu đãi: {order.couponCode} ({order.couponDiscount || "đã áp dụng"})
                       </p>
                     ) : null}
+                    <details className="mt-3 rounded-xl border border-slate-100 bg-slate-50 md:hidden">
+                      <summary className="flex min-h-11 cursor-pointer items-center px-3 py-2 font-body text-sm font-bold text-slate-700">
+                        Chi tiết đơn
+                      </summary>
+                      <div className="space-y-2 border-t border-slate-100 px-3 py-3 font-body text-sm text-slate-600">
+                        {sourceContext ? <p>Dòng gốc: <strong>{sourceContext}</strong></p> : null}
+                        <p>Giá gốc: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(order.quotedPrice) : priceStatus.label}</strong></p>
+                        <p>Giảm giá: <strong className="text-emerald-700">{formatMoney(order.discountAmount)}</strong></p>
+                        {order.issueDescription ? <p><strong>Tình trạng:</strong> {order.issueDescription}</p> : null}
+                        {order.solution ? <p><strong>Phương án:</strong> {order.solution}</p> : null}
+                        {order.notes ? <p><strong>Ghi chú:</strong> {order.notes}</p> : null}
+                        <p className="font-semibold text-slate-500">{status.hint}</p>
+                      </div>
+                    </details>
                     {order.issueDescription || order.solution || order.notes ? (
-                      <div className="mt-3 grid gap-2 lg:grid-cols-3">
+                      <div className="mt-3 hidden gap-2 md:grid lg:grid-cols-3">
                         {order.issueDescription ? (
                           <p className="rounded-xl bg-slate-50 px-3 py-2 font-body text-xs text-slate-500">
                             <strong>Tình trạng:</strong> {order.issueDescription}
@@ -1621,7 +1781,7 @@ export default function AdminServiceOrdersClient({
                         ) : null}
                       </div>
                     ) : null}
-                    <p className="mt-3 font-body text-xs font-semibold text-slate-400">{status.hint}</p>
+                    <p className="mt-3 hidden font-body text-xs font-semibold text-slate-400 md:block">{status.hint}</p>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-3 xl:w-[430px]">
                     <button
@@ -1629,7 +1789,7 @@ export default function AdminServiceOrdersClient({
                       data-testid="dashboard-order-edit-button"
                       onClick={() => editOrder(order)}
                       disabled={savingId === order.id}
-                      className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-body font-bold text-white disabled:bg-slate-300 sm:col-span-3"
+                      className="min-h-11 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-body font-bold text-white disabled:bg-slate-300 sm:col-span-3"
                     >
                       Sửa đầy đủ
                     </button>
@@ -1638,7 +1798,7 @@ export default function AdminServiceOrdersClient({
                       onChange={(event) => updateOrder(order.id, { status: event.target.value })}
                       disabled={savingId === order.id}
                       title="Cập nhật trạng thái"
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-body outline-none"
+                      className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none"
                     >
                       {Object.entries(statusConfig).map(([key, config]) => (
                         <option key={key} value={key}>{config.label}</option>
@@ -1648,7 +1808,7 @@ export default function AdminServiceOrdersClient({
                       type="button"
                       onClick={() => updateOrder(order.id, { customerVisible: !order.customerVisible })}
                       disabled={savingId === order.id}
-                      className={`rounded-xl px-3 py-2 text-xs font-body font-bold ${
+                      className={`min-h-11 rounded-xl px-3 py-2 text-sm font-body font-bold ${
                         order.customerVisible
                           ? "bg-green-100 text-green-700"
                           : "bg-slate-100 text-slate-600"
@@ -1656,21 +1816,21 @@ export default function AdminServiceOrdersClient({
                     >
                       {order.customerVisible ? "Đang hiện cho khách" : "Ẩn với khách"}
                     </button>
-                    <div className="flex gap-2 sm:col-span-3">
+                    <div className="grid grid-cols-2 gap-2 sm:col-span-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                       <input
                         inputMode="numeric"
                         value={paymentInputs[order.id] ?? ""}
                         onChange={(event) => setPaymentInputs((prev) => ({ ...prev, [order.id]: event.target.value }))}
                         onBlur={() => setPaymentInputs((prev) => ({ ...prev, [order.id]: formatMoneyInputValue(prev[order.id] || "") }))}
                         placeholder={`Đã thu: ${formatMoney(order.paidAmount)}`}
-                        className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-body outline-none focus:border-red-400"
+                        className="col-span-2 min-h-11 min-w-0 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400 sm:col-span-1"
                         title="Cập nhật số tiền đã thu"
                       />
                       <button
                         type="button"
                         onClick={() => savePayment(order)}
                         disabled={savingId === order.id}
-                        className="rounded-xl bg-green-50 px-3 py-2 text-xs font-body font-bold text-green-700 disabled:bg-slate-100 disabled:text-slate-300"
+                        className="min-h-11 rounded-xl bg-green-50 px-3 py-2 text-sm font-body font-bold text-green-700 disabled:bg-slate-100 disabled:text-slate-300"
                       >
                         Ghi thu
                       </button>
@@ -1678,13 +1838,13 @@ export default function AdminServiceOrdersClient({
                         type="button"
                         onClick={() => markPaidInFull(order)}
                         disabled={savingId === order.id || payable === 0}
-                        className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-body font-bold text-white disabled:bg-slate-300"
+                        className="min-h-11 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-body font-bold text-white disabled:bg-slate-300"
                       >
                         Thu đủ
                       </button>
                     </div>
                     {order.warranty ? (
-                      <p className="rounded-xl bg-green-50 px-3 py-2 text-xs font-body font-bold text-green-700">
+                      <p className="min-h-11 rounded-xl bg-green-50 px-3 py-2 text-sm font-body font-bold text-green-700">
                         BH: {order.warranty.serialNo}
                       </p>
                     ) : order.status === "COMPLETED" ? (
@@ -1692,12 +1852,12 @@ export default function AdminServiceOrdersClient({
                         type="button"
                         onClick={() => createWarrantyFromOrder(order)}
                         disabled={warrantyCreatingId === order.id || order.warrantyMonths === 0}
-                        className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-body font-bold text-blue-700 disabled:bg-slate-100 disabled:text-slate-300"
+                        className="min-h-11 rounded-xl bg-blue-50 px-3 py-2 text-sm font-body font-bold text-blue-700 disabled:bg-slate-100 disabled:text-slate-300"
                       >
                         {warrantyCreatingId === order.id ? "Đang tạo BH..." : "Tạo BH 6 tháng"}
                       </button>
                     ) : (
-                      <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-body text-slate-500">
+                      <p className="min-h-11 rounded-xl bg-slate-50 px-3 py-2 text-sm font-body text-slate-500">
                         BH tự tạo khi hoàn thành
                       </p>
                     )}
@@ -1705,7 +1865,7 @@ export default function AdminServiceOrdersClient({
                       type="button"
                       onClick={() => deleteOrder(order.id)}
                       disabled={deletingId === order.id}
-                      className="rounded-xl bg-red-50 px-3 py-2 text-xs font-body font-bold text-red-600 disabled:bg-slate-100 disabled:text-slate-300"
+                      className="min-h-11 rounded-xl bg-red-50 px-3 py-2 text-sm font-body font-bold text-red-600 disabled:bg-slate-100 disabled:text-slate-300"
                     >
                       {deletingId === order.id ? "Đang xoá..." : "Xoá"}
                     </button>
@@ -1715,6 +1875,13 @@ export default function AdminServiceOrdersClient({
                       </p>
                     ) : null}
                   </div>
+                </div>
+                <div
+                  data-testid="dashboard-order-card-end"
+                  className="mx-4 mb-4 flex min-h-9 items-center justify-between rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 font-body text-[11px] font-bold text-slate-400 sm:mx-5 sm:mb-5 md:hidden"
+                >
+                  <span>Hết đơn {order.orderCode}</span>
+                  <span>{index + 1}/{visibleOrders.length} trang này</span>
                 </div>
               </div>
             );

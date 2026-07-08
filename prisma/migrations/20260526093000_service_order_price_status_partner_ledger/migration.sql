@@ -120,3 +120,9 @@ VALUES
     CURRENT_TIMESTAMP
   )
 ON CONFLICT ("id") DO NOTHING;
+
+-- The production Minh Hong partner ledger must be loaded from the approved
+-- workbook import, not from schema migrations. Keep fresh databases empty so
+-- the rehearsal/import step can prove all business rows came from the workbook.
+DELETE FROM "PartnerLedgerEntry" WHERE "partnerId" = 'partner_long_20260507';
+DELETE FROM "Partner" WHERE "id" = 'partner_long_20260507';

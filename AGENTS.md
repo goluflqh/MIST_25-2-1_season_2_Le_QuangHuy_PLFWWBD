@@ -1,4 +1,4 @@
-﻿# Project Memory
+# Project Memory
 
 This workspace uses the shared MCP server `mem0-local` for project memory.
 
@@ -39,3 +39,29 @@ Adapted for this repo from `forrestchang/andrej-karpathy-skills`. Apply these de
 - If verification cannot run, say so explicitly and explain what is still unverified.
 - If unrelated cleanup opportunities are noticed, mention them separately instead of folding them into the same change.
 
+<!-- gitnexus:start -->
+# GitNexus - Code Intelligence
+
+This project may be indexed by GitNexus as **minhhong-next-app-upgrades**. Use
+the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+Before relying on GitNexus graph data, confirm the index matches the current
+HEAD with `list_repos` or `gitnexus status`. If the index is stale, refresh it
+with `npx gitnexus analyze .`.
+
+## Always Do
+
+- Run impact analysis before editing a function, class, method, or API route
+  when the blast radius is not obvious.
+- Run `detect_changes` before commit or PR preparation.
+- Warn the user before continuing if impact analysis reports HIGH or CRITICAL
+  risk.
+- Use local search and direct file reads for exact source truth; use GitNexus
+  for relationship and impact context.
+
+## Never Do
+
+- Do not ignore HIGH or CRITICAL GitNexus risk warnings.
+- Do not commit without checking affected scope.
+
+<!-- gitnexus:end -->

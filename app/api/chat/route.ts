@@ -55,7 +55,7 @@ interface ChatRouteMeta {
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_9ROUTER_BASE_URL = "http://127.0.0.1:20128/v1";
-const DEFAULT_9ROUTER_MODEL = "cx/gpt-5.2";
+const DEFAULT_9ROUTER_MODEL = "cx/gpt-5.5";
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_CONTENT_CHARS = 800;

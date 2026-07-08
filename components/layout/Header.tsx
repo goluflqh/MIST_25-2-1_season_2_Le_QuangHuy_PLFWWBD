@@ -229,7 +229,7 @@ export default function Header({
               router.push("/");
             }
           }}
-          className="group flex min-w-0 shrink-0 cursor-pointer items-center gap-2.5"
+          className="group flex min-h-11 min-w-0 shrink-0 cursor-pointer items-center gap-2.5"
         >
           <svg
             width="34"
@@ -392,7 +392,7 @@ export default function Header({
         <button
           aria-label="Toggle Mobile Menu"
           onClick={toggleMobileMenu}
-          className="rounded-full p-2 text-slate-700 transition-colors hover:bg-slate-100 hover:text-primary lg:hidden"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-slate-700 transition-colors hover:bg-slate-100 hover:text-primary lg:hidden"
         >
           {isMobileMenuOpen ? (
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,8 +1,35 @@
+import { resolve } from "node:path";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 const ADMIN_PHONE = process.env.PLAYWRIGHT_ADMIN_PHONE ?? "0987443258";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD ?? "admin123";
 const AUTH_REDIRECT_TIMEOUT = 30_000;
+const ADMIN_IMPORT_WORKBOOK = resolve("operations/minhhong-admin-import-template-2026-05-26.xlsx");
+
+function vietnamDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+  }).formatToParts(date);
+
+  return {
+    day: parts.find((part) => part.type === "day")?.value ?? "01",
+    month: parts.find((part) => part.type === "month")?.value ?? "01",
+    year: parts.find((part) => part.type === "year")?.value ?? "2026",
+  };
+}
+
+function vietnamDateText(date = new Date()) {
+  const { day, month, year } = vietnamDateParts(date);
+  return `${day}/${month}/${year}`;
+}
+
+function vietnamDateKey(date = new Date()) {
+  const { day, month, year } = vietnamDateParts(date);
+  return `${year}-${month}-${day}`;
+}
 
 async function login(page: Page) {
   await page.goto("/dang-nhap");
@@ -75,30 +102,43 @@ async function seedPartnerLedger(
   return partner;
 }
 
-async function seedServiceOrder(request: APIRequestContext) {
+async function seedServiceOrder(
+  request: APIRequestContext,
+  options: { orderDate?: string } = {}
+) {
   await loginAdminRequest(request);
   const suffix = Date.now().toString().slice(-8);
   const phone = `09${suffix}`.slice(0, 10).padEnd(10, "1");
+  const orderDate = options.orderDate ?? "26/05/2026";
   const response = await request.post("/api/admin/service-orders", {
     data: {
       customerName: `Khách phase2 ${suffix}`,
       customerPhone: phone,
-      orderDate: "26/05/2026",
+      orderDate,
       paidAmount: 100_000,
       priceStatus: "CONFIRMED",
       productName: `Đơn phase2 ${suffix}`,
       quotedPrice: 500_000,
       service: "KHAC",
-      source: "PHONE",
+      source: "IMPORT",
+      sourceName: "Đơn hàng đã bán",
+      sourceRow: 2,
       status: "PENDING",
     },
   });
   expect(response.ok()).toBeTruthy();
   const body = await response.json();
-  return { order: body.order as { id: string; productName: string }, phone, suffix };
+  return { order: body.order as { id: string; productName: string }, orderDate, phone, suffix };
+}
+
+async function expectMinTouchHeight(locator: ReturnType<Page["locator"]>, minHeight = 44) {
+  const box = await locator.boundingBox();
+  expect(box, "interactive control should be visible before measuring").not.toBeNull();
+  expect(Math.round(box?.height || 0)).toBeGreaterThanOrEqual(minHeight);
 }
 
 test.describe("Admin phase 2 workflows", () => {
+  test.describe.configure({ mode: "serial" });
   test.setTimeout(90_000);
 
   test("partners page uses contextual entry dialog and paginated full history", async ({ page, request }) => {
@@ -107,13 +147,25 @@ test.describe("Admin phase 2 workflows", () => {
     await login(page);
     await page.goto("/dashboard/partners");
     await expect(page.getByTestId("dashboard-partner-ledger")).toBeVisible();
+    await expect(page.getByTestId("minhhong-workbook-import-panel")).toBeVisible();
+    await expect(page.getByTestId("dashboard-partner-ledger")).toContainText("Minh Hồng cần trả");
+    await expect(page.getByTestId("dashboard-partner-ledger")).toContainText("Tổng tiền mua");
+    await expect(page.getByTestId("dashboard-partner-ledger")).toContainText("Đã thanh toán");
+    await expect(page.getByTestId("dashboard-partner-ledger")).toContainText("Đã trả hàng");
+    await expect(page.getByTestId("dashboard-partner-ledger")).not.toContainText("Tác động lọc");
+    await expect(page.getByTestId("dashboard-partner-ledger")).not.toContainText("Đã mua trong lọc");
+    await expect(page.getByTestId("dashboard-partner-ledger")).not.toContainText("Chi tiết cách tính");
     await page.getByTestId("partner-search-input").fill(partner.code);
     await expect(page.getByTestId("partner-select")).toHaveValue(partner.id);
     await expect(page.getByRole("heading", { name: partner.name })).toBeVisible();
 
     await page.getByTestId("partner-open-entry-selected").click();
-    await expect(page.getByTestId("partner-entry-dialog")).toBeVisible();
+    const entryDialog = page.getByTestId("partner-entry-dialog");
+    await expect(entryDialog).toBeVisible();
+    await expect(entryDialog.getByText("Tên mặt hàng")).toBeVisible();
     await expect(page.getByTestId("partner-entry-product")).toBeFocused();
+    await page.getByTestId("partner-entry-mode-PAYMENT").click();
+    await expect(entryDialog.getByText("Nội dung thanh toán")).toBeVisible();
     await page.getByTestId("partner-entry-mode-RETURN").click();
     await expect(page.getByTestId("partner-entry-product")).toBeFocused();
     await page.getByTestId("partner-entry-product").fill("E2E trả lại phụ kiện");
@@ -123,16 +175,50 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("partner-entry-total")).toContainText("50.000đ");
     await page.getByTestId("partner-entry-submit").click();
     await expect(page.getByTestId("partner-entry-dialog")).toBeHidden({ timeout: 10_000 });
+    await expect(page.getByTestId("partner-recent-entries")).toContainText("Tên mặt hàng / Nội dung thanh toán");
     await expect(page.getByTestId("partner-recent-entries")).toContainText("E2E trả lại phụ kiện");
 
     await page.getByTestId("partner-open-history").click();
-    await expect(page.getByTestId("partner-history-dialog")).toBeVisible();
+    const historyDialog = page.getByTestId("partner-history-dialog");
+    const historyResults = page.getByTestId("partner-history-results");
+    await expect(historyDialog).toBeVisible();
+    await expect(historyResults).toBeVisible();
+    await expect(historyResults.getByRole("columnheader", { name: "Tên mặt hàng / Nội dung thanh toán" })).toBeVisible();
+    await expect(historyResults.getByRole("columnheader", { name: "Nội dung", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("partner-history-page-label")).toContainText("Trang 1 / 2");
+    await page.getByTestId("partner-history-time-filter").selectOption("CUSTOM");
+    await expect(page.getByTestId("partner-history-from-date")).toBeVisible();
+    await expect(page.getByTestId("partner-history-to-date")).toBeVisible();
     await page.getByTestId("partner-history-search").fill("thanh toán");
-    await page.getByTestId("partner-history-exact-date").fill("2026-05-26");
-    await expect(page.getByTestId("partner-history-dialog")).toContainText("E2E thanh toán");
-    await page.getByTestId("partner-history-exact-date").fill("2026-05-25");
-    await expect(page.getByTestId("partner-history-dialog")).toContainText("Chưa có giao dịch nào khớp bộ lọc.");
+    await page.getByTestId("partner-history-from-date").fill("2026-05-26");
+    await page.getByTestId("partner-history-to-date").fill("2026-05-26");
+    await page.getByTestId("partner-history-from-date").locator("..").getByRole("button", { name: "Chọn ngày" }).click();
+    await expect(page.getByTestId("vietnamese-date-month-label")).toContainText("Tháng 5/2026");
+    await page.getByTestId("vietnamese-date-month-label").click();
+    await expect(page.getByTestId("vietnamese-date-month-panel")).toBeVisible();
+    await expect(page.getByTestId("vietnamese-date-month-panel")).not.toContainText("2026");
+    await expect(page.getByTestId("vietnamese-date-month-7")).toContainText("Tháng 7");
+    await page.getByTestId("vietnamese-date-month-label").click();
+    await expect(page.getByTestId("vietnamese-date-year-panel")).toBeVisible();
+    await expect(page.getByTestId("vietnamese-date-month-label")).toContainText("2020 - 2029");
+    await expect(page.getByTestId("vietnamese-date-year-2026")).toContainText("2026");
+    await page.getByTestId("vietnamese-date-next").click();
+    await expect(page.getByTestId("vietnamese-date-month-label")).toContainText("2030 - 2039");
+    await expect(page.getByTestId("vietnamese-date-year-2040")).toContainText("2040");
+    await page.getByTestId("vietnamese-date-year-2036").click();
+    await expect(page.getByTestId("vietnamese-date-month-panel")).toBeVisible();
+    await expect(page.getByTestId("vietnamese-date-month-label")).toContainText("2036");
+    await page.getByTestId("vietnamese-date-month-7").click();
+    await expect(page.getByTestId("vietnamese-date-month-label")).toContainText("Tháng 7/2036");
+    await expect(page.getByTestId("vietnamese-date-weekday-T2")).toContainText("T2");
+    await expect(page.getByTestId("vietnamese-date-weekday-CN")).toContainText("CN");
+    await expect(page.getByTestId("vietnamese-date-clear")).toContainText("Xoá");
+    await expect(page.getByTestId("vietnamese-date-today")).toContainText("Hôm nay");
+    await page.keyboard.press("Escape");
+    await expect(historyDialog).toContainText("E2E thanh toán");
+    await page.getByTestId("partner-history-from-date").fill("2026-05-25");
+    await page.getByTestId("partner-history-to-date").fill("2026-05-25");
+    await expect(historyDialog).toContainText("Chưa có giao dịch nào khớp bộ lọc.");
   });
 
   test("partners search auto-selects the filtered result and add form focuses first field", async ({ page, request }) => {
@@ -170,17 +256,338 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("partner-entry-close")).toBeVisible();
     const dialogWidth = await page.getByTestId("partner-entry-dialog").evaluate((element) => element.getBoundingClientRect().width);
     expect(dialogWidth).toBeLessThanOrEqual(390);
+    await page.getByTestId("partner-entry-close").click();
+    await expect(page.getByTestId("partner-entry-dialog")).toBeHidden();
+
+    await page.getByTestId("partner-open-history").click();
+    await expect(page.getByTestId("partner-history-dialog")).toBeVisible();
+    await expect(page.getByTestId("partner-history-filter-toggle")).toBeVisible();
+    await expect(page.getByTestId("partner-history-filter-panel")).toBeHidden();
+    await expect(page.getByTestId("partner-history-results")).toBeVisible();
+  });
+
+  test("workbook import panel previews workbook issues without writing DB", async ({ page }) => {
+    await login(page);
+    await page.goto("/dashboard/orders");
+    await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+
+    await page.getByTestId("minhhong-workbook-file").setInputFiles(ADMIN_IMPORT_WORKBOOK);
+    await page.getByTestId("minhhong-workbook-preview").click();
+
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("12.720.000đ", { timeout: 15_000 });
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("80 dòng");
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("41 dòng");
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("Cần kiểm tra");
+    await expect(page.getByTestId("minhhong-workbook-blocking-issues")).toContainText("37/1/2026");
+    await expect(page.getByTestId("minhhong-workbook-confirm")).toBeDisabled();
+  });
+
+  test("source Sheet import panel previews live raw Sheet data and surfaces row-level date warnings without writing DB", async ({ page }) => {
+    await login(page);
+    await page.goto("/dashboard/orders");
+    await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+
+    await page.getByTestId("minhhong-source-sheet-preview").click();
+
+    const summary = page.getByTestId("minhhong-workbook-preview-summary");
+    await expect(summary).toContainText("Đơn khách trong Sheet", { timeout: 20_000 });
+    await expect(summary).not.toContainText("Ledger đối tác");
+    await expect(summary).not.toContainText("Long cần trả");
+    await expect(summary).toContainText("Sẵn sàng áp dụng");
+    await expect(page.getByTestId("minhhong-workbook-blocking-issues")).toHaveCount(0);
+    await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Dòng cần kiểm tra trong Sheet");
+    await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Dòng Excel");
+    await expect(page.getByTestId("minhhong-workbook-warnings")).not.toContainText("Đối soát");
+    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toBeEnabled();
+    await expect(page.getByTestId("minhhong-workbook-confirm")).toBeDisabled();
+  });
+
+  test("source Sheet preview shows actionable change counts instead of only reconciliation text", async ({ page }) => {
+    await login(page);
+    await page.route("**/api/admin/minhhong-import?mode=preview&source=raw-sheet*", async (route) => {
+      expect(new URL(route.request().url()).searchParams.get("scope")).toBe("service-orders");
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          mode: "preview",
+          sourceSheetDateRepairs: 2,
+          reconciliation: {
+            ok: true,
+            blockingIssues: [],
+            warnings: [
+              "Dòng Excel 19: ngày \"37/1/2026\" đã được tự sửa thành \"27/01/2026\".",
+              "Dòng Excel 58: ngày \"7/72026\" đã được tự sửa thành \"07/07/2026\".",
+            ],
+          },
+          counts: { partners: 10, partnerEntries: 80, customerOrders: 41, skippedRows: 0, errors: 0 },
+          totals: { longPayable: 12720000, longHistoricalPaid: 60000000, customerOrderTotal: 36825000, customerOrderPaid: 29790000 },
+          changes: {
+            partners: { created: 0, updated: 0, unchanged: 10 },
+            partnerEntries: { created: 2, updated: 1, unchanged: 77 },
+            serviceOrders: { created: 3, updated: 4, unchanged: 34 },
+            conflicts: [],
+            records: {
+              partnerEntries: [{ action: "created", key: "NHAP_HANG:NH-MOI-0001", label: "Đèn NLMT bc" }],
+              serviceOrders: [{ action: "updated", key: "DH-0019", label: "Dòng Excel 19 · Phế liệu qs · Pin15cell" }],
+            },
+          },
+        }),
+      });
+    });
+    await page.goto("/dashboard/orders");
+    await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+
+    await page.getByTestId("minhhong-source-sheet-preview").click();
+
+    await expect(page.getByTestId("minhhong-workbook-preview-toggle")).toContainText("Thu gọn kết quả", { timeout: 15_000 });
+    await expect(page.getByTestId("minhhong-workbook-preview-body")).toBeVisible();
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("Đơn khách trong Sheet");
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).not.toContainText("Ledger đối tác");
+    await expect(page.getByTestId("minhhong-workbook-change-headline")).toContainText("Báo cáo đơn bán khách");
+    await expect(page.getByTestId("minhhong-workbook-change-headline")).toContainText("3 đơn mới");
+    await expect(page.getByTestId("minhhong-workbook-change-headline")).toContainText("4 đơn đã sửa");
+    await expect(page.getByTestId("minhhong-workbook-change-summary")).not.toContainText("Giao dịch đối tác");
+    await expect(page.getByTestId("minhhong-workbook-change-details")).toContainText("DH-0019");
+    await expect(page.getByTestId("minhhong-workbook-change-details")).toContainText("Dòng Excel 19");
+    await expect(page.getByTestId("minhhong-workbook-change-details")).not.toContainText("Đèn NLMT bc");
+    await expect(page.getByTestId("minhhong-source-sheet-date-repair-note")).toContainText("sửa 2 ô ngày");
+    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toContainText("sửa ngày Sheet");
+    await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Dòng cần kiểm tra trong Sheet");
+    await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Dòng Excel 19");
+    await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Dòng Excel 58");
+    await expect(page.getByTestId("minhhong-workbook-warnings")).not.toContainText("Đối soát");
+    await page.getByTestId("minhhong-workbook-preview-collapse-bottom").click();
+    await expect(page.getByTestId("minhhong-workbook-preview-body")).toBeHidden();
+    await expect(page.getByTestId("minhhong-workbook-preview-toggle")).toContainText("Mở kết quả");
+  });
+
+  test("partners source Sheet preview uses partner scope and hides customer-order import data", async ({ page }) => {
+    await login(page);
+    await page.route("**/api/admin/minhhong-import?mode=preview&source=raw-sheet*", async (route) => {
+      expect(new URL(route.request().url()).searchParams.get("scope")).toBe("partners");
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          mode: "preview",
+          sourceSheetDateRepairs: 2,
+          reconciliation: {
+            ok: true,
+            blockingIssues: [],
+            warnings: [
+              "Long - Minh Hồng cần trả đã thay đổi: hiện tại 9.990.000, mốc cũ 12.720.000.",
+              "Đơn hàng đã bán dòng 58: ngày \"7/72026\" được tự sửa thành \"07/07/2026\".",
+            ],
+          },
+          counts: { partners: 10, partnerEntries: 80, customerOrders: 0, skippedRows: 0, errors: 0 },
+          totals: { longPayable: 9990000, longHistoricalPaid: 60000000, customerOrderTotal: 0, customerOrderPaid: 0 },
+          changes: {
+            partners: { created: 1, updated: 2, unchanged: 7 },
+            partnerEntries: { created: 2, updated: 1, unchanged: 77 },
+            serviceOrders: { created: 3, updated: 4, unchanged: 34 },
+            conflicts: [],
+            records: {
+              partnerEntries: [{ action: "created", key: "NHAP_HANG:NH-MOI-0001", label: "Đèn NLMT bc" }],
+              serviceOrders: [{ action: "updated", key: "DH-0019", label: "Dòng Excel 19 · Phế liệu qs · Pin15cell" }],
+            },
+          },
+        }),
+      });
+    });
+    await page.goto("/dashboard/partners");
+    await expect(page.getByTestId("dashboard-partner-ledger")).toBeVisible();
+
+    await page.getByTestId("minhhong-source-sheet-preview").click();
+
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("Ledger đối tác", { timeout: 15_000 });
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("Long cần trả");
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("Đối tác");
+    await expect(page.getByTestId("minhhong-workbook-preview-summary")).not.toContainText("Đơn khách");
+    await expect(page.getByTestId("minhhong-workbook-change-headline")).toContainText("Báo cáo công nợ đối tác");
+    await expect(page.getByTestId("minhhong-workbook-change-headline")).toContainText("1 đối tác mới");
+    await expect(page.getByTestId("minhhong-workbook-change-headline")).toContainText("2 giao dịch mới");
+    await expect(page.getByTestId("minhhong-workbook-change-summary")).toContainText("Giao dịch đối tác");
+    await expect(page.getByTestId("minhhong-workbook-change-summary")).toContainText("Đối tác");
+    await expect(page.getByTestId("minhhong-workbook-change-summary")).not.toContainText("Đơn khách");
+    await expect(page.getByTestId("minhhong-workbook-change-details")).toContainText("Đèn NLMT bc");
+    await expect(page.getByTestId("minhhong-workbook-change-details")).not.toContainText("DH-0019");
+    await expect(page.getByTestId("minhhong-source-sheet-date-repair-note")).toHaveCount(0);
+    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toContainText("Áp dụng đối tác vào web");
+    await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Cảnh báo công nợ đối tác");
+    await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Long - Minh Hồng cần trả");
+    await expect(page.getByTestId("minhhong-workbook-warnings")).not.toContainText("Dòng Excel 58");
+  });
+
+  test("mobile workbook import is collapsed until explicitly opened", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+    await page.goto("/dashboard/orders");
+    await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+
+    await expect(page.getByTestId("minhhong-workbook-mobile-toggle")).toBeVisible();
+    await expect(page.getByTestId("minhhong-workbook-mobile-toggle")).toContainText("Mở khu nhập");
+    await expect(page.getByTestId("minhhong-workbook-file")).toBeHidden();
+
+    await page.getByTestId("minhhong-workbook-mobile-toggle").click();
+    await expect(page.getByTestId("minhhong-workbook-mobile-toggle")).toContainText("Ẩn khu nhập");
+    await expect(page.getByTestId("minhhong-workbook-file")).toBeVisible();
+    await expectMinTouchHeight(page.getByTestId("minhhong-source-sheet-preview"));
+    await expectMinTouchHeight(page.getByTestId("minhhong-source-sheet-confirm"));
+    await expectMinTouchHeight(page.getByTestId("minhhong-workbook-preview"));
+    await expectMinTouchHeight(page.getByTestId("minhhong-workbook-confirm"));
+  });
+
+  test("mobile toast notifications appear at the top instead of covering lower content", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+    await page.route("**/api/admin/minhhong-import?mode=preview&source=raw-sheet*", async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          mode: "preview",
+          sourceSheetDateRepairs: 0,
+          reconciliation: { ok: true, blockingIssues: [], warnings: [] },
+          counts: { partners: 0, partnerEntries: 0, customerOrders: 1, skippedRows: 0, errors: 0 },
+          totals: { longPayable: 0, longHistoricalPaid: 0, customerOrderTotal: 100000, customerOrderPaid: 0 },
+          changes: {
+            partners: { created: 0, updated: 0, unchanged: 0 },
+            partnerEntries: { created: 0, updated: 0, unchanged: 0 },
+            serviceOrders: { created: 1, updated: 0, unchanged: 0 },
+            conflicts: [],
+            records: { partnerEntries: [], serviceOrders: [{ action: "created", key: "DH-TEST", label: "Dòng Excel 10 · Test" }] },
+          },
+        }),
+      });
+    });
+    await page.goto("/dashboard/orders");
+    await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+    await page.getByTestId("minhhong-workbook-mobile-toggle").click();
+
+    await page.getByTestId("minhhong-source-sheet-preview").click();
+
+    const toast = page.getByText(/Sheet gốc đã kiểm tra/);
+    await expect(toast).toBeVisible();
+    const box = await toast.boundingBox();
+    expect(box, "toast should be measurable").not.toBeNull();
+    expect(Math.round(box?.y || 0)).toBeLessThan(120);
+    await page.waitForTimeout(3500);
+    await expect(toast).toBeVisible();
+  });
+
+  test("orders mobile separates each order card and keeps advanced filters collapsible", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+    await page.goto("/dashboard/orders");
+    await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+
+    await expect(page.getByTestId("dashboard-orders-filter-panel")).toBeVisible();
+    await expect(page.getByTestId("dashboard-orders-advanced-filters-panel")).toBeHidden();
+    await expectMinTouchHeight(page.getByTestId("dashboard-orders-advanced-filters-toggle"));
+
+    await page.getByTestId("dashboard-orders-advanced-filters-toggle").click();
+    await expect(page.getByTestId("dashboard-orders-advanced-filters-panel")).toBeVisible();
+    await page.getByTestId("dashboard-orders-advanced-filters-toggle").click();
+    await expect(page.getByTestId("dashboard-orders-advanced-filters-panel")).toBeHidden();
+
+    const cards = page.getByTestId("dashboard-order-card");
+    await expect(cards.first()).toBeVisible();
+    expect(await cards.count()).toBeGreaterThanOrEqual(2);
+
+    const firstCard = cards.first();
+    await expect(firstCard.getByTestId("dashboard-order-card-topline")).toBeVisible();
+    await expect(firstCard.getByTestId("dashboard-order-card-end")).toBeVisible();
+
+    const firstBox = await firstCard.boundingBox();
+    const secondBox = await cards.nth(1).boundingBox();
+    expect(firstBox).not.toBeNull();
+    expect(secondBox).not.toBeNull();
+    expect(Math.round((secondBox?.y || 0) - (firstBox?.y || 0) - (firstBox?.height || 0))).toBeGreaterThanOrEqual(16);
+
+    const hasPageOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2);
+    expect(hasPageOverflow).toBe(false);
+  });
+
+  test("advanced single CSV panel can be closed after opening", async ({ page }) => {
+    await login(page);
+    await page.goto("/dashboard/orders");
+    await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+
+    await page.getByTestId("dashboard-orders-open-import").click();
+    await expect(page.getByTestId("dashboard-orders-single-import-panel")).toBeVisible();
+
+    await page.getByTestId("dashboard-orders-import-close").click();
+    await expect(page.getByTestId("dashboard-orders-single-import-panel")).toBeHidden();
+  });
+
+  test("web to Sheet sync buttons use page-specific scopes", async ({ page }) => {
+    const seenScopes: string[] = [];
+    await login(page);
+    await page.route("**/api/admin/sheets-sync*", async (route) => {
+      const scope = new URL(route.request().url()).searchParams.get("scope") || "";
+      seenScopes.push(scope);
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          spreadsheetId: "test-sheet",
+          spreadsheetUrl: "https://docs.google.com/spreadsheets/d/test-sheet/edit",
+          tabs: scope === "partners"
+            ? ["WEB_Công nợ đối tác", "WEB_Giao dịch đối tác", "WEB_Đối tác"]
+            : ["WEB_Đơn hàng"],
+          totalUpdatedCells: 10,
+        }),
+      });
+    });
+
+    await page.goto("/dashboard/orders");
+    await page.getByRole("button", { name: "Xuất web → Sheet" }).click();
+    await page.getByRole("button", { name: "Xuất", exact: true }).click();
+    await expect(page.getByText(/tab đơn bán/)).toBeVisible();
+
+    await page.goto("/dashboard/partners");
+    await page.getByRole("button", { name: "Xuất web → Sheet" }).click();
+    await page.getByRole("button", { name: "Xuất", exact: true }).click();
+    await expect(page.getByText(/tab đối tác/)).toBeVisible();
+
+    expect(seenScopes).toEqual(["service-orders", "partners"]);
+  });
+
+  test("orders mobile card actions are readable touch targets", async ({ page, request }) => {
+    const { phone } = await seedServiceOrder(request, { orderDate: vietnamDateText() });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+    await page.goto("/dashboard/orders");
+    await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+    await page.getByTestId("dashboard-orders-search-input").fill(phone);
+    await expect(page.getByText(phone).last()).toBeVisible();
+
+    const editButton = page.getByTestId("dashboard-order-edit-button").first();
+    await editButton.scrollIntoViewIfNeeded();
+    await expectMinTouchHeight(editButton);
+    await expectMinTouchHeight(page.locator('select[title="Cập nhật trạng thái"]').first());
+    await expectMinTouchHeight(page.getByRole("button", { name: /khách/i }).first());
+    await expectMinTouchHeight(page.locator('input[title="Cập nhật số tiền đã thu"]').first());
+    await expectMinTouchHeight(page.getByRole("button", { name: "Ghi thu" }).first());
+    await expectMinTouchHeight(page.getByRole("button", { name: "Thu đủ" }).first());
+    await expectMinTouchHeight(page.getByRole("button", { name: "Xoá" }).first());
   });
 
   test("orders edit drawer saves without jumping to the create form", async ({ page, request }) => {
-    const { phone, suffix } = await seedServiceOrder(request);
+    const orderDate = vietnamDateText();
+    const orderDateKey = vietnamDateKey();
+    const { phone, suffix } = await seedServiceOrder(request, { orderDate });
     const updatedProduct = `Đơn phase2 đã sửa ${suffix}`;
 
     await login(page);
     await page.goto("/dashboard/orders");
     await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+    await expect(page.getByTestId("minhhong-workbook-import-panel")).toBeVisible();
+    await expect(page.getByTestId("dashboard-service-orders")).toContainText("Bộ lọc đơn hàng");
     await page.getByTestId("dashboard-orders-search-input").fill(phone);
-    await expect(page.getByText(phone)).toBeVisible();
+    await expect(page.getByText(phone).last()).toBeVisible();
 
     await page.getByTestId("dashboard-order-edit-button").first().click();
     await expect(page.getByTestId("dashboard-order-product-input")).toBeVisible();
@@ -193,14 +600,27 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("dashboard-order-product-input")).toBeHidden({ timeout: 10_000 });
     await expect(page.getByText(updatedProduct)).toBeVisible();
     await expect(page.getByText("1.000.000đ").first()).toBeVisible();
+    await expect(page.locator("span").filter({ hasText: "Dòng gốc:" }).first()).toBeVisible();
+    await expect(page.locator("strong").filter({ hasText: "Đơn hàng đã bán · dòng 2" }).first()).toBeVisible();
 
-    await page.getByTestId("dashboard-orders-month-filter").fill("2026-05");
+    await page.getByTestId("dashboard-orders-time-filter").selectOption("THIS_MONTH");
     await expect(page.getByText(updatedProduct)).toBeVisible();
-    await page.getByTestId("dashboard-orders-exact-date-filter").fill("2026-05-25");
+    await expect(page.getByTestId("dashboard-orders-from-date-filter")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-orders-to-date-filter")).toHaveCount(0);
+    await page.getByTestId("dashboard-orders-time-filter").selectOption("CUSTOM");
+    await expect(page.getByTestId("dashboard-orders-date-range")).toBeVisible();
+    await expect(page.getByTestId("dashboard-orders-from-date-filter")).toBeVisible();
+    await expect(page.getByTestId("dashboard-orders-to-date-filter")).toBeVisible();
+    await expect(page.locator('input[type="date"], input[type="month"]')).toHaveCount(0);
+    await page.getByTestId("dashboard-orders-from-date-filter").fill("2000-01-01");
+    await page.getByTestId("dashboard-orders-to-date-filter").fill("2000-01-01");
+    await expect(page.getByTestId("dashboard-orders-active-filter-chips")).toContainText("Tìm:");
+    await expect(page.getByTestId("dashboard-orders-active-filter-chips")).toContainText("Thời gian: Tùy chọn");
     await expect(page.getByText("Chưa có đơn nào khớp bộ lọc.")).toBeVisible();
-    await page.getByTestId("dashboard-orders-exact-date-filter").fill("2026-05-26");
-    await page.getByTestId("dashboard-orders-from-date-filter").fill("2026-05-26");
-    await page.getByTestId("dashboard-orders-to-date-filter").fill("2026-05-26");
+    await page.getByTestId("dashboard-orders-advanced-filters-toggle").click();
+    await expect(page.getByTestId("dashboard-orders-source-filter")).toBeVisible();
+    await page.getByTestId("dashboard-orders-from-date-filter").fill(orderDateKey);
+    await page.getByTestId("dashboard-orders-to-date-filter").fill(orderDateKey);
     await expect(page.getByText(updatedProduct)).toBeVisible();
   });
 });

@@ -1,9 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AdminVietnameseDateRangeFilter from "@/components/admin/AdminVietnameseDateRangeFilter";
+import MinhHongWorkbookImportPanel from "@/components/admin/MinhHongWorkbookImportPanel";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
+import { adminTimePresetLabels, matchesAdminTimePreset, type AdminTimePreset } from "@/lib/admin-time-filter";
 import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
+import { getPartnerEntryAmountLabel, getPartnerEntryDisplayDetails, getPartnerEntryHistoryNote } from "@/lib/partner-entry-display";
+import { getVisibleDebtPartners } from "@/lib/partner-legacy";
 import { formatVietnamDate, getVietnamDateKey, todayVietnamText } from "@/lib/vietnam-time";
 
 interface PartnerEntryData {
@@ -127,12 +132,6 @@ function parseQuantityText(value: string) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-function formatQuantity(value: number | null | undefined) {
-  const amount = Number(value || 0);
-  if (!amount) return "";
-  return Number.isInteger(amount) ? String(amount) : amount.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
-}
-
 function formatDate(value: string | null) {
   return formatVietnamDate(value) || "Chưa có";
 }
@@ -150,11 +149,17 @@ function getPartnerStats(partner: PartnerData) {
       if (entry.entryType === "PURCHASE") summary.purchased += entry.amount;
       if (entry.entryType === "PAYMENT") summary.paid += entry.amount;
       if (entry.entryType === "RETURN") summary.returned += entry.amount;
+      if (entry.countsInDebt !== false && entry.entryType === "PURCHASE") summary.countedPurchased += entry.amount;
+      if (entry.countsInDebt !== false && entry.entryType === "PAYMENT") summary.countedPaid += entry.amount;
+      if (entry.countsInDebt !== false && entry.entryType === "RETURN") summary.countedReturned += entry.amount;
       if (entry.countsInDebt === false) summary.referenceOnly += entry.amount;
       if (index === 0) summary.latest = entry;
       return summary;
     },
     {
+      countedPaid: 0,
+      countedPurchased: 0,
+      countedReturned: 0,
       latest: null as PartnerEntryData | null,
       openingBalance: 0,
       paid: 0,
@@ -165,6 +170,9 @@ function getPartnerStats(partner: PartnerData) {
   );
 
   return {
+    countedPaid: fallback.countedPaid,
+    countedPurchased: fallback.countedPurchased,
+    countedReturned: fallback.countedReturned,
     latest: fallback.latest,
     openingBalance: partner.totals.openingBalance ?? fallback.openingBalance,
     paid: partner.totals.paid ?? fallback.paid,
@@ -172,13 +180,6 @@ function getPartnerStats(partner: PartnerData) {
     referenceOnly: partner.totals.referenceOnly ?? fallback.referenceOnly,
     returned: partner.totals.returned ?? fallback.returned,
   };
-}
-
-function describeEntryMeta(entry: PartnerEntryData) {
-  const quantity = entry.quantity ? `${formatQuantity(entry.quantity)}${entry.unit ? ` ${entry.unit}` : ""}` : "";
-  const unitPrice = entry.unitPrice ? formatMoney(entry.unitPrice) : "";
-  const source = entry.sourceName || entry.sourceCode || entry.sourceRow ? [entry.sourceName, entry.sourceCode, entry.sourceRow ? `dòng ${entry.sourceRow}` : ""].filter(Boolean).join(" · ") : "";
-  return [quantity && unitPrice ? `${quantity} x ${unitPrice}` : quantity || unitPrice, entry.paymentMethod, source].filter(Boolean).join(" · ");
 }
 
 export default function AdminPartnerLedgerClient({ initialPartners }: { initialPartners: PartnerData[] }) {
@@ -189,19 +190,21 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
   const entryProductRef = useRef<HTMLInputElement | null>(null);
   const entryPaymentAmountRef = useRef<HTMLInputElement | null>(null);
   const [partners, setPartners] = useState(initialPartners);
-  const [selectedPartnerId, setSelectedPartnerId] = useState(initialPartners[0]?.id || "");
+  const [selectedPartnerId, setSelectedPartnerId] = useState(
+    () => getVisibleDebtPartners(initialPartners)[0]?.id || initialPartners[0]?.id || ""
+  );
   const [partnerQuery, setPartnerQuery] = useState("");
-  const [historyExactDate, setHistoryExactDate] = useState("");
+  const [historyTimePreset, setHistoryTimePreset] = useState<AdminTimePreset>("ALL");
   const [historyQuery, setHistoryQuery] = useState("");
-  const [historyFromDate, setHistoryFromDate] = useState("");
-  const [historyMonth, setHistoryMonth] = useState("");
-  const [historyToDate, setHistoryToDate] = useState("");
+  const [historyCustomFromDate, setHistoryCustomFromDate] = useState("");
+  const [historyCustomToDate, setHistoryCustomToDate] = useState("");
   const [historyType, setHistoryType] = useState<EntryFilter>("ALL");
   const [historyScope, setHistoryScope] = useState<EntryScope>("SELECTED");
   const [historyPage, setHistoryPage] = useState(1);
   const [showPartnerForm, setShowPartnerForm] = useState(false);
   const [entryDialogMode, setEntryDialogMode] = useState<EntryMode | null>(null);
   const [showHistoryDialog, setShowHistoryDialog] = useState(false);
+  const [showHistoryFilters, setShowHistoryFilters] = useState(false);
   const [isSavingPartner, setIsSavingPartner] = useState(false);
   const [isSavingEntry, setIsSavingEntry] = useState(false);
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
@@ -215,7 +218,8 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
   });
   const [entryForm, setEntryForm] = useState<EntryFormState>(() => createEmptyEntryForm());
 
-  const selectedPartner = partners.find((partner) => partner.id === selectedPartnerId) || partners[0] || null;
+  const visibleDebtPartners = useMemo(() => getVisibleDebtPartners(partners), [partners]);
+  const selectedPartner = visibleDebtPartners.find((partner) => partner.id === selectedPartnerId) || visibleDebtPartners[0] || partners[0] || null;
   const selectedStats = selectedPartner ? getPartnerStats(selectedPartner) : null;
   const entryQuantity = parseQuantityText(entryForm.quantity);
   const entryUnitPrice = parseMoneyText(entryForm.unitPrice);
@@ -230,7 +234,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
   }, []);
 
   const metrics = useMemo(() => {
-    return partners.reduce(
+    return visibleDebtPartners.reduce(
       (summary, partner) => {
         const stats = getPartnerStats(partner);
         summary.balance += partner.balance;
@@ -243,19 +247,19 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
       },
       { balance: 0, entries: 0, paid: 0, payablePartners: 0, purchased: 0, returned: 0 }
     );
-  }, [partners]);
+  }, [visibleDebtPartners]);
 
   const getFilteredPartners = useCallback((value: string) => {
     const query = value.trim().toLowerCase();
-    if (!query) return partners;
+    if (!query) return visibleDebtPartners;
 
-    return partners.filter((partner) =>
+    return visibleDebtPartners.filter((partner) =>
       partner.name.toLowerCase().includes(query)
       || partner.code.toLowerCase().includes(query)
       || (partner.phone || "").toLowerCase().includes(query)
       || (partner.notes || "").toLowerCase().includes(query)
     );
-  }, [partners]);
+  }, [visibleDebtPartners]);
 
   const filteredPartners = useMemo(() => getFilteredPartners(partnerQuery), [getFilteredPartners, partnerQuery]);
 
@@ -280,7 +284,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
   }, [filteredPartners, selectedPartnerId]);
 
   const allEntries = useMemo<VisibleEntry[]>(() => {
-    return partners
+    return visibleDebtPartners
       .flatMap((partner) =>
         partner.ledgerEntries.map((entry) => ({
           ...entry,
@@ -289,7 +293,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
         }))
       )
       .sort((first, second) => new Date(second.entryDate).getTime() - new Date(first.entryDate).getTime());
-  }, [partners]);
+  }, [visibleDebtPartners]);
 
   const recentEntries = useMemo<VisibleEntry[]>(() => {
     if (!selectedPartner) return [];
@@ -308,11 +312,15 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
 
     return baseEntries.filter((entry) => {
       const dateKey = getVietnamDateKey(entry.entryDate);
+      const todayKey = getVietnamDateKey(new Date());
       const matchesType = historyType === "ALL" || entry.entryType === historyType;
-      const matchesExactDate = !historyExactDate || dateKey === historyExactDate;
-      const matchesMonth = !historyMonth || dateKey.startsWith(historyMonth);
-      const matchesFromDate = !historyFromDate || dateKey >= historyFromDate;
-      const matchesToDate = !historyToDate || dateKey <= historyToDate;
+      const matchesTime = matchesAdminTimePreset(
+        dateKey,
+        historyTimePreset,
+        todayKey,
+        historyCustomFromDate,
+        historyCustomToDate
+      );
       const matchesSearch = !query
         || entry.partnerName.toLowerCase().includes(query)
         || entry.partnerCode.toLowerCase().includes(query)
@@ -321,9 +329,9 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
         || (entry.notes || "").toLowerCase().includes(query)
         || (entry.sourceName || "").toLowerCase().includes(query)
         || (entry.sourceCode || "").toLowerCase().includes(query);
-      return matchesType && matchesExactDate && matchesMonth && matchesFromDate && matchesToDate && matchesSearch;
+      return matchesType && matchesTime && matchesSearch;
     });
-  }, [allEntries, historyExactDate, historyFromDate, historyMonth, historyQuery, historyScope, historyToDate, historyType, selectedPartner]);
+  }, [allEntries, historyCustomFromDate, historyCustomToDate, historyQuery, historyScope, historyTimePreset, historyType, selectedPartner]);
 
   const historyStats = useMemo(() => {
     return historyEntries.reduce(
@@ -331,16 +339,15 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
         if (entry.entryType === "PURCHASE") summary.purchased += entry.amount;
         if (entry.entryType === "PAYMENT") summary.paid += entry.amount;
         if (entry.entryType === "RETURN") summary.returned += entry.amount;
-        summary.net += entry.signedAmount;
         return summary;
       },
-      { net: 0, paid: 0, purchased: 0, returned: 0 }
+      { paid: 0, purchased: 0, returned: 0 }
     );
   }, [historyEntries]);
 
   useEffect(() => {
     setHistoryPage(1);
-  }, [historyExactDate, historyFromDate, historyMonth, historyQuery, historyScope, historyToDate, historyType, selectedPartnerId]);
+  }, [historyCustomFromDate, historyCustomToDate, historyQuery, historyScope, historyTimePreset, historyType, selectedPartnerId]);
 
   useEffect(() => {
     if (!showPartnerForm) return;
@@ -422,7 +429,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
     const amount = isPaymentMode ? parseMoneyText(entryForm.paymentAmount) : entryLineTotal;
 
     if (!isPaymentMode && !productName) {
-      showToast("Vui lòng nhập sản phẩm hoặc nội dung giao dịch.", "error");
+      showToast("Vui lòng nhập tên mặt hàng.", "error");
       return;
     }
 
@@ -497,27 +504,38 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
   };
 
   const syncGoogleSheet = async () => {
-    setSyncingSheet(true);
-    try {
-      const response = await fetch("/api/admin/sheets-sync", { method: "POST" });
-      const data = await response.json();
+    showConfirm("Xuất dữ liệu công nợ đối tác hiện tại trên web sang các tab WEB_Công nợ đối tác, WEB_Giao dịch đối tác và WEB_Đối tác? Tab đơn hàng và các tab gốc Minh Hồng sẽ không bị ghi hoặc xoá.", async () => {
+      setSyncingSheet(true);
+      try {
+        const response = await fetch("/api/admin/sheets-sync?scope=partners", { method: "POST" });
+        const data = await response.json();
 
-      if (!response.ok || !data.success) {
-        showToast(data.message || "Chưa sync được Google Sheet.", "error");
-        return;
+        if (!response.ok || !data.success) {
+          showToast(data.message || "Chưa xuất được dữ liệu web sang Google Sheet.", "error");
+          return;
+        }
+
+        showToast(`Đã xuất ${data.tabs?.length || 0} tab đối tác từ web sang Google Sheet.`, "success");
+      } catch {
+        showToast("Kết nối bị gián đoạn khi xuất web sang Google Sheet.", "error");
+      } finally {
+        setSyncingSheet(false);
       }
-
-      showToast(`Đã sync ${data.tabs?.length || 0} tab sang Google Sheet.`, "success");
-    } catch {
-      showToast("Kết nối bị gián đoạn khi sync Google Sheet.", "error");
-    } finally {
-      setSyncingSheet(false);
-    }
+    }, "Xuất");
   };
 
   const renderEntryCard = (entry: VisibleEntry, compact = false) => {
     const type = entryTypeLabels[entry.entryType] || entryTypeLabels.PURCHASE;
-    const meta = describeEntryMeta(entry);
+    const meta = getPartnerEntryDisplayDetails(entry);
+    const amountLabel = getPartnerEntryAmountLabel(entry.entryType);
+    const historyNote = getPartnerEntryHistoryNote(entry.countsInDebt);
+    const amountTone = entry.entryType === "PURCHASE"
+      ? "text-red-700"
+      : entry.entryType === "PAYMENT"
+        ? "text-green-700"
+        : entry.entryType === "RETURN"
+          ? "text-amber-700"
+          : "text-slate-700";
 
     return (
       <div key={entry.id} className={`rounded-lg border border-slate-100 bg-white p-4 shadow-sm ${deletingEntryId === entry.id ? "opacity-60" : ""}`}>
@@ -528,17 +546,14 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
           </div>
           <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-bold ${type.color}`}>{type.label}</span>
         </div>
-        <p className={`mt-3 font-heading text-xl font-extrabold ${entry.signedAmount > 0 ? "text-red-700" : entry.signedAmount < 0 ? "text-green-700" : "text-slate-700"}`}>
-          {formatMoney(entry.signedAmount)}
+        <p className="mt-3 font-body text-xs font-bold text-slate-500">{amountLabel}</p>
+        <p className={`mt-0.5 font-heading text-xl font-extrabold tabular-nums ${amountTone}`}>
+          {formatMoney(entry.amount)}
         </p>
         {meta ? <p className="mt-2 font-body text-sm text-slate-600">{meta}</p> : null}
-        {entry.countsInDebt ? null : (
-          <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">
-            Dòng đối chiếu, không cộng vào số phải trả
-          </p>
-        )}
-        {entry.reference ? <p className="mt-2 font-body text-sm text-slate-600">Chứng từ: {entry.reference}</p> : null}
-        {!compact && entry.notes ? <p className="mt-1 font-body text-sm text-slate-500">{entry.notes}</p> : null}
+        {historyNote ? <p className="mt-2 font-body text-sm font-semibold text-amber-700">{historyNote}</p> : null}
+        {entry.reference ? <p className="mt-2 font-body text-sm text-slate-600">Mã chứng từ: {entry.reference}</p> : null}
+        {!compact && entry.countsInDebt && entry.notes ? <p className="mt-1 break-words font-body text-sm text-slate-500">{entry.notes}</p> : null}
         <button
           type="button"
           onClick={() => deleteEntry(entry)}
@@ -568,7 +583,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
             disabled={syncingSheet}
             className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-300"
           >
-            {syncingSheet ? "Đang sync..." : "Sync Google Sheet"}
+            {syncingSheet ? "Đang xuất…" : "Xuất web → Sheet"}
           </button>
           <button
             type="button"
@@ -589,26 +604,27 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-lg border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-500">Đối tác</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{partners.length}</p>
-          <p className="mt-1 font-body text-xs text-slate-500">{metrics.payablePartners} đối tác còn phải trả</p>
-        </div>
-        <div className="rounded-lg border border-red-100 bg-red-50 p-4 sm:p-5 lg:col-span-2">
-          <p className="font-body text-xs uppercase tracking-wider text-red-700">Minh Hồng đang phải trả</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-red-700">{formatMoney(metrics.balance)}</p>
-        </div>
-        <div className="rounded-lg border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-500">Đã mua</p>
+          <p className="font-body text-xs uppercase tracking-wider text-slate-500">Tổng tiền mua</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{formatMoney(metrics.purchased)}</p>
         </div>
         <div className="rounded-lg border border-green-100 bg-green-50 p-4 sm:p-5">
           <p className="font-body text-xs uppercase tracking-wider text-green-700">Đã thanh toán</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-green-700">{formatMoney(metrics.paid)}</p>
-          <p className="mt-1 font-body text-xs font-semibold text-amber-700">Trả hàng: {formatMoney(metrics.returned)}</p>
+        </div>
+        <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 sm:p-5">
+          <p className="font-body text-xs uppercase tracking-wider text-amber-700">Đã trả hàng</p>
+          <p className="mt-1 font-heading text-2xl font-extrabold text-amber-700">{formatMoney(metrics.returned)}</p>
+        </div>
+        <div className="rounded-lg border border-red-100 bg-red-50 p-4 sm:p-5">
+          <p className="font-body text-xs uppercase tracking-wider text-red-700">Minh Hồng cần trả</p>
+          <p className="mt-1 font-heading text-2xl font-extrabold text-red-700">{formatMoney(metrics.balance)}</p>
+          <p className="mt-1 font-body text-xs text-red-700">{metrics.payablePartners} đối tác còn phải trả</p>
         </div>
       </div>
+
+      <MinhHongWorkbookImportPanel scope="partners" onImported={() => window.location.reload()} />
 
       {showPartnerForm ? (
         <form ref={partnerFormRef} onSubmit={savePartner} className="scroll-mt-24 rounded-lg border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
@@ -675,7 +691,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
         </form>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="rounded-lg border border-slate-100 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-heading text-base font-extrabold text-slate-900">Chọn đối tác</h3>
@@ -699,14 +715,12 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
               <option key={partner.id} value={partner.id}>{partner.name} · {formatMoney(partner.balance)}</option>
             ))}
           </select>
-          <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 font-body text-xs font-semibold text-slate-600">
-            {filteredPartners.length === 0
-              ? "Không có đối tác khớp tìm kiếm."
-              : `Đang lọc ${filteredPartners.length} đối tác. Chọn một đối tác để xem chi tiết bên cạnh.`}
-          </p>
+          {filteredPartners.length === 0 ? (
+            <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 font-body text-sm text-slate-600">Không có đối tác phù hợp.</p>
+          ) : null}
         </aside>
 
-        <section className="space-y-4">
+        <section className="min-w-0 space-y-4">
           {selectedPartner ? (
             <div className="rounded-lg border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -724,13 +738,9 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                   Ghi giao dịch
                 </button>
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <div className="rounded-lg bg-red-50 p-3 xl:col-span-2">
-                  <p className="font-body text-xs font-bold text-red-700">Minh Hồng đang phải trả</p>
-                  <p className="mt-1 font-heading text-xl font-extrabold text-red-700">{formatMoney(selectedPartner.balance)}</p>
-                </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-lg bg-slate-50 p-3">
-                  <p className="font-body text-xs font-bold text-slate-600">Đã mua</p>
+                  <p className="font-body text-xs font-bold text-slate-600">Tổng tiền mua</p>
                   <p className="mt-1 font-heading text-xl font-extrabold text-slate-900">{formatMoney(selectedStats?.purchased || 0)}</p>
                 </div>
                 <div className="rounded-lg bg-green-50 p-3">
@@ -741,16 +751,15 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                   <p className="font-body text-xs font-bold text-amber-700">Đã trả hàng</p>
                   <p className="mt-1 font-heading text-xl font-extrabold text-amber-700">{formatMoney(selectedStats?.returned || 0)}</p>
                 </div>
+                <div className="rounded-lg bg-red-50 p-3">
+                  <p className="font-body text-xs font-bold text-red-700">Minh Hồng cần trả</p>
+                  <p className="mt-1 font-heading text-xl font-extrabold text-red-700">{formatMoney(selectedPartner.balance)}</p>
+                </div>
               </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="mt-3">
                 <p className="rounded-lg bg-slate-50 px-3 py-2 font-body text-sm text-slate-600">
                   Giao dịch gần nhất: <strong>{selectedStats?.latest ? formatDate(selectedStats.latest.entryDate) : "Chưa có"}</strong>
                 </p>
-                {selectedStats?.referenceOnly ? (
-                  <p className="rounded-lg bg-amber-50 px-3 py-2 font-body text-sm text-amber-800">
-                    Dòng cũ để đối chiếu, không cộng đôi: <strong>{formatMoney(selectedStats.referenceOnly)}</strong>
-                  </p>
-                ) : null}
               </div>
               {selectedPartner.notes ? <p className="mt-3 font-body text-sm text-slate-500">{selectedPartner.notes}</p> : null}
             </div>
@@ -760,21 +769,77 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="font-heading text-lg font-extrabold text-slate-900">Giao dịch gần nhất</h3>
-                <p className="font-body text-sm text-slate-600">Trang chính chỉ hiển thị vài dòng mới nhất để không kéo dài vô hạn.</p>
+                <p className="font-body text-sm text-slate-600">{recentEntries.length} giao dịch mới nhất của {selectedPartner?.name || "đối tác"}.</p>
               </div>
               <button
                 type="button"
                 data-testid="partner-open-history"
-                onClick={() => setShowHistoryDialog(true)}
+                onClick={() => {
+                  setShowHistoryFilters(false);
+                  setShowHistoryDialog(true);
+                }}
                 className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white hover:bg-slate-800"
               >
                 Xem tất cả giao dịch
               </button>
             </div>
-            <div className="mt-4 grid gap-3 lg:grid-cols-2" data-testid="partner-recent-entries">
+            <div className="mt-4" data-testid="partner-recent-entries">
               {recentEntries.length === 0 ? (
-                <p className="rounded-lg bg-slate-50 px-4 py-8 text-center font-body text-sm text-slate-500 lg:col-span-2">Chưa có giao dịch nào cho đối tác này.</p>
-              ) : recentEntries.map((entry) => renderEntryCard(entry, true))}
+                <p className="rounded-lg bg-slate-50 px-4 py-8 text-center font-body text-sm text-slate-500">Chưa có giao dịch nào cho đối tác này.</p>
+              ) : (
+                <>
+                  <div className="space-y-3 lg:hidden">
+                    {recentEntries.map((entry) => renderEntryCard(entry, true))}
+                  </div>
+                  <div className="hidden overflow-hidden rounded-lg border border-slate-100 lg:block">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-[920px] w-full border-collapse text-left font-body text-sm">
+                        <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+                          <tr>
+                            <th className="px-4 py-3">Ngày</th>
+                            <th className="px-4 py-3">Loại</th>
+                            <th className="px-4 py-3">Tên mặt hàng / Nội dung thanh toán</th>
+                            <th className="px-4 py-3">Chi tiết</th>
+                            <th className="px-4 py-3 text-right">Thành tiền</th>
+                            <th className="px-4 py-3">Chứng từ</th>
+                            <th className="px-4 py-3 text-right">Thao tác</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {recentEntries.map((entry) => {
+                            const type = entryTypeLabels[entry.entryType] || entryTypeLabels.PURCHASE;
+                            const meta = getPartnerEntryDisplayDetails(entry);
+                            const historyNote = getPartnerEntryHistoryNote(entry.countsInDebt);
+                            return (
+                              <tr key={entry.id} className={deletingEntryId === entry.id ? "opacity-60" : ""}>
+                                <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDate(entry.entryDate)}</td>
+                                <td className="px-4 py-3"><span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${type.color}`}>{type.label}</span></td>
+                                <td className="px-4 py-3">
+                                  <p className="font-semibold text-slate-900">{entry.description}</p>
+                                  {historyNote ? <p className="mt-1 text-xs font-semibold text-amber-700">{historyNote}</p> : null}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-slate-600">{meta || "-"}</td>
+                                <td className="px-4 py-3 text-right font-bold text-slate-900">{formatMoney(entry.amount)}</td>
+                                <td className="px-4 py-3 text-xs text-slate-600">{entry.reference || "-"}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteEntry(entry)}
+                                    disabled={deletingEntryId === entry.id}
+                                    className="min-h-10 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-600 disabled:bg-slate-100 disabled:text-slate-300"
+                                  >
+                                    Xoá
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </section>
@@ -841,7 +906,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                     />
                   </label>
                   <label className="space-y-1.5 lg:col-span-2">
-                    <span className="font-body text-xs font-bold text-slate-700">Nội dung</span>
+                    <span className="font-body text-xs font-bold text-slate-700">Nội dung thanh toán</span>
                     <input
                       value={entryForm.paymentDescription}
                       onChange={(event) => setEntryForm({ ...entryForm, paymentDescription: event.target.value })}
@@ -862,7 +927,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
               ) : (
                 <>
                   <label className="space-y-1.5 lg:col-span-2">
-                    <span className="font-body text-xs font-bold text-slate-700">Sản phẩm / nội dung</span>
+                    <span className="font-body text-xs font-bold text-slate-700">Tên mặt hàng</span>
                     <input
                       ref={entryProductRef}
                       data-testid="partner-entry-product"
@@ -938,7 +1003,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
               </button>
               {selectedPartner ? (
                 <p className="font-body text-sm font-semibold text-slate-600">
-                  Hiện Minh Hồng đang phải trả {selectedPartner.name}: {formatMoney(selectedPartner.balance)}.
+                  Minh Hồng cần trả {selectedPartner.name}: {formatMoney(selectedPartner.balance)}.
                 </p>
               ) : null}
             </div>
@@ -947,64 +1012,87 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
       ) : null}
 
       {showHistoryDialog ? (
-        <div className="fixed inset-0 z-50 flex items-end bg-slate-950/35 p-0 sm:items-center sm:justify-center sm:p-4" data-testid="partner-history-dialog">
-          <button type="button" className="absolute inset-0 cursor-default" aria-label="Đóng lịch sử giao dịch" onClick={() => setShowHistoryDialog(false)} />
-          <div className="relative flex max-h-[94vh] w-full flex-col rounded-t-lg bg-white shadow-2xl sm:max-w-6xl sm:rounded-lg">
+        <div className="fixed inset-0 z-50 flex items-end overscroll-contain bg-slate-950/35 p-0 sm:items-center sm:justify-center sm:p-4" data-testid="partner-history-dialog" role="dialog" aria-modal="true" aria-labelledby="partner-history-title">
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            aria-label="Đóng lịch sử giao dịch"
+            onClick={() => {
+              setShowHistoryFilters(false);
+              setShowHistoryDialog(false);
+            }}
+          />
+          <div className="relative flex h-[94vh] w-full flex-col rounded-t-lg bg-white shadow-2xl sm:h-[92vh] sm:max-w-[min(96vw,1400px)] sm:rounded-lg">
             <div className="border-b border-slate-100 p-4 sm:p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h3 className="font-heading text-lg font-extrabold text-slate-900">Lịch sử giao dịch</h3>
-                  <p className="font-body text-sm text-slate-600">{historyEntries.length} giao dịch khớp bộ lọc.</p>
+                  <h3 id="partner-history-title" className="font-heading text-lg font-extrabold text-slate-900 text-pretty">Lịch sử giao dịch</h3>
+                  <p className="font-body text-sm text-slate-600">Đang hiển thị {historyEntries.length} giao dịch.</p>
                 </div>
-                <button type="button" onClick={() => setShowHistoryDialog(false)} className="min-h-11 rounded-lg bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200">
-                  Đóng
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="partner-history-filter-toggle"
+                    onClick={() => setShowHistoryFilters((current) => !current)}
+                    className="min-h-11 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-50 sm:hidden"
+                  >
+                    {showHistoryFilters ? "Ẩn lọc" : "Lọc"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowHistoryFilters(false);
+                      setShowHistoryDialog(false);
+                    }}
+                    className="min-h-11 rounded-lg bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200"
+                  >
+                    Đóng
+                  </button>
+                </div>
               </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_150px_150px_150px_150px_150px_150px]">
+              <div
+                data-testid="partner-history-filter-panel"
+                className={`${showHistoryFilters ? "grid" : "hidden"} mt-3 gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:mt-4 sm:grid sm:grid-cols-2 sm:border-0 sm:bg-white sm:p-0 xl:grid-cols-5`}
+              >
                 <input
                   value={historyQuery}
                   onChange={(event) => setHistoryQuery(event.target.value)}
-                  placeholder="Tìm giao dịch, chứng từ, nguồn, ghi chú"
-                  className="min-h-11 rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400 md:col-span-2 xl:col-span-1"
+                  placeholder="Tìm tên hàng, chứng từ hoặc ghi chú…"
+                  aria-label="Tìm trong lịch sử giao dịch"
+                  className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:col-span-2 xl:col-span-2"
                   data-testid="partner-history-search"
                 />
-                <input
-                  type="date"
-                  value={historyExactDate}
-                  onChange={(event) => setHistoryExactDate(event.target.value)}
-                  title="Chọn đúng một ngày"
-                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
-                  data-testid="partner-history-exact-date"
-                />
-                <input
-                  type="month"
-                  value={historyMonth}
-                  onChange={(event) => setHistoryMonth(event.target.value)}
-                  title="Lọc theo tháng"
-                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
-                  data-testid="partner-history-month"
-                />
-                <input
-                  type="date"
-                  value={historyFromDate}
-                  onChange={(event) => setHistoryFromDate(event.target.value)}
-                  title="Từ ngày"
-                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
-                  data-testid="partner-history-from-date"
-                />
-                <input
-                  type="date"
-                  value={historyToDate}
-                  onChange={(event) => setHistoryToDate(event.target.value)}
-                  title="Đến ngày"
-                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
-                  data-testid="partner-history-to-date"
-                />
+                <select
+                  value={historyTimePreset}
+                  onChange={(event) => setHistoryTimePreset(event.target.value as AdminTimePreset)}
+                  title="Lọc thời gian"
+                  className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
+                  data-testid="partner-history-time-filter"
+                >
+                  {Object.entries(adminTimePresetLabels).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+                {historyTimePreset === "CUSTOM" ? (
+                  <div className="md:col-span-2 xl:col-span-2">
+                    <AdminVietnameseDateRangeFilter
+                      fromDataTestId="partner-history-from-date"
+                      fromName="partnerHistoryFromDate"
+                      fromValue={historyCustomFromDate}
+                      onFromChange={setHistoryCustomFromDate}
+                      onToChange={setHistoryCustomToDate}
+                      toDataTestId="partner-history-to-date"
+                      toName="partnerHistoryToDate"
+                      toValue={historyCustomToDate}
+                      className="grid gap-3 sm:grid-cols-2"
+                    />
+                  </div>
+                ) : null}
                 <select
                   value={historyScope}
                   onChange={(event) => setHistoryScope(event.target.value as EntryScope)}
                   title="Phạm vi giao dịch"
-                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
+                  className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
                 >
                   <option value="SELECTED">Đối tác đang xem</option>
                   <option value="ALL">Tất cả đối tác</option>
@@ -1013,7 +1101,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                   value={historyType}
                   onChange={(event) => setHistoryType(event.target.value as EntryFilter)}
                   title="Loại giao dịch"
-                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
+                  className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-3 text-sm font-body outline-none focus:border-red-400"
                 >
                   <option value="ALL">Tất cả loại</option>
                   {Object.entries(entryTypeLabels).map(([key, config]) => (
@@ -1021,26 +1109,27 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                   ))}
                 </select>
               </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <p className="mt-3 font-body text-xs font-bold text-slate-500">Tổng giá trị trong danh sách đang xem</p>
+              <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
                 <div className="rounded-lg bg-red-50 px-3 py-2">
-                  <p className="font-body text-xs font-bold text-red-700">Đã mua trong lọc</p>
-                  <p className="font-heading text-base font-extrabold text-red-700">{formatMoney(historyStats.purchased)}</p>
+                  <p className="font-body text-xs font-bold text-red-700">Mua hàng</p>
+                  <p className="font-heading text-base font-extrabold text-red-700 tabular-nums">{formatMoney(historyStats.purchased)}</p>
                 </div>
                 <div className="rounded-lg bg-green-50 px-3 py-2">
                   <p className="font-body text-xs font-bold text-green-700">Đã thanh toán</p>
-                  <p className="font-heading text-base font-extrabold text-green-700">{formatMoney(historyStats.paid)}</p>
+                  <p className="font-heading text-base font-extrabold text-green-700 tabular-nums">{formatMoney(historyStats.paid)}</p>
                 </div>
                 <div className="rounded-lg bg-amber-50 px-3 py-2">
                   <p className="font-body text-xs font-bold text-amber-700">Đã trả hàng</p>
-                  <p className="font-heading text-base font-extrabold text-amber-700">{formatMoney(historyStats.returned)}</p>
+                  <p className="font-heading text-base font-extrabold text-amber-700 tabular-nums">{formatMoney(historyStats.returned)}</p>
                 </div>
                 <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <p className="font-body text-xs font-bold text-slate-600">Tác động lọc</p>
-                  <p className="font-heading text-base font-extrabold text-slate-900">{formatMoney(historyStats.net)}</p>
+                  <p className="font-body text-xs font-bold text-slate-600">Số giao dịch</p>
+                  <p className="font-heading text-base font-extrabold text-slate-900">{historyEntries.length.toLocaleString("vi-VN")}</p>
                 </div>
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5" data-testid="partner-history-results">
               <div className="space-y-3 lg:hidden">
                 {visibleHistoryEntries.length === 0 ? (
                   <p className="rounded-lg bg-slate-50 px-4 py-8 text-center font-body text-sm text-slate-500">Chưa có giao dịch nào khớp bộ lọc.</p>
@@ -1055,9 +1144,9 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                         <th className="px-4 py-3">Ngày</th>
                         <th className="px-4 py-3">Đối tác</th>
                         <th className="px-4 py-3">Loại</th>
-                        <th className="px-4 py-3">Nội dung</th>
+                        <th className="px-4 py-3">Tên mặt hàng / Nội dung thanh toán</th>
                         <th className="px-4 py-3">Chi tiết</th>
-                        <th className="px-4 py-3 text-right">Tác động</th>
+                        <th className="px-4 py-3 text-right">Thành tiền</th>
                         <th className="px-4 py-3">Chứng từ</th>
                         <th className="px-4 py-3 text-right">Thao tác</th>
                       </tr>
@@ -1069,7 +1158,8 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                         </tr>
                       ) : visibleHistoryEntries.map((entry) => {
                         const type = entryTypeLabels[entry.entryType] || entryTypeLabels.PURCHASE;
-                        const meta = describeEntryMeta(entry);
+                        const meta = getPartnerEntryDisplayDetails(entry);
+                        const historyNote = getPartnerEntryHistoryNote(entry.countsInDebt);
                         return (
                           <tr key={entry.id} className={deletingEntryId === entry.id ? "opacity-60" : ""}>
                             <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDate(entry.entryDate)}</td>
@@ -1080,11 +1170,11 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                             <td className="px-4 py-3"><span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${type.color}`}>{type.label}</span></td>
                             <td className="px-4 py-3">
                               <p className="font-semibold text-slate-800">{entry.description}</p>
-                              {entry.countsInDebt ? null : <p className="mt-1 text-xs font-bold text-amber-700">Đối chiếu, không tính nợ</p>}
-                              {entry.notes ? <p className="mt-1 text-xs text-slate-500">{entry.notes}</p> : null}
+                              {historyNote ? <p className="mt-1 text-xs font-semibold text-amber-700">{historyNote}</p> : null}
+                              {entry.countsInDebt && entry.notes ? <p className="mt-1 break-words text-xs text-slate-500">{entry.notes}</p> : null}
                             </td>
                             <td className="px-4 py-3 text-xs text-slate-600">{meta || "-"}</td>
-                            <td className={`px-4 py-3 text-right font-bold ${entry.signedAmount > 0 ? "text-red-700" : entry.signedAmount < 0 ? "text-green-700" : "text-slate-700"}`}>{formatMoney(entry.signedAmount)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-900">{formatMoney(entry.amount)}</td>
                             <td className="px-4 py-3 text-xs text-slate-600">{entry.reference || "-"}</td>
                             <td className="px-4 py-3 text-right">
                               <button

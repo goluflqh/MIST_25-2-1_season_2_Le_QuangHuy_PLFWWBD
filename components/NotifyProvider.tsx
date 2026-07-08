@@ -24,7 +24,7 @@ export function NotifyProvider({ children }: { children: React.ReactNode }) {
   const showToast = useCallback((message: string, type: "success" | "error") => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 6000);
   }, []);
 
   const showConfirm = useCallback((message: string, onConfirm: () => void, confirmLabel?: string) => {
@@ -38,7 +38,7 @@ export function NotifyProvider({ children }: { children: React.ReactNode }) {
       {children}
 
       {/* Toast container */}
-      <div className="fixed inset-x-4 bottom-4 z-[999] space-y-2 pointer-events-none sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-4">
+      <div className="fixed inset-x-4 top-4 z-[999] space-y-2 pointer-events-none sm:inset-x-auto sm:right-4 sm:w-[min(24rem,calc(100vw-2rem))]">
         {toasts.map((t) => (
           <div
             key={t.id}

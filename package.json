@@ -21,6 +21,7 @@
     "test:unit": "node --import tsx --test tests/unit/*.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
+    "minhhong:rehearse": "tsx scripts/rehearse-minhhong-admin-import.ts",
     "db:generate": "prisma generate",
     "db:format": "prisma format",
     "db:validate": "prisma validate",
@@ -47,7 +48,8 @@
     "@hookform/resolvers": "^3.9.0",
     "@prisma/client": "^5.22.0",
     "clsx": "^2.1.1",
-    "next": "16.1.6",
+    "exceljs": "^4.4.0",
+    "next": "^16.2.6",
     "prisma": "^5.22.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -62,9 +64,13 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.1.6",
+    "eslint-config-next": "^16.2.6",
     "tailwindcss": "^4",
     "tsx": "^4.20.6",
     "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": "^8.5.15",
+    "uuid": "^11.1.1"
   }
 }

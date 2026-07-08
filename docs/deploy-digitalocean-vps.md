@@ -117,7 +117,7 @@ AUTH_SECRET="replace-with-output-from-openssl"
 
 AI_PROVIDER="9router"
 NINE_ROUTER_BASE_URL="http://host.docker.internal:20128/v1"
-NINE_ROUTER_MODEL="cx/gpt-5.2"
+NINE_ROUTER_MODEL="cx/gpt-5.5"
 NINE_ROUTER_API_KEY="replace-with-router-key"
 ```
 
