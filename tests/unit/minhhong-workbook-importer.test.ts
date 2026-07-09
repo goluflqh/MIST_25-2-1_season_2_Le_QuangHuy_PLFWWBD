@@ -15,7 +15,30 @@ function createFakeImportRunner() {
     partnerLedgerEntries: new Map<string, Record<string, unknown>>(),
     customers: new Map<string, Record<string, unknown>>(),
     serviceOrders: new Map<string, Record<string, unknown>>(),
+    warranties: new Map<string, Record<string, unknown>>(),
     auditLogs: [] as Array<Record<string, unknown>>,
+  };
+
+  const findServiceOrder = (where: { id?: string; orderCode?: string }) => {
+    if (where.orderCode) return state.serviceOrders.get(where.orderCode) || null;
+    if (where.id) {
+      return [...state.serviceOrders.values()].find((order) => order.id === where.id) || null;
+    }
+    return null;
+  };
+
+  const withServiceOrderRelations = (order: Record<string, unknown> | null, include?: Record<string, unknown>) => {
+    if (!order || !include) return order;
+    return {
+      ...order,
+      customer: include.customer
+        ? [...state.customers.values()].find((customer) => customer.id === order.customerId) || null
+        : undefined,
+      user: include.user ? null : undefined,
+      warranty: include.warranty
+        ? [...state.warranties.values()].find((warranty) => warranty.serviceOrderId === order.id) || null
+        : undefined,
+    };
   };
 
   const runner: ImportRunner = {
@@ -47,16 +70,41 @@ function createFakeImportRunner() {
       },
     },
     serviceOrder: {
-      findUnique: async ({ where }: { where: { orderCode: string } }) => state.serviceOrders.get(where.orderCode) || null,
+      findUnique: async ({ where, include }: { where: { id?: string; orderCode?: string }; include?: Record<string, unknown> }) => (
+        withServiceOrderRelations(findServiceOrder(where), include)
+      ),
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const value = { id: `order-${data.orderCode}`, ...data };
         state.serviceOrders.set(String(data.orderCode), value);
         return value;
       },
-      update: async ({ where, data }: { where: { orderCode: string }; data: Record<string, unknown> }) => {
-        const existing = state.serviceOrders.get(where.orderCode) || { id: `order-${where.orderCode}`, orderCode: where.orderCode };
+      update: async ({ where, data }: { where: { id?: string; orderCode?: string }; data: Record<string, unknown> }) => {
+        const existing = findServiceOrder(where) || { id: `order-${where.orderCode || where.id}`, orderCode: where.orderCode || where.id };
+        const orderCode = String(existing.orderCode || data.orderCode || where.orderCode || where.id);
+        const value = { id: existing.id || `order-${orderCode}`, ...existing, ...data };
+        state.serviceOrders.set(String(value.orderCode), value);
+        return value;
+      },
+    },
+    warranty: {
+      findUnique: async ({ where }: { where: { serialNo?: string; serviceOrderId?: string } }) => {
+        if (where.serialNo) {
+          return [...state.warranties.values()].find((warranty) => warranty.serialNo === where.serialNo) || null;
+        }
+        if (where.serviceOrderId) {
+          return [...state.warranties.values()].find((warranty) => warranty.serviceOrderId === where.serviceOrderId) || null;
+        }
+        return null;
+      },
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const value = { id: `warranty-${state.warranties.size + 1}`, ...data };
+        state.warranties.set(String(value.id), value);
+        return value;
+      },
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const existing = state.warranties.get(where.id) || { id: where.id };
         const value = { ...existing, ...data };
-        state.serviceOrders.set(where.orderCode, value);
+        state.warranties.set(where.id, value);
         return value;
       },
     },
@@ -83,6 +131,9 @@ test("imports the parsed workbook into idempotent partner and order records", as
   assert.equal(state.partners.size, parsed.partners.length);
   assert.equal(state.partnerLedgerEntries.size, 80);
   assert.equal(state.serviceOrders.size, 41);
+  const completedOrders = [...state.serviceOrders.values()].filter((order) => order.status === "COMPLETED");
+  assert.equal(state.warranties.size, completedOrders.length);
+  assert.equal(completedOrders.every((order) => order.warrantyMonths === 6 && order.warrantyEndDate instanceof Date), true);
   assert.equal([...state.partnerLedgerEntries.keys()].some((key) => key.startsWith("DON_KHACH")), false);
   assert.equal([...state.serviceOrders.values()].every((order) => order.source === "IMPORT" && order.sourceName === "Đơn khách"), true);
   assert.equal([...state.serviceOrders.values()].every((order) => String(order.customerPhone || "").length >= 10), true);
@@ -102,6 +153,65 @@ test("service-order scoped import leaves partner ledger records untouched", asyn
   assert.equal(state.partnerLedgerEntries.size, 0);
   assert.equal(state.serviceOrders.size, 41);
   assert.equal(state.auditLogs.length, 1);
+});
+
+test("service-order scoped import creates and refreshes linked six-month warranties from source order dates", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceOrder = {
+    ...baseline.customerOrders[0],
+    orderCode: "DH-WARRANTY-SYNC",
+    sourceCode: "DON_KHACH:DH-WARRANTY-SYNC",
+    sourceRow: 777,
+    orderDate: "10/01/2026",
+    customerName: "Khach warranty sync",
+    customerPhone: "0901234567",
+    productName: "Pin warranty sync",
+    quotedPrice: 1_200_000,
+    paidAmount: 1_200_000,
+    debtAmount: 0,
+    priceStatus: "CONFIRMED" as const,
+  };
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [sourceOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+
+  const savedOrder = state.serviceOrders.get("DH-WARRANTY-SYNC");
+  const warranty = [...state.warranties.values()][0];
+  assert.ok(savedOrder);
+  assert.ok(warranty);
+  assert.equal(state.warranties.size, 1);
+  assert.equal(warranty.serviceOrderId, savedOrder.id);
+  assert.equal(warranty.productName, "Pin warranty sync");
+  assert.equal(getVietnamDateKey(warranty.startDate as Date), "2026-01-10");
+  assert.equal(getVietnamDateKey(warranty.endDate as Date), "2026-07-10");
+  assert.equal(getVietnamDateKey(savedOrder.warrantyEndDate as Date), "2026-07-10");
+
+  const changed = {
+    ...parsed,
+    customerOrders: [{
+      ...sourceOrder,
+      orderDate: "20/01/2026",
+      productName: "Pin warranty sync updated",
+    }],
+  };
+  await importMinhHongParsedWorkbook(changed, runner, { scope: "service-orders", userId: "admin-test" });
+
+  const refreshedWarranty = state.warranties.get(String(warranty.id));
+  const refreshedOrder = state.serviceOrders.get("DH-WARRANTY-SYNC");
+  assert.equal(state.warranties.size, 1);
+  assert.equal(refreshedWarranty?.productName, "Pin warranty sync updated");
+  assert.equal(getVietnamDateKey(refreshedWarranty?.startDate as Date), "2026-01-20");
+  assert.equal(getVietnamDateKey(refreshedWarranty?.endDate as Date), "2026-07-20");
+  assert.equal(getVietnamDateKey(refreshedOrder?.warrantyEndDate as Date), "2026-07-20");
 });
 
 test("partner scoped import leaves service orders untouched", async () => {
@@ -195,11 +305,28 @@ test("running the same parsed workbook twice does not create duplicate records",
   assert.equal(state.partners.size, parsed.partners.length);
   assert.equal(state.partnerLedgerEntries.size, 80);
   assert.equal(state.serviceOrders.size, 41);
+  assert.equal(state.warranties.size, [...state.serviceOrders.values()].filter((order) => order.status === "COMPLETED").length);
   assert.equal(state.auditLogs.length, 2);
   assert.deepEqual(second.changes.partnerEntries, { created: 0, updated: 0, unchanged: 80 });
   assert.deepEqual(second.changes.serviceOrders, { created: 0, updated: 0, unchanged: 41 });
   assert.equal(second.partnerEntriesUpserted, 0);
   assert.equal(second.serviceOrdersUpserted, 0);
+});
+
+test("service-order import preserves web-only customer addresses that are not present in the Sheet", async () => {
+  const parsed = await parsedWorkbook();
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+  const orderCode = parsed.customerOrders[0].orderCode;
+  const importedOrder = state.serviceOrders.get(orderCode);
+  assert.ok(importedOrder);
+  importedOrder.customerAddress = "123 Nguyen Van Linh";
+
+  const second = await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+
+  assert.equal(state.serviceOrders.get(orderCode)?.customerAddress, "123 Nguyen Van Linh");
+  assert.equal(second.changes.serviceOrders.updated, 0);
 });
 
 test("previews new, changed, and unchanged rows before writing", async () => {

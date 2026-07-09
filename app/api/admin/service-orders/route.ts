@@ -349,7 +349,7 @@ export async function DELETE(request: Request) {
     const order = await prisma.$transaction(async (tx) => {
       const deletedOrder = await tx.serviceOrder.update({
         where: { id },
-        data: { couponRedemptionId: null, deletedAt: new Date(), warrantyEndDate: null },
+        data: { couponRedemptionId: null, deletedAt: new Date(), warrantyEndDate: null, warrantyMonths: null },
         include: serviceOrderInclude,
       });
 

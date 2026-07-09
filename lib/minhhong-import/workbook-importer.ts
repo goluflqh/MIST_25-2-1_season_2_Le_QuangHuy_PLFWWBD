@@ -1,6 +1,7 @@
 import { parseAdminDateInput } from "@/lib/admin-date";
 import { getImportedFallbackOrderDate } from "@/lib/admin-order-display";
 import { sanitizeText } from "@/lib/sanitize";
+import { createWarrantyForServiceOrder, DEFAULT_WARRANTY_MONTHS, getDefaultWarrantyEndDate } from "@/lib/warranties";
 import type { MinhHongImportScope } from "./import-scope";
 import { getServiceOrderInvalidDateSourceRows, reconcileMinhHongWorkbook } from "./reconciliation";
 import type { MinhHongParsedCustomerOrder, MinhHongParsedPartner, MinhHongParsedPartnerEntry, MinhHongParsedWorkbook } from "./workbook-parser";
@@ -18,9 +19,14 @@ interface ImportTransaction {
     upsert(args: { where: { phone: string }; create: Record<string, unknown>; update: Record<string, unknown> }): Promise<Record<string, unknown>>;
   };
   serviceOrder: {
-    findUnique(args: { where: { orderCode: string } }): Promise<Record<string, unknown> | null>;
+    findUnique(args: { where: { id?: string; orderCode?: string }; include?: Record<string, unknown> }): Promise<Record<string, unknown> | null>;
     create(args: { data: Record<string, unknown> }): Promise<Record<string, unknown>>;
-    update(args: { where: { orderCode: string }; data: Record<string, unknown> }): Promise<Record<string, unknown>>;
+    update(args: { where: { id?: string; orderCode?: string }; data: Record<string, unknown> }): Promise<Record<string, unknown>>;
+  };
+  warranty: {
+    findUnique(args: { where: { serialNo?: string; serviceOrderId?: string } }): Promise<Record<string, unknown> | null>;
+    create(args: { data: Record<string, unknown> }): Promise<Record<string, unknown>>;
+    update(args: { where: { id: string }; data: Record<string, unknown> }): Promise<Record<string, unknown>>;
   };
   auditLog?: {
     create(args: { data: Record<string, unknown> }): Promise<Record<string, unknown>>;
@@ -90,6 +96,7 @@ interface PartnerEntryPlanItem {
 
 interface ServiceOrderPlanItem {
   action: ImportAction | "conflict";
+  existing: Record<string, unknown> | null;
   order: MinhHongParsedCustomerOrder;
 }
 
@@ -206,26 +213,28 @@ function customerPhone(order: MinhHongParsedCustomerOrder) {
 
 function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string) {
   const phone = customerPhone(order);
+  const orderDate = toOrderDate(order.orderDate, order.sourceRow);
+  const status = serviceOrderStatus(order);
+  const warrantyMonths = DEFAULT_WARRANTY_MONTHS;
   return {
     orderCode: order.orderCode,
     customerId,
     customerName: order.customerName || "Khách chưa rõ tên",
     customerPhone: phone,
-    customerAddress: null,
     service: "KHAC",
     productName: order.productName || "Đơn khách cũ",
     issueDescription: order.productName || null,
     solution: null,
-    status: serviceOrderStatus(order),
+    status,
     source: "IMPORT",
     sourceName: "Đơn khách",
     sourceRow: order.sourceRow,
-    orderDate: toOrderDate(order.orderDate, order.sourceRow),
+    orderDate,
     quotedPrice: order.quotedPrice,
     priceStatus: priceStatus(order),
     paidAmount: order.paidAmount,
-    warrantyMonths: null,
-    warrantyEndDate: null,
+    warrantyMonths,
+    warrantyEndDate: status === "COMPLETED" ? getDefaultWarrantyEndDate(orderDate, warrantyMonths) : null,
     customerVisible: false,
     couponCode: null,
     couponDiscount: null,
@@ -309,11 +318,14 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
         continue;
       }
 
-      const existing = await tx.serviceOrder.findUnique({ where: { orderCode: order.orderCode } });
+      const existing = await tx.serviceOrder.findUnique({
+        where: { orderCode: order.orderCode },
+        include: { warranty: true },
+      });
       if (existing && existing.source !== "IMPORT" && !existing.deletedAt) {
         const message = `Không ghi đè đơn thủ công ${order.orderCode}; dữ liệu trên web được giữ nguyên.`;
         preview.conflicts.push(message);
-        serviceOrderPlans.push({ action: "conflict", order });
+        serviceOrderPlans.push({ action: "conflict", existing, order });
         continue;
       }
 
@@ -330,7 +342,7 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
           label: serviceOrderPreviewLabel(order),
         });
       }
-      serviceOrderPlans.push({ action, order });
+      serviceOrderPlans.push({ action, existing, order });
     }
   }
 
@@ -404,20 +416,56 @@ async function upsertCustomer(tx: ImportTransaction, order: MinhHongParsedCustom
   });
 }
 
+function hasActiveLinkedWarranty(order: Record<string, unknown> | null) {
+  const warranty = order?.warranty as Record<string, unknown> | null | undefined;
+  return Boolean(warranty && !warranty.deletedAt);
+}
+
+async function syncImportedOrderWarranty(
+  tx: ImportTransaction,
+  order: Record<string, unknown>,
+  options: { refreshExisting: boolean }
+) {
+  if (order.status !== "COMPLETED" || order.warrantyMonths === 0) return;
+
+  const serviceOrderId = asId(order);
+  if (!serviceOrderId) {
+    throw new MinhHongWorkbookImportError(`Không tìm thấy ID đơn ${order.orderCode || ""} để tạo phiếu bảo hành.`);
+  }
+
+  await createWarrantyForServiceOrder(
+    tx as unknown as Parameters<typeof createWarrantyForServiceOrder>[0],
+    serviceOrderId,
+    {
+      refreshExisting: options.refreshExisting,
+      warrantyMonths: order.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
+    }
+  );
+}
+
 async function upsertServiceOrders(tx: ImportTransaction, plans: ServiceOrderPlanItem[]) {
   for (const plan of plans) {
-    if (plan.action === "unchanged") continue;
     if (plan.action === "conflict") {
       throw new MinhHongWorkbookImportError(`Không ghi đè đơn thủ công ${plan.order.orderCode}; hãy đổi mã đơn hoặc xử lý trùng trước khi import.`);
     }
+
+    if (plan.action === "unchanged") {
+      if (plan.existing && !hasActiveLinkedWarranty(plan.existing)) {
+        await syncImportedOrderWarranty(tx, plan.existing, { refreshExisting: true });
+      }
+      continue;
+    }
+
     const order = plan.order;
     const customer = await upsertCustomer(tx, order);
     const data = serviceOrderData(order, asId(customer));
+    let savedOrder: Record<string, unknown>;
     if (plan.action === "updated") {
-      await tx.serviceOrder.update({ where: { orderCode: order.orderCode }, data });
+      savedOrder = await tx.serviceOrder.update({ where: { orderCode: order.orderCode }, data });
     } else {
-      await tx.serviceOrder.create({ data });
+      savedOrder = await tx.serviceOrder.create({ data });
     }
+    await syncImportedOrderWarranty(tx, savedOrder, { refreshExisting: true });
   }
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 import { addMonthsInVietnam, formatVietnamDate } from "@/lib/vietnam-time";
@@ -30,6 +30,7 @@ const serviceLabels: Record<string, string> = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const PAGE_SIZE = 12;
 
 function getDaysRemaining(endDate: string) {
   return Math.ceil((new Date(endDate).getTime() - Date.now()) / DAY_MS);
@@ -118,6 +119,7 @@ export default function AdminWarrantyClient({
   const [statusFilter, setStatusFilter] = useState<WarrantyStatusFilter>("all");
   const [serviceFilter, setServiceFilter] = useState("all");
   const [sortMode, setSortMode] = useState<WarrantySortMode>("endingSoon");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const metrics = useMemo(() => {
     return warranties.reduce(
@@ -165,11 +167,31 @@ export default function AdminWarrantyClient({
       });
   }, [searchQuery, serviceFilter, sortMode, statusFilter, warranties]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredWarranties.length / PAGE_SIZE));
+  const activePage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (activePage - 1) * PAGE_SIZE;
+  const paginatedWarranties = useMemo(() => {
+    return filteredWarranties.slice(pageStartIndex, pageStartIndex + PAGE_SIZE);
+  }, [filteredWarranties, pageStartIndex]);
+  const firstVisibleResult = filteredWarranties.length === 0 ? 0 : pageStartIndex + 1;
+  const lastVisibleResult = Math.min(pageStartIndex + paginatedWarranties.length, filteredWarranties.length);
+  const pageNumbers = useMemo(() => {
+    const windowSize = 5;
+    const start = Math.max(1, Math.min(activePage - 2, totalPages - windowSize + 1));
+    const end = Math.min(totalPages, start + windowSize - 1);
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [activePage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
   const resetFilters = () => {
     setSearchQuery("");
     setStatusFilter("all");
     setServiceFilter("all");
     setSortMode("endingSoon");
+    setCurrentPage(1);
   };
 
   const toggleCreateForm = () => {
@@ -386,14 +408,20 @@ export default function AdminWarrantyClient({
           <input
             data-testid="dashboard-warranty-search"
             value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
+            onChange={(event) => {
+              setSearchQuery(event.target.value);
+              setCurrentPage(1);
+            }}
             placeholder="Tìm mã bảo hành, SĐT, khách hàng, sản phẩm"
             className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
           />
           <select
             data-testid="dashboard-warranty-status-filter"
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as WarrantyStatusFilter)}
+            onChange={(event) => {
+              setStatusFilter(event.target.value as WarrantyStatusFilter);
+              setCurrentPage(1);
+            }}
             title="Lọc trạng thái bảo hành"
             className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
           >
@@ -405,7 +433,10 @@ export default function AdminWarrantyClient({
           <select
             data-testid="dashboard-warranty-service-filter"
             value={serviceFilter}
-            onChange={(event) => setServiceFilter(event.target.value)}
+            onChange={(event) => {
+              setServiceFilter(event.target.value);
+              setCurrentPage(1);
+            }}
             title="Lọc dịch vụ bảo hành"
             className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
           >
@@ -417,7 +448,10 @@ export default function AdminWarrantyClient({
           <select
             data-testid="dashboard-warranty-sort"
             value={sortMode}
-            onChange={(event) => setSortMode(event.target.value as WarrantySortMode)}
+            onChange={(event) => {
+              setSortMode(event.target.value as WarrantySortMode);
+              setCurrentPage(1);
+            }}
             title="Sắp xếp phiếu bảo hành"
             className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
           >
@@ -427,7 +461,8 @@ export default function AdminWarrantyClient({
           </select>
         </div>
         <p data-testid="dashboard-warranty-result-count" className="mt-3 font-body text-xs text-slate-400">
-          Hiển thị {filteredWarranties.length} / {warranties.length} phiếu
+          Hiển thị {filteredWarranties.length} / {warranties.length} phiếu · Trang {activePage}/{totalPages}
+          {filteredWarranties.length > 0 ? ` · Dòng ${firstVisibleResult}-${lastVisibleResult}` : ""}
         </p>
       </div>
 
@@ -537,7 +572,8 @@ export default function AdminWarrantyClient({
               <p className="font-body text-sm text-slate-400">Không có phiếu bảo hành nào khớp bộ lọc.</p>
             </div>
           ) : (
-            filteredWarranties.map((warranty) => {
+            <>
+            {paginatedWarranties.map((warranty) => {
               const status = getWarrantyStatus(warranty.endDate);
               const daysRemaining = getDaysRemaining(warranty.endDate);
               const timelineCopy = daysRemaining < 0
@@ -548,7 +584,7 @@ export default function AdminWarrantyClient({
                 <div
                   key={warranty.id}
                   data-testid="dashboard-warranty-card"
-                  className={`rounded-xl border bg-white p-5 shadow-sm ${status.border} ${deletingId === warranty.id ? "opacity-60" : ""}`}
+                  className={`rounded-xl border bg-white p-4 shadow-sm md:p-3 ${status.border} ${deletingId === warranty.id ? "opacity-60" : ""}`}
                 >
                   {editingId === warranty.id ? (
                     <div className="space-y-3">
@@ -614,7 +650,7 @@ export default function AdminWarrantyClient({
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center md:gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <code className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold">{warranty.serialNo}</code>
@@ -625,9 +661,9 @@ export default function AdminWarrantyClient({
                             {serviceLabels[warranty.service] || warranty.service}
                           </span>
                         </div>
-                        <p className="mt-1 font-body text-sm font-semibold text-slate-800">{warranty.productName}</p>
+                        <p className="mt-1 font-body text-sm font-semibold text-slate-800 md:text-[13px]">{warranty.productName}</p>
                         <p className="font-body text-xs text-slate-500">{warranty.customerName} · {warranty.customerPhone}</p>
-                        <div className="mt-2 flex flex-wrap gap-2 font-body text-[10px] text-slate-400">
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-body text-[10px] text-slate-400 md:mt-1.5">
                           <span>Tạo: {formatDate(warranty.startDate)}</span>
                           <span>BH đến: {formatDate(warranty.endDate)}</span>
                           <span>{timelineCopy}</span>
@@ -637,7 +673,7 @@ export default function AdminWarrantyClient({
                           <p className="mt-2 line-clamp-2 font-body text-xs text-slate-500">{warranty.notes}</p>
                         )}
                       </div>
-                      <div className="flex shrink-0 gap-2">
+                      <div className="flex shrink-0 gap-2 md:self-center">
                         <button
                           type="button"
                           onClick={() => startEdit(warranty)}
@@ -657,7 +693,48 @@ export default function AdminWarrantyClient({
                   )}
                 </div>
               );
-            })
+            })}
+            {totalPages > 1 ? (
+              <div data-testid="dashboard-warranty-pagination" className="flex flex-col gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <p className="font-body text-xs text-slate-500">
+                  Trang {activePage}/{totalPages} · {firstVisibleResult}-{lastVisibleResult} trong {filteredWarranties.length} phiếu
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                    disabled={activePage === 1}
+                    className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 disabled:text-slate-300"
+                  >
+                    Trước
+                  </button>
+                  {pageNumbers.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => setCurrentPage(page)}
+                      aria-current={page === activePage ? "page" : undefined}
+                      className={`min-h-9 min-w-9 rounded-lg px-3 text-xs font-bold ${
+                        page === activePage
+                          ? "bg-slate-900 text-white"
+                          : "border border-slate-200 text-slate-600"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                    disabled={activePage === totalPages}
+                    className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 disabled:text-slate-300"
+                  >
+                    Sau
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            </>
           )}
         </div>
       )}

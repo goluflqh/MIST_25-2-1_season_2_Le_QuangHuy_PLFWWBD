@@ -239,10 +239,10 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
   const changedRecordNoun = serviceOrderScope ? "đơn" : partnerScope ? "giao dịch/đối tác" : "bản ghi";
 
   return (
-    <section data-testid="minhhong-workbook-import-panel" className="rounded-lg border border-red-100 bg-white p-4 shadow-sm sm:p-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between lg:flex-1">
-          <div>
+    <section data-testid="minhhong-workbook-import-panel" className="rounded-lg border border-red-100 bg-white p-3 shadow-sm sm:p-4">
+      <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)] lg:items-start lg:gap-4 xl:grid-cols-[minmax(240px,300px)_minmax(0,1fr)]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between lg:block">
+          <div className="min-w-0">
           <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Dữ liệu Minh Hồng</p>
           <h3 className="font-heading text-lg font-extrabold text-slate-900 text-pretty">
             {serviceOrderScope ? "Nhập Sheet đơn bán → web" : partnerScope ? "Nhập Sheet đối tác → web" : "Nhập Excel/Sheet → web"}
@@ -254,7 +254,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                   ? "Chỉ kiểm tra và cập nhật công nợ đối tác."
                   : "Sheet/Excel → web. Luôn kiểm tra preview trước khi áp dụng."}
             </p>
-            <p className="mt-1 hidden font-body text-sm text-slate-600 sm:block">
+            <p className="mt-1 hidden font-body text-sm text-slate-600 sm:block lg:hidden">
               {serviceOrderScope
                 ? "Đọc Sheet gốc hoặc workbook chuẩn .xlsx, chỉ xem và áp dụng phần Đơn khách/đơn bán vào trang Đơn dịch vụ. Phần đối tác sẽ xử lý riêng ở trang Đối tác."
                 : partnerScope
@@ -272,7 +272,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
             {isMobileOpen ? "Ẩn khu nhập ▲" : "Mở khu nhập ▼"}
           </button>
         </div>
-        <div className={`${isMobileOpen ? "flex" : "hidden"} flex-col gap-2 sm:flex sm:flex-row sm:flex-wrap sm:items-center sm:justify-end`}>
+        <div className={`${isMobileOpen ? "flex" : "hidden"} flex-col gap-2 sm:flex sm:flex-row sm:flex-wrap sm:items-center sm:justify-start lg:justify-end`}>
           <a
             data-testid="minhhong-source-sheet-open"
             href={sourceSheetLinkHref(scope, partnerScope ? "partners-current" : serviceOrderScope ? "service-orders" : undefined)}
@@ -302,7 +302,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
               setPreview(null);
               setPreviewSource(null);
             }}
-            className="min-h-11 rounded-lg border border-slate-200 px-3 py-2 font-body text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:font-body file:text-xs file:font-bold file:text-slate-700"
+            className="min-h-11 max-w-full rounded-lg border border-slate-200 px-3 py-2 font-body text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:font-body file:text-xs file:font-bold file:text-slate-700 lg:w-[280px]"
           />
           <p className="-mt-1 font-body text-xs text-slate-500 sm:hidden">
             File Excel chuẩn là đường dự phòng; chọn file .xlsx thì 2 nút Excel mới dùng được.

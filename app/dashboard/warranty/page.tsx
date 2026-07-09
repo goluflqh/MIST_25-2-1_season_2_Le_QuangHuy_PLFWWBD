@@ -15,6 +15,7 @@ export default async function AdminWarrantyPage() {
       startDate: true,
       endDate: true,
       notes: true,
+      serviceOrderId: true,
     },
   });
 

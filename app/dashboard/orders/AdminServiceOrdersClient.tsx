@@ -1645,7 +1645,7 @@ export default function AdminServiceOrdersClient({
         </div>
       </div>
 
-      <div className="space-y-5 md:space-y-3">
+      <div className="space-y-5 md:space-y-2.5">
         {filteredOrders.length === 0 ? (
           <div className="rounded-2xl border border-slate-100 bg-white p-10 text-center shadow-sm">
             <p className="font-body text-sm text-slate-400">Chưa có đơn nào khớp bộ lọc.</p>
@@ -1678,15 +1678,15 @@ export default function AdminServiceOrdersClient({
               <div
                 key={order.id}
                 data-testid="dashboard-order-card"
-                className={`overflow-visible rounded-2xl border border-l-4 border-slate-100 bg-white shadow-sm ${boundaryClass} ${deletingId === order.id ? "opacity-60" : ""}`}
+                className={`overflow-visible rounded-2xl border border-l-4 border-slate-100 bg-white shadow-sm md:grid md:grid-cols-[minmax(0,1fr)_360px] md:gap-x-4 md:rounded-xl md:border-l-[3px] md:px-4 md:py-3 ${boundaryClass} ${deletingId === order.id ? "opacity-60" : ""}`}
               >
                 <div
                   data-testid="dashboard-order-card-topline"
-                  className={`sticky top-2 z-20 rounded-t-2xl border-b px-4 py-3 backdrop-blur md:static md:rounded-none md:border-b-0 md:bg-white md:px-5 md:pb-0 md:pt-5 md:backdrop-blur-0 ${toplineClass}`}
+                  className={`sticky top-2 z-20 rounded-t-2xl border-b px-4 py-3 backdrop-blur md:static md:col-start-1 md:row-start-1 md:rounded-none md:border-b-0 md:bg-white md:p-0 md:backdrop-blur-0 ${toplineClass}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 md:gap-1.5">
                         <code className="rounded bg-white/80 px-2 py-0.5 text-xs font-bold text-slate-700">{order.orderCode}</code>
                         <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${status.color}`}>
                           {status.label}
@@ -1709,8 +1709,8 @@ export default function AdminServiceOrdersClient({
                           </span>
                         ) : null}
                       </div>
-                      <h3 className="mt-2 font-heading text-lg font-extrabold leading-snug text-slate-950">{order.productName}</h3>
-                      <p className="mt-1 font-body text-sm font-semibold text-slate-600">
+                      <h3 className="mt-2 font-heading text-lg font-extrabold leading-snug text-slate-950 md:text-base">{order.productName}</h3>
+                      <p className="mt-1 font-body text-sm font-semibold text-slate-600 md:text-xs">
                         {order.customerName} · {order.customerPhone}
                         {order.customerAddress ? ` · ${order.customerAddress}` : ""}
                       </p>
@@ -1723,15 +1723,15 @@ export default function AdminServiceOrdersClient({
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-col gap-4 px-4 pb-4 pt-3 sm:px-5 sm:pb-5 xl:flex-row xl:items-start">
-                  <div className="min-w-0 flex-1">
+                <div className="flex flex-col gap-4 px-4 pb-4 pt-3 sm:px-5 sm:pb-5 md:contents">
+                  <div className="min-w-0 flex-1 md:col-start-1 md:row-start-2 md:mt-2">
                     <div className="mt-3 grid grid-cols-2 gap-2 font-body text-sm md:hidden">
                       <span className="rounded-xl bg-slate-50 px-3 py-2 text-slate-600">Ngày: <strong>{formatOrderDate(order)}</strong></span>
                       <span className="rounded-xl bg-slate-50 px-3 py-2 text-slate-600">Phải thu: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(payable) : priceStatus.label}</strong></span>
                       <span className="rounded-xl bg-green-50 px-3 py-2 text-green-700">Đã thu: <strong>{formatMoney(order.paidAmount)}</strong></span>
                       <span className="rounded-xl bg-red-50 px-3 py-2 text-red-700">Còn lại: <strong>{formatMoney(debt)}</strong></span>
                     </div>
-                    <div className="mt-3 hidden gap-2 font-body text-xs text-slate-500 md:grid md:grid-cols-2 xl:grid-cols-4">
+                    <div className="mt-2 hidden gap-x-4 gap-y-1 font-body text-[12px] leading-5 text-slate-500 md:grid md:grid-cols-3 xl:grid-cols-4">
                       <span>Ngày đơn: <strong>{formatOrderDate(order)}</strong></span>
                       {sourceContext ? <span>Dòng gốc: <strong>{sourceContext}</strong></span> : null}
                       <span>Giá gốc: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(order.quotedPrice) : priceStatus.label}</strong></span>
@@ -1760,33 +1760,33 @@ export default function AdminServiceOrdersClient({
                       </div>
                     </details>
                     {order.issueDescription || order.solution || order.notes ? (
-                      <div className="mt-3 hidden gap-2 md:grid lg:grid-cols-3">
+                      <div className="mt-2 hidden gap-2 md:grid lg:grid-cols-3">
                         {order.issueDescription ? (
-                          <p className="rounded-xl bg-slate-50 px-3 py-2 font-body text-xs text-slate-500">
+                          <p className="rounded-lg bg-slate-50 px-2.5 py-1.5 font-body text-xs text-slate-500">
                             <strong>Tình trạng:</strong> {order.issueDescription}
                           </p>
                         ) : null}
                         {order.solution ? (
-                          <p className="rounded-xl bg-slate-50 px-3 py-2 font-body text-xs text-slate-500">
+                          <p className="rounded-lg bg-slate-50 px-2.5 py-1.5 font-body text-xs text-slate-500">
                             <strong>Phương án:</strong> {order.solution}
                           </p>
                         ) : null}
                         {order.notes ? (
-                          <p className="rounded-xl bg-slate-50 px-3 py-2 font-body text-xs text-slate-500">
+                          <p className="rounded-lg bg-slate-50 px-2.5 py-1.5 font-body text-xs text-slate-500">
                             <strong>Ghi chú:</strong> {order.notes}
                           </p>
                         ) : null}
                       </div>
                     ) : null}
-                    <p className="mt-3 hidden font-body text-xs font-semibold text-slate-400 md:block">{status.hint}</p>
+                    <p className="mt-2 hidden font-body text-xs font-semibold text-slate-400 md:block">{status.hint}</p>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-3 xl:w-[430px]">
+                  <div className="grid gap-2 sm:grid-cols-3 md:col-start-2 md:row-span-2 md:row-start-1 md:grid-cols-2 md:self-start">
                     <button
                       type="button"
                       data-testid="dashboard-order-edit-button"
                       onClick={() => editOrder(order)}
                       disabled={savingId === order.id}
-                      className="min-h-11 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-body font-bold text-white disabled:bg-slate-300 sm:col-span-3"
+                      className="min-h-11 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-body font-bold text-white disabled:bg-slate-300 sm:col-span-3 md:col-span-2 md:min-h-9 md:rounded-lg md:py-2 md:text-xs"
                     >
                       Sửa đầy đủ
                     </button>
@@ -1795,7 +1795,7 @@ export default function AdminServiceOrdersClient({
                       onChange={(event) => updateOrder(order.id, { status: event.target.value })}
                       disabled={savingId === order.id}
                       title="Cập nhật trạng thái"
-                      className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none"
+                      className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none md:min-h-9 md:rounded-lg md:py-1.5 md:text-xs"
                     >
                       {Object.entries(statusConfig).map(([key, config]) => (
                         <option key={key} value={key}>{config.label}</option>
@@ -1805,7 +1805,7 @@ export default function AdminServiceOrdersClient({
                       type="button"
                       onClick={() => updateOrder(order.id, { customerVisible: !order.customerVisible })}
                       disabled={savingId === order.id}
-                      className={`min-h-11 rounded-xl px-3 py-2 text-sm font-body font-bold ${
+                      className={`min-h-11 rounded-xl px-3 py-2 text-sm font-body font-bold md:min-h-9 md:rounded-lg md:py-1.5 md:text-xs ${
                         order.customerVisible
                           ? "bg-green-100 text-green-700"
                           : "bg-slate-100 text-slate-600"
@@ -1813,21 +1813,21 @@ export default function AdminServiceOrdersClient({
                     >
                       {order.customerVisible ? "Đang hiện cho khách" : "Ẩn với khách"}
                     </button>
-                    <div className="grid grid-cols-2 gap-2 sm:col-span-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                    <div className="grid grid-cols-2 gap-2 sm:col-span-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] md:col-span-2 md:grid-cols-[minmax(0,1fr)_72px_72px]">
                       <input
                         inputMode="numeric"
                         value={paymentInputs[order.id] ?? ""}
                         onChange={(event) => setPaymentInputs((prev) => ({ ...prev, [order.id]: event.target.value }))}
                         onBlur={() => setPaymentInputs((prev) => ({ ...prev, [order.id]: formatMoneyInputValue(prev[order.id] || "") }))}
                         placeholder={`Đã thu: ${formatMoney(order.paidAmount)}`}
-                        className="col-span-2 min-h-11 min-w-0 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400 sm:col-span-1"
+                        className="col-span-2 min-h-11 min-w-0 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400 sm:col-span-1 md:min-h-9 md:rounded-lg md:py-1.5 md:text-xs"
                         title="Cập nhật số tiền đã thu"
                       />
                       <button
                         type="button"
                         onClick={() => savePayment(order)}
                         disabled={savingId === order.id}
-                        className="min-h-11 rounded-xl bg-green-50 px-3 py-2 text-sm font-body font-bold text-green-700 disabled:bg-slate-100 disabled:text-slate-300"
+                        className="min-h-11 rounded-xl bg-green-50 px-3 py-2 text-sm font-body font-bold text-green-700 disabled:bg-slate-100 disabled:text-slate-300 md:min-h-9 md:rounded-lg md:px-2 md:py-1.5 md:text-xs"
                       >
                         Ghi thu
                       </button>
@@ -1835,26 +1835,29 @@ export default function AdminServiceOrdersClient({
                         type="button"
                         onClick={() => markPaidInFull(order)}
                         disabled={savingId === order.id || payable === 0}
-                        className="min-h-11 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-body font-bold text-white disabled:bg-slate-300"
+                        className="min-h-11 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-body font-bold text-white disabled:bg-slate-300 md:min-h-9 md:rounded-lg md:px-2 md:py-1.5 md:text-xs"
                       >
                         Thu đủ
                       </button>
                     </div>
                     {order.warranty ? (
-                      <p className="min-h-11 rounded-xl bg-green-50 px-3 py-2 text-sm font-body font-bold text-green-700">
+                      <p className="min-h-11 rounded-xl bg-green-50 px-3 py-2 text-sm font-body font-bold text-green-700 md:min-h-9 md:rounded-lg md:py-1.5 md:text-xs">
                         BH: {order.warranty.serialNo}
+                        <span className="hidden md:inline">
+                          {order.warrantyEndDate ? ` - ${formatDate(order.warrantyEndDate)}` : ""}
+                        </span>
                       </p>
                     ) : order.status === "COMPLETED" ? (
                       <button
                         type="button"
                         onClick={() => createWarrantyFromOrder(order)}
                         disabled={warrantyCreatingId === order.id || order.warrantyMonths === 0}
-                        className="min-h-11 rounded-xl bg-blue-50 px-3 py-2 text-sm font-body font-bold text-blue-700 disabled:bg-slate-100 disabled:text-slate-300"
+                        className="min-h-11 rounded-xl bg-blue-50 px-3 py-2 text-sm font-body font-bold text-blue-700 disabled:bg-slate-100 disabled:text-slate-300 md:min-h-9 md:rounded-lg md:py-1.5 md:text-xs"
                       >
                         {warrantyCreatingId === order.id ? "Đang tạo BH..." : "Tạo BH 6 tháng"}
                       </button>
                     ) : (
-                      <p className="min-h-11 rounded-xl bg-slate-50 px-3 py-2 text-sm font-body text-slate-500">
+                      <p className="min-h-11 rounded-xl bg-slate-50 px-3 py-2 text-sm font-body text-slate-500 md:min-h-9 md:rounded-lg md:py-1.5 md:text-xs">
                         BH tự tạo khi hoàn thành
                       </p>
                     )}
@@ -1862,12 +1865,12 @@ export default function AdminServiceOrdersClient({
                       type="button"
                       onClick={() => deleteOrder(order.id)}
                       disabled={deletingId === order.id}
-                      className="min-h-11 rounded-xl bg-red-50 px-3 py-2 text-sm font-body font-bold text-red-600 disabled:bg-slate-100 disabled:text-slate-300"
+                      className="min-h-11 rounded-xl bg-red-50 px-3 py-2 text-sm font-body font-bold text-red-600 disabled:bg-slate-100 disabled:text-slate-300 md:min-h-9 md:rounded-lg md:py-1.5 md:text-xs"
                     >
                       {deletingId === order.id ? "Đang xoá..." : "Xoá"}
                     </button>
                     {order.status === "COMPLETED" && order.warrantyEndDate ? (
-                      <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-body text-slate-500 sm:col-span-3">
+                      <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-body text-slate-500 sm:col-span-3 md:hidden">
                         Bảo hành đến: <strong>{formatDate(order.warrantyEndDate)}</strong>
                       </p>
                     ) : null}

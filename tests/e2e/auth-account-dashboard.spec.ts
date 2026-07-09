@@ -580,6 +580,7 @@ test.describe("Auth, account and dashboard smoke", () => {
       const orderAfterDelete = ordersAfterDeleteBody.orders.find((order: { id: string }) => order.id === orderId);
       expect(orderAfterDelete?.warranty).toBeNull();
       expect(orderAfterDelete?.warrantyEndDate).toBeNull();
+      expect(orderAfterDelete?.warrantyMonths).toBeNull();
 
       const recreateWarrantyResponse = await request.post("/api/admin/warranty", {
         data: { serviceOrderId: orderId, warrantyMonths: "6" },

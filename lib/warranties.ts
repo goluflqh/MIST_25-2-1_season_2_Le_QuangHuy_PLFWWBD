@@ -192,18 +192,22 @@ export async function createWarrantyForServiceOrder(
     throw new WarrantyValidationError("Chỉ tạo bảo hành tự động khi đơn đã hoàn thành.");
   }
 
-  if (existingWarranty && !existingWarranty.deletedAt) {
+  const refreshExisting = payload.refreshExisting === true;
+  if (existingWarranty && !existingWarranty.deletedAt && !refreshExisting) {
     return { created: false, warranty: existingWarranty };
   }
 
   const months = parseOptionalInt(payload.warrantyMonths, 120) ?? order.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS;
   const startDate = parseAdminDateInput(payload.startDate) || order.orderDate;
   const endDate = parseAdminDateInput(payload.endDate, { endOfDay: true }) || getDefaultWarrantyEndDate(startDate, months);
-  const serialNo = await getAvailableWarrantySerial(runner, payload.serialNo);
+  const serialNo = existingWarranty && !payload.serialNo
+    ? existingWarranty.serialNo
+    : await getAvailableWarrantySerial(runner, payload.serialNo);
   const notes = sanitizeText(String(payload.notes || "")) || `Tự tạo từ đơn ${order.orderCode}`;
   const productName = sanitizeText(String(payload.productName || "")) || order.productName;
   const customerName = sanitizeText(String(payload.customerName || "")) || order.customerName;
   const service = normalizeWarrantyService(payload.service || order.service);
+  const created = !existingWarranty || Boolean(existingWarranty.deletedAt);
 
   const warrantyData = {
     customerName,
@@ -236,7 +240,7 @@ export async function createWarrantyForServiceOrder(
     },
   });
 
-  return { created: true, warranty };
+  return { created, warranty };
 }
 
 export async function archiveWarrantyForServiceOrder(
@@ -255,7 +259,7 @@ export async function archiveWarrantyForServiceOrder(
 
   await runner.serviceOrder.update({
     where: { id: serviceOrderId },
-    data: { warrantyEndDate: null },
+    data: { warrantyEndDate: null, warrantyMonths: null },
   });
 
   return warranty;

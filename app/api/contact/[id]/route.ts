@@ -111,7 +111,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       if (previousContact.serviceOrder && !previousContact.serviceOrder.deletedAt) {
         await tx.serviceOrder.update({
           where: { id: previousContact.serviceOrder.id },
-          data: { couponRedemptionId: null, deletedAt: new Date(), warrantyEndDate: null },
+          data: { couponRedemptionId: null, deletedAt: new Date(), warrantyEndDate: null, warrantyMonths: null },
         });
         await archiveWarrantyForServiceOrder(tx, previousContact.serviceOrder.id);
       }
