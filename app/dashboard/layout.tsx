@@ -17,19 +17,8 @@ export default async function AdminLayout({
   const counts = await getAdminNotificationCounts();
 
   return (
-    <div className="relative flex min-h-[calc(100vh-100px)]">
-      <AdminSidebar initialCounts={counts} />
-
-      {/* Main Content */}
-      <div className="min-w-0 flex-1 bg-slate-50">
-        <header className="bg-white border-b border-slate-200 py-4 pl-20 pr-4 flex items-center justify-between md:px-6">
-          <h1 className="font-heading font-bold text-lg text-slate-900 sm:text-xl">Bảng Điều Khiển</h1>
-          <span className="hidden text-sm text-slate-500 font-body sm:inline">Admin: {admin.name}</span>
-        </header>
-        <div className="p-4 sm:p-6">
-          <NotifyProvider>{children}</NotifyProvider>
-        </div>
-      </div>
-    </div>
+    <AdminSidebar adminName={admin.name} initialCounts={counts}>
+      <NotifyProvider>{children}</NotifyProvider>
+    </AdminSidebar>
   );
 }

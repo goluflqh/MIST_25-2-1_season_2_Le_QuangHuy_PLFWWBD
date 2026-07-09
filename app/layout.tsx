@@ -85,7 +85,7 @@ export default async function RootLayout({
   return (
     <html lang="vi" className="scroll-smooth scroll-pt-32" data-scroll-behavior="smooth">
       <body
-        className="flex min-h-screen flex-col bg-[#fffdfa] font-body text-slate-800 antialiased"
+        className="flex min-h-screen flex-col bg-[#fffdfa] font-body text-slate-800 antialiased [--app-header-offset:96px] sm:[--app-header-offset:108px]"
       >
         <AuthProvider
           key={currentUser ? `${currentUser.id}:${currentUser.role}:${currentUser.name}` : "guest"}
@@ -101,7 +101,7 @@ export default async function RootLayout({
             initialNotificationCount={initialNotificationCount}
             initialNotificationUserId={currentUser?.id ?? null}
           />
-          <main className="flex-grow pt-[96px] sm:pt-[108px]">{children}</main>
+          <main className="flex-grow pt-[var(--app-header-offset)]">{children}</main>
           <Footer />
           <ChatbotWidget />
         </AuthProvider>

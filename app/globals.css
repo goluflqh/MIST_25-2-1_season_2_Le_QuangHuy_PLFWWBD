@@ -240,6 +240,32 @@
       transform: translateX(130%);
     }
   }
+
+  [data-admin-shell] button:not(:disabled):not(.cursor-default),
+  [data-admin-shell] [role="button"]:not([aria-disabled="true"]):not(.cursor-default) {
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      box-shadow 160ms ease,
+      color 150ms ease,
+      filter 120ms ease,
+      opacity 150ms ease,
+      transform 120ms ease;
+  }
+
+  [data-admin-shell] button:not(:disabled):not(.cursor-default):active,
+  [data-admin-shell] [role="button"]:not([aria-disabled="true"]):not(.cursor-default):active {
+    filter: brightness(0.98);
+    transform: translateY(0) scale(0.98);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    [data-admin-shell] button:not(:disabled):not(.cursor-default):hover,
+    [data-admin-shell] [role="button"]:not([aria-disabled="true"]):not(.cursor-default):hover {
+      box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.42);
+      transform: translateY(-1px);
+    }
+  }
 }
 
 @layer base {
@@ -393,7 +419,10 @@
   }
 
   .btn-hover-fx,
-  .glass-panel {
+  .glass-panel,
+  [data-admin-shell] button,
+  [data-admin-shell] [role="button"] {
     transition-duration: 0.01ms !important;
+    transform: none !important;
   }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
+import PaginationControls from "@/components/PaginationControls";
 import { addMonthsInVietnam, formatVietnamDate } from "@/lib/vietnam-time";
 
 interface WarrantyData {
@@ -175,13 +176,6 @@ export default function AdminWarrantyClient({
   }, [filteredWarranties, pageStartIndex]);
   const firstVisibleResult = filteredWarranties.length === 0 ? 0 : pageStartIndex + 1;
   const lastVisibleResult = Math.min(pageStartIndex + paginatedWarranties.length, filteredWarranties.length);
-  const pageNumbers = useMemo(() => {
-    const windowSize = 5;
-    const start = Math.max(1, Math.min(activePage - 2, totalPages - windowSize + 1));
-    const end = Math.min(totalPages, start + windowSize - 1);
-    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
-  }, [activePage, totalPages]);
-
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
@@ -617,11 +611,14 @@ export default function AdminWarrantyClient({
                             <option key={key} value={key}>{value}</option>
                           ))}
                         </select>
-                        <input
+                        <VietnameseDateInput
+                          dataTestId="dashboard-warranty-edit-end-date-input"
+                          helper="Có thể gõ tay hoặc bấm Chọn ngày."
+                          label="Ngày hết hạn"
+                          name={"warrantyEditEndDate-" + warranty.id}
                           value={editData.endDate}
-                          onChange={(event) => setEditData({ ...editData, endDate: event.target.value })}
-                          placeholder="Ngày hết hạn, ví dụ 30/10/2026"
-                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none focus:border-red-400"
+                          onChange={(value) => setEditData({ ...editData, endDate: value })}
+                          required
                         />
                         <input
                           value={editData.notes}
@@ -694,46 +691,15 @@ export default function AdminWarrantyClient({
                 </div>
               );
             })}
-            {totalPages > 1 ? (
-              <div data-testid="dashboard-warranty-pagination" className="flex flex-col gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                <p className="font-body text-xs text-slate-500">
-                  Trang {activePage}/{totalPages} · {firstVisibleResult}-{lastVisibleResult} trong {filteredWarranties.length} phiếu
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                    disabled={activePage === 1}
-                    className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 disabled:text-slate-300"
-                  >
-                    Trước
-                  </button>
-                  {pageNumbers.map((page) => (
-                    <button
-                      key={page}
-                      type="button"
-                      onClick={() => setCurrentPage(page)}
-                      aria-current={page === activePage ? "page" : undefined}
-                      className={`min-h-9 min-w-9 rounded-lg px-3 text-xs font-bold ${
-                        page === activePage
-                          ? "bg-slate-900 text-white"
-                          : "border border-slate-200 text-slate-600"
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                    disabled={activePage === totalPages}
-                    className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 disabled:text-slate-300"
-                  >
-                    Sau
-                  </button>
-                </div>
-              </div>
-            ) : null}
+            <PaginationControls
+              dataTestId="dashboard-warranty-pagination"
+              itemLabel="phiếu"
+              onPageChange={setCurrentPage}
+              page={activePage}
+              pageCount={totalPages}
+              pageSize={PAGE_SIZE}
+              totalItems={filteredWarranties.length}
+            />
             </>
           )}
         </div>

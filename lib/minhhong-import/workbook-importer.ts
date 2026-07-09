@@ -2,6 +2,7 @@ import { parseAdminDateInput } from "@/lib/admin-date";
 import { getImportedFallbackOrderDate } from "@/lib/admin-order-display";
 import { sanitizeText } from "@/lib/sanitize";
 import { createWarrantyForServiceOrder, DEFAULT_WARRANTY_MONTHS, getDefaultWarrantyEndDate } from "@/lib/warranties";
+import { formatVietnamDate } from "@/lib/vietnam-time";
 import type { MinhHongImportScope } from "./import-scope";
 import { getServiceOrderInvalidDateSourceRows, reconcileMinhHongWorkbook } from "./reconciliation";
 import type { MinhHongParsedCustomerOrder, MinhHongParsedPartner, MinhHongParsedPartnerEntry, MinhHongParsedWorkbook } from "./workbook-parser";
@@ -52,8 +53,16 @@ export interface MinhHongImportChangeCounts {
   unchanged: number;
 }
 
+export interface MinhHongImportFieldChange {
+  after: string;
+  before: string;
+  field: string;
+  label: string;
+}
+
 export interface MinhHongImportChangeRecord {
   action: "created" | "updated";
+  changes?: MinhHongImportFieldChange[];
   key: string;
   label: string;
 }
@@ -64,6 +73,7 @@ export interface MinhHongImportPreview {
   serviceOrders: MinhHongImportChangeCounts;
   conflicts: string[];
   records: {
+    partners?: MinhHongImportChangeRecord[];
     partnerEntries: MinhHongImportChangeRecord[];
     serviceOrders: MinhHongImportChangeRecord[];
   };
@@ -127,6 +137,55 @@ function comparableValue(value: unknown) {
 
 function recordMatches(existing: Record<string, unknown>, data: Record<string, unknown>) {
   return Object.entries(data).every(([key, value]) => comparableValue(existing[key]) === comparableValue(value));
+}
+
+type FieldChangeConfig = {
+  format?: (value: unknown) => string;
+  label: string;
+};
+
+type FieldChangeMap = Record<string, string | FieldChangeConfig>;
+
+function fieldChangeConfig(value: string | FieldChangeConfig | undefined, fallback: string): FieldChangeConfig {
+  if (!value) return { label: fallback };
+  if (typeof value === "string") return { label: value };
+  return value;
+}
+
+function formatDiffValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "Trống";
+  if (value instanceof Date) return formatVietnamDate(value) || value.toISOString();
+  if (typeof value === "boolean") return value ? "Có" : "Không";
+  if (typeof value === "number") return value.toLocaleString("vi-VN");
+  return sanitizeText(String(value)) || "Trống";
+}
+
+function formatMoneyDiffValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "Trống";
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return formatDiffValue(value);
+  return `${amount.toLocaleString("vi-VN")}đ`;
+}
+
+function formatDateDiffValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "Trống";
+  if (value instanceof Date) return formatVietnamDate(value) || value.toISOString();
+  if (typeof value === "string") return formatVietnamDate(value) || sanitizeText(value) || "Trống";
+  return formatDiffValue(value);
+}
+
+function recordChanges(existing: Record<string, unknown>, data: Record<string, unknown>, labels: FieldChangeMap) {
+  return Object.entries(data).flatMap(([field, value]) => {
+    if (comparableValue(existing[field]) === comparableValue(value)) return [];
+    const config = fieldChangeConfig(labels[field], field);
+    const formatter = config.format || formatDiffValue;
+    return [{
+      after: formatter(value),
+      before: formatter(existing[field]),
+      field,
+      label: config.label,
+    }];
+  });
 }
 
 function emptyChangeCounts(): MinhHongImportChangeCounts {
@@ -258,6 +317,63 @@ function serviceOrderPreviewLabel(order: MinhHongParsedCustomerOrder) {
   ].filter(Boolean).join(" · ") || order.orderCode;
 }
 
+const partnerFieldLabels: FieldChangeMap = {
+  active: "Đang dùng",
+  code: "Mã đối tác",
+  deletedAt: { label: "Trạng thái xóa", format: formatDateDiffValue },
+  name: "Tên đối tác",
+  notes: "Ghi chú",
+  phone: "Số điện thoại",
+  type: "Nhóm đối tác",
+};
+
+const partnerEntryFieldLabels: FieldChangeMap = {
+  amount: { label: "Số tiền", format: formatMoneyDiffValue },
+  category: "Nhóm giao dịch",
+  countsInDebt: "Tính vào công nợ",
+  deletedAt: { label: "Trạng thái xóa", format: formatDateDiffValue },
+  description: "Nội dung",
+  entryDate: { label: "Ngày giao dịch", format: formatDateDiffValue },
+  entryType: "Loại giao dịch",
+  notes: "Ghi chú",
+  partnerId: "Đối tác",
+  paymentMethod: "Phương thức thanh toán",
+  quantity: "Số lượng",
+  receivedGoods: "Đã nhận hàng",
+  reference: "Chứng từ",
+  sourceCode: "Mã dòng Sheet",
+  sourceName: "Tab nguồn",
+  sourceRow: "Dòng Excel",
+  unit: "Đơn vị",
+  unitPrice: { label: "Đơn giá", format: formatMoneyDiffValue },
+};
+
+const serviceOrderFieldLabels: FieldChangeMap = {
+  couponCode: "Mã giảm giá",
+  couponDiscount: "Ưu đãi giảm giá",
+  customerName: "Tên khách",
+  customerPhone: "Số điện thoại",
+  customerVisible: "Hiện cho khách",
+  deletedAt: { label: "Trạng thái xóa", format: formatDateDiffValue },
+  discountAmount: { label: "Số tiền giảm", format: formatMoneyDiffValue },
+  issueDescription: "Mô tả vấn đề",
+  notes: "Ghi chú",
+  orderCode: "Mã đơn",
+  orderDate: { label: "Ngày đơn", format: formatDateDiffValue },
+  paidAmount: { label: "Đã thu", format: formatMoneyDiffValue },
+  priceStatus: "Trạng thái giá",
+  productName: "Sản phẩm/dịch vụ",
+  quotedPrice: { label: "Giá báo", format: formatMoneyDiffValue },
+  service: "Loại dịch vụ",
+  solution: "Cách xử lý",
+  source: "Nguồn dữ liệu",
+  sourceName: "Tab nguồn",
+  sourceRow: "Dòng Excel",
+  status: "Trạng thái đơn",
+  warrantyEndDate: { label: "Hạn bảo hành", format: formatDateDiffValue },
+  warrantyMonths: "Số tháng bảo hành",
+};
+
 function hasInvalidTypedOrderDate(order: MinhHongParsedCustomerOrder) {
   const value = sanitizeText(order.orderDate);
   return Boolean(value && !parseAdminDateInput(value));
@@ -274,7 +390,7 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
     partnerEntries: emptyChangeCounts(),
     serviceOrders: emptyChangeCounts(),
     conflicts: [],
-    records: { partnerEntries: [], serviceOrders: [] },
+    records: { partners: [], partnerEntries: [], serviceOrders: [] },
   };
   const partnerPlans: PartnerPlanItem[] = [];
   const partnerIds = new Map<string, string>();
@@ -285,6 +401,14 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
       const existing = await tx.partner.findUnique({ where: { code: partner.partnerCode } });
       const action: ImportAction = !existing ? "created" : recordMatches(existing, data) ? "unchanged" : "updated";
       countAction(preview.partners, action);
+      if (action !== "unchanged") {
+        preview.records.partners?.push({
+          action,
+          changes: action === "updated" && existing ? recordChanges(existing, data, partnerFieldLabels) : [],
+          key: partner.partnerCode,
+          label: partner.partnerName,
+        });
+      }
       partnerPlans.push({ action, code: partner.partnerCode, data, existing });
       if (existing) partnerIds.set(partner.partnerCode, asId(existing));
     }
@@ -295,14 +419,20 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
     for (const entry of parsed.partnerEntries) {
       const existing = await tx.partnerLedgerEntry.findUnique({ where: { sourceCode: entry.sourceCode } });
       const partnerId = partnerIds.get(entry.partnerCode);
+      const data = partnerId ? ledgerData(entry, partnerId) : null;
       const action: ImportAction = !existing
         ? "created"
-        : partnerId && recordMatches(existing, ledgerData(entry, partnerId))
+        : data && recordMatches(existing, data)
           ? "unchanged"
           : "updated";
       countAction(preview.partnerEntries, action);
       if (action !== "unchanged") {
-        preview.records.partnerEntries.push({ action, key: entry.sourceCode, label: entry.description });
+        preview.records.partnerEntries.push({
+          action,
+          changes: action === "updated" && existing && data ? recordChanges(existing, data, partnerEntryFieldLabels) : [],
+          key: entry.sourceCode,
+          label: entry.description,
+        });
       }
       partnerEntryPlans.push({ action, entry });
     }
@@ -336,8 +466,10 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
           : "updated";
       countAction(preview.serviceOrders, action);
       if (action !== "unchanged") {
+        const data = serviceOrderBusinessData(order);
         preview.records.serviceOrders.push({
           action,
+          changes: action === "updated" && existing ? recordChanges(existing, data, serviceOrderFieldLabels) : [],
           key: order.orderCode,
           label: serviceOrderPreviewLabel(order),
         });

@@ -185,7 +185,7 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(historyResults).toBeVisible();
     await expect(historyResults.getByRole("columnheader", { name: "Tên mặt hàng / Nội dung thanh toán" })).toBeVisible();
     await expect(historyResults.getByRole("columnheader", { name: "Nội dung", exact: true })).toHaveCount(0);
-    await expect(page.getByTestId("partner-history-page-label")).toContainText("Trang 1 / 2");
+    await expect(page.getByTestId("partner-history-page-label")).toContainText("Trang 1/2");
     await page.getByTestId("partner-history-time-filter").selectOption("CUSTOM");
     await expect(page.getByTestId("partner-history-from-date")).toBeVisible();
     await expect(page.getByTestId("partner-history-to-date")).toBeVisible();

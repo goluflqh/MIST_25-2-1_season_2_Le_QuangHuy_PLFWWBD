@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 interface NavCounts { contacts: number; reviews: number; }
 
@@ -56,7 +56,50 @@ function SidebarNav({ pathname, counts }: { pathname: string; counts: NavCounts 
   );
 }
 
-export default function AdminSidebar({ initialCounts }: { initialCounts: NavCounts }) {
+function MobileAdminToolbar({
+  adminName,
+  mobileOpen,
+  onToggle,
+}: {
+  adminName?: string;
+  mobileOpen: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="z-[45] flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur md:hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={mobileOpen}
+        className="admin-menu-toggle flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm shadow-slate-900/20 transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+        aria-label="Toggle admin menu"
+        title="Menu admin"
+      >
+        {mobileOpen ? (
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        ) : (
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+        )}
+      </button>
+      <div className="min-w-0 flex-1">
+        <h1 className="truncate font-heading text-base font-extrabold text-slate-900">Bảng Điều Khiển</h1>
+        {adminName ? (
+          <p className="truncate font-body text-xs font-semibold text-slate-500">Admin: {adminName}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export default function AdminSidebar({
+  adminName,
+  children,
+  initialCounts,
+}: {
+  adminName?: string;
+  children?: ReactNode;
+  initialCounts: NavCounts;
+}) {
   const enableBackgroundPolling = process.env.NODE_ENV === "production";
   const pathname = usePathname();
   const [counts, setCounts] = useState<NavCounts>(initialCounts);
@@ -133,23 +176,10 @@ export default function AdminSidebar({ initialCounts }: { initialCounts: NavCoun
   }, [pathname]);
 
   return (
-    <>
-      {/* Mobile hamburger button */}
-      <button
-        type="button"
-        onClick={toggleMobileMenu}
-        aria-expanded={mobileOpen}
-        className="admin-menu-toggle fixed left-4 top-[108px] z-[45] flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white shadow-lg shadow-slate-900/20 md:hidden sm:top-[120px]"
-        aria-label="Toggle admin menu"
-        title="Menu admin"
-      >
-        {mobileOpen ? (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-        ) : (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
-        )}
-      </button>
-
+    <div
+      data-admin-shell
+      className="relative flex h-[calc(100dvh-var(--app-header-offset))] min-h-0 overflow-hidden md:h-auto md:min-h-[calc(100dvh-var(--app-header-offset))] md:overflow-visible"
+    >
       {/* Mobile overlay + sidebar */}
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-[60]">
@@ -164,6 +194,19 @@ export default function AdminSidebar({ initialCounts }: { initialCounts: NavCoun
       <aside className="w-64 bg-slate-900 text-white hidden md:flex flex-col shrink-0">
         <SidebarNav pathname={pathname} counts={counts} />
       </aside>
-    </>
+
+      <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
+        <MobileAdminToolbar adminName={adminName} mobileOpen={mobileOpen} onToggle={toggleMobileMenu} />
+        <header className="hidden items-center justify-between border-b border-slate-200 bg-white px-6 py-4 md:flex">
+          <h1 className="font-heading text-xl font-bold text-slate-900">Bảng Điều Khiển</h1>
+          {adminName ? (
+            <span className="font-body text-sm text-slate-500">Admin: {adminName}</span>
+          ) : null}
+        </header>
+        <div data-admin-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 md:overflow-visible">
+          {children}
+        </div>
+      </div>
+    </div>
   );
 }

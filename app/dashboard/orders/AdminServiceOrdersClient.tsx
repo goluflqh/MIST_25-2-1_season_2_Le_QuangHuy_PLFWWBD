@@ -5,6 +5,7 @@ import AdminVietnameseDateRangeFilter from "@/components/admin/AdminVietnameseDa
 import MinhHongWorkbookImportPanel from "@/components/admin/MinhHongWorkbookImportPanel";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
+import PaginationControls from "@/components/PaginationControls";
 import {
   compareAdminOrders,
   getAdminOrderSortLabel,
@@ -1016,12 +1017,23 @@ export default function AdminServiceOrdersClient({
       </div>
 
       {showForm ? (
-        <div className={editingId ? "fixed inset-0 z-50 flex items-end bg-slate-950/30 p-0 sm:items-stretch sm:justify-end" : ""}>
+        <div className={editingId ? "fixed inset-0 z-[80] flex items-end bg-slate-950/30 p-0 backdrop-blur-[1px] sm:items-stretch sm:justify-end" : ""}>
+          {editingId ? (
+            <button
+              type="button"
+              aria-label="Đóng sửa đơn"
+              onClick={() => {
+                setShowForm(false);
+                resetForm();
+              }}
+              className="absolute inset-0 cursor-default"
+            />
+          ) : null}
           <form
             ref={orderFormRef}
             onSubmit={saveOrderForm}
             className={editingId
-              ? "max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-slate-100 bg-white p-4 shadow-2xl sm:h-full sm:max-h-none sm:w-[min(760px,100vw)] sm:rounded-none sm:p-6"
+              ? "relative z-10 max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-slate-100 bg-white p-4 shadow-2xl sm:h-full sm:max-h-none sm:w-[min(760px,100vw)] sm:rounded-none sm:p-6"
               : "scroll-mt-28 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6"}
           >
             <div className={`${editingId ? "sticky top-0 z-10 -mx-4 -mt-4 mb-4 border-b border-slate-100 bg-white/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6" : "mb-4"}`}>
@@ -1888,31 +1900,14 @@ export default function AdminServiceOrdersClient({
           })
         )}
       </div>
-      {filteredOrders.length > ORDER_PAGE_SIZE ? (
-        <div className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm sm:flex-row">
-          <p className="font-body text-sm font-semibold text-slate-500">
-            Trang {currentPage} / {pageCount}
-          </p>
-          <div className="flex w-full gap-2 sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              disabled={currentPage === 1}
-              className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 disabled:bg-slate-100 disabled:text-slate-300 sm:flex-none"
-            >
-              Trước
-            </button>
-            <button
-              type="button"
-              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-              disabled={currentPage === pageCount}
-              className="min-h-11 flex-1 rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
-            >
-              Tiếp
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <PaginationControls
+        itemLabel="đơn"
+        onPageChange={setPage}
+        page={currentPage}
+        pageCount={pageCount}
+        pageSize={ORDER_PAGE_SIZE}
+        totalItems={filteredOrders.length}
+      />
     </div>
   );
 }

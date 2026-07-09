@@ -4,6 +4,7 @@ import { startTransition, type Dispatch, type FormEvent, type SetStateAction, us
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
+import PaginationControls from "@/components/PaginationControls";
 import { getPayableAmount } from "@/lib/coupon-discounts";
 
 interface UserInfo {
@@ -156,46 +157,6 @@ function isWithinReviewWindow(request: ServiceRequest, reviewedServiceOrderIds: 
   return Date.now() - new Date(request.updatedAt).getTime() <= REVIEW_WINDOW_MS;
 }
 
-function PaginationControls({
-  label,
-  onPageChange,
-  page,
-  pageCount,
-}: {
-  label: string;
-  onPageChange: (page: number) => void;
-  page: number;
-  pageCount: number;
-}) {
-  if (pageCount <= 1) return null;
-
-  return (
-    <div className="mt-4 flex flex-col items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-3 sm:flex-row">
-      <p className="font-body text-sm font-semibold text-slate-500">
-        {label}: {page}/{pageCount}
-      </p>
-      <div className="flex w-full gap-2 sm:w-auto">
-        <button
-          type="button"
-          onClick={() => onPageChange(Math.max(1, page - 1))}
-          disabled={page === 1}
-          className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 disabled:bg-slate-100 disabled:text-slate-300 sm:flex-none"
-        >
-          Trước
-        </button>
-        <button
-          type="button"
-          onClick={() => onPageChange(Math.min(pageCount, page + 1))}
-          disabled={page === pageCount}
-          className="min-h-11 flex-1 rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
-        >
-          Tiếp
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function getWarrantyRemainingLabel(endDate: string, isActive: boolean) {
   const dayMs = 24 * 60 * 60 * 1000;
   const days = Math.ceil((new Date(endDate).getTime() - Date.now()) / dayMs);
@@ -321,7 +282,14 @@ function WarrantyCards({ warranties }: { warranties: WarrantyInfo[] }) {
               </div>
             );
           })}
-          <PaginationControls label="Phiếu bảo hành" page={currentPage} pageCount={pageCount} onPageChange={setPage} />
+          <PaginationControls
+            itemLabel="phiếu"
+            onPageChange={setPage}
+            page={currentPage}
+            pageCount={pageCount}
+            pageSize={ACCOUNT_PAGE_SIZE}
+            totalItems={warranties.length}
+          />
         </div>
       )}
     </div>
@@ -439,7 +407,14 @@ function ServiceOrderCards({ orders }: { orders: ServiceOrderInfo[] }) {
               </div>
             );
           })}
-          <PaginationControls label="Đơn dịch vụ" page={currentPage} pageCount={pageCount} onPageChange={setPage} />
+          <PaginationControls
+            itemLabel="đơn"
+            onPageChange={setPage}
+            page={currentPage}
+            pageCount={pageCount}
+            pageSize={ACCOUNT_PAGE_SIZE}
+            totalItems={selectedOrders.length}
+          />
         </div>
       )}
     </div>
@@ -1144,7 +1119,14 @@ function RequestHistorySection({
                 );
               })}
               <div className="px-4 pb-4">
-                <PaginationControls label="Yêu cầu" page={currentPage} pageCount={pageCount} onPageChange={setPage} />
+                <PaginationControls
+                  itemLabel="yêu cầu"
+                  onPageChange={setPage}
+                  page={currentPage}
+                  pageCount={pageCount}
+                  pageSize={ACCOUNT_PAGE_SIZE}
+                  totalItems={selectedRequests.length}
+                />
               </div>
             </div>
           )}

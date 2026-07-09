@@ -5,6 +5,7 @@ import AdminVietnameseDateRangeFilter from "@/components/admin/AdminVietnameseDa
 import MinhHongWorkbookImportPanel from "@/components/admin/MinhHongWorkbookImportPanel";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
+import PaginationControls from "@/components/PaginationControls";
 import { adminTimePresetLabels, matchesAdminTimePreset, type AdminTimePreset } from "@/lib/admin-time-filter";
 import { summarizePartnerLedgerEntries } from "@/lib/financial-calculations";
 import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
@@ -825,7 +826,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
       {entryDialogMode ? (
         <div className="fixed inset-0 z-50 flex items-end bg-slate-950/35 p-0 sm:items-center sm:justify-center sm:p-4" data-testid="partner-entry-dialog">
           <button type="button" className="absolute inset-0 cursor-default" aria-label="Đóng ghi giao dịch" onClick={closeEntryDialog} />
-          <form ref={entryDialogPanelRef} onSubmit={saveEntry} className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-lg bg-white p-4 shadow-2xl sm:max-w-3xl sm:rounded-lg sm:p-5">
+          <form ref={entryDialogPanelRef} onSubmit={saveEntry} className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-lg bg-white p-4 shadow-2xl sm:max-w-[min(94vw,1040px)] sm:rounded-lg sm:p-5">
             <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 border-b border-slate-100 bg-white/95 px-4 py-4 backdrop-blur sm:-mx-5 sm:-mt-5 sm:px-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -843,14 +844,16 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
               </div>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-4">
-              <VietnameseDateInput
-                label="Ngày"
-                name="partnerEntryDate"
-                value={entryForm.entryDate}
-                onChange={(value) => setEntryForm({ ...entryForm, entryDate: value })}
-              />
-              <div className="space-y-1.5 lg:col-span-3">
+            <div className="grid gap-3 md:grid-cols-6 lg:grid-cols-12">
+              <div className="md:col-span-2 lg:col-span-3">
+                <VietnameseDateInput
+                  label="Ngày"
+                  name="partnerEntryDate"
+                  value={entryForm.entryDate}
+                  onChange={(value) => setEntryForm({ ...entryForm, entryDate: value })}
+                />
+              </div>
+              <div className="space-y-1.5 md:col-span-4 lg:col-span-9">
                 <span className="font-body text-xs font-bold text-slate-700">Loại giao dịch</span>
                 <div className="grid grid-cols-3 gap-2">
                   {(["PURCHASE", "PAYMENT", "RETURN"] as EntryMode[]).map((mode) => (
@@ -869,7 +872,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
 
               {isPaymentMode ? (
                 <>
-                  <label className="space-y-1.5">
+                  <label className="space-y-1.5 md:col-span-2 lg:col-span-3">
                     <span className="font-body text-xs font-bold text-slate-700">Số tiền thanh toán</span>
                     <input
                       ref={entryPaymentAmountRef}
@@ -882,7 +885,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                       className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
                     />
                   </label>
-                  <label className="space-y-1.5 lg:col-span-2">
+                  <label className="space-y-1.5 md:col-span-2 lg:col-span-6">
                     <span className="font-body text-xs font-bold text-slate-700">Nội dung thanh toán</span>
                     <input
                       value={entryForm.paymentDescription}
@@ -891,7 +894,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                       className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
                     />
                   </label>
-                  <label className="space-y-1.5">
+                  <label className="space-y-1.5 md:col-span-2 lg:col-span-3">
                     <span className="font-body text-xs font-bold text-slate-700">Phương thức</span>
                     <input
                       value={entryForm.paymentMethod}
@@ -903,7 +906,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                 </>
               ) : (
                 <>
-                  <label className="space-y-1.5 lg:col-span-2">
+                  <label className="space-y-1.5 md:col-span-3 lg:col-span-5">
                     <span className="font-body text-xs font-bold text-slate-700">Tên mặt hàng</span>
                     <input
                       ref={entryProductRef}
@@ -914,7 +917,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                       className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
                     />
                   </label>
-                  <label className="space-y-1.5">
+                  <label className="space-y-1.5 md:col-span-1 lg:col-span-2">
                     <span className="font-body text-xs font-bold text-slate-700">Số lượng</span>
                     <input
                       inputMode="decimal"
@@ -924,7 +927,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                       className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
                     />
                   </label>
-                  <label className="space-y-1.5">
+                  <label className="space-y-1.5 md:col-span-1 lg:col-span-2">
                     <span className="font-body text-xs font-bold text-slate-700">Đơn vị</span>
                     <input
                       value={entryForm.unit}
@@ -933,7 +936,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                       className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
                     />
                   </label>
-                  <label className="space-y-1.5">
+                  <label className="space-y-1.5 md:col-span-1 lg:col-span-3">
                     <span className="font-body text-xs font-bold text-slate-700">Đơn giá</span>
                     <input
                       inputMode="numeric"
@@ -945,14 +948,14 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                       className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
                     />
                   </label>
-                  <div className={`rounded-lg border px-4 py-3 lg:col-span-3 ${entryForm.entryMode === "RETURN" ? "border-amber-100 bg-amber-50" : "border-red-100 bg-red-50"}`}>
+                  <div className={`rounded-lg border px-4 py-3 md:col-span-3 lg:col-span-4 ${entryForm.entryMode === "RETURN" ? "border-amber-100 bg-amber-50" : "border-red-100 bg-red-50"}`}>
                     <p className={`font-body text-xs font-bold uppercase tracking-wider ${entryForm.entryMode === "RETURN" ? "text-amber-700" : "text-red-700"}`}>{entryForm.entryMode === "RETURN" ? "Tổng tiền trả hàng" : "Tổng tiền mua"}</p>
                     <p className={`mt-1 font-heading text-2xl font-extrabold ${entryForm.entryMode === "RETURN" ? "text-amber-700" : "text-red-700"}`} data-testid="partner-entry-total">{formatMoney(entryLineTotal)}</p>
                   </div>
                 </>
               )}
 
-              <label className="space-y-1.5 lg:col-span-2">
+              <label className="space-y-1.5 md:col-span-3 lg:col-span-4">
                 <span className="font-body text-xs font-bold text-slate-700">Chứng từ</span>
                 <input
                   value={entryForm.reference}
@@ -961,7 +964,7 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
                   className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
                 />
               </label>
-              <label className="space-y-1.5 lg:col-span-2">
+              <label className="space-y-1.5 md:col-span-3 lg:col-span-4">
                 <span className="font-body text-xs font-bold text-slate-700">Ghi chú</span>
                 <input
                   value={entryForm.notes}
@@ -1172,27 +1175,15 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
               </div>
             </div>
             <div className="border-t border-slate-100 p-4 sm:p-5">
-              <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
-                <p className="font-body text-sm font-semibold text-slate-500" data-testid="partner-history-page-label">Trang {currentHistoryPage} / {historyPageCount}</p>
-                <div className="flex w-full gap-2 sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={() => setHistoryPage((current) => Math.max(1, current - 1))}
-                    disabled={currentHistoryPage === 1}
-                    className="min-h-11 flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 disabled:bg-slate-100 disabled:text-slate-300 sm:flex-none"
-                  >
-                    Trước
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHistoryPage((current) => Math.min(historyPageCount, current + 1))}
-                    disabled={currentHistoryPage === historyPageCount}
-                    className="min-h-11 flex-1 rounded-lg bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
-                  >
-                    Tiếp
-                  </button>
-                </div>
-              </div>
+              <PaginationControls
+                itemLabel="giao dịch"
+                labelTestId="partner-history-page-label"
+                onPageChange={setHistoryPage}
+                page={currentHistoryPage}
+                pageCount={historyPageCount}
+                pageSize={HISTORY_PAGE_SIZE}
+                totalItems={historyEntries.length}
+              />
             </div>
           </div>
         </div>

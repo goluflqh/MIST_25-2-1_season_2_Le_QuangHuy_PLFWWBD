@@ -338,7 +338,7 @@ test("previews new, changed, and unchanged rows before writing", async () => {
     ...parsed,
     customerOrders: parsed.customerOrders.map((order, index) => index === 0 ? { ...order, paidAmount: order.paidAmount + 10_000 } : order),
     partnerEntries: [
-      ...parsed.partnerEntries,
+      ...parsed.partnerEntries.map((entry, index) => index === 0 ? { ...entry, amount: entry.amount + 5_000 } : entry),
       { ...parsed.partnerEntries[0], sourceCode: "NHAP_HANG:NH-NEW", sourceRow: 999 },
     ],
   };
@@ -349,16 +349,36 @@ test("previews new, changed, and unchanged rows before writing", async () => {
 
   const preview = await previewMinhHongParsedWorkbook(changed, runner);
 
-  assert.deepEqual(preview.partnerEntries, { created: 1, updated: 0, unchanged: 80 });
+  assert.deepEqual(preview.partnerEntries, { created: 1, updated: 1, unchanged: 79 });
   assert.deepEqual(preview.serviceOrders, { created: 0, updated: 1, unchanged: 40 });
   assert.deepEqual(preview.conflicts, []);
-  assert.deepEqual(preview.records.partnerEntries, [{
-    action: "created",
-    key: "NHAP_HANG:NH-NEW",
-    label: changed.partnerEntries.at(-1)?.description,
-  }]);
+  assert.deepEqual(preview.records.partnerEntries, [
+    {
+      action: "updated",
+      changes: [{
+        after: `${changed.partnerEntries[0].amount.toLocaleString("vi-VN")}đ`,
+        before: `${parsed.partnerEntries[0].amount.toLocaleString("vi-VN")}đ`,
+        field: "amount",
+        label: "Số tiền",
+      }],
+      key: changed.partnerEntries[0].sourceCode,
+      label: changed.partnerEntries[0].description,
+    },
+    {
+      action: "created",
+      changes: [],
+      key: "NHAP_HANG:NH-NEW",
+      label: changed.partnerEntries.at(-1)?.description,
+    },
+  ]);
   assert.deepEqual(preview.records.serviceOrders, [{
     action: "updated",
+    changes: [{
+      after: `${changed.customerOrders[0].paidAmount.toLocaleString("vi-VN")}đ`,
+      before: `${parsed.customerOrders[0].paidAmount.toLocaleString("vi-VN")}đ`,
+      field: "paidAmount",
+      label: "Đã thu",
+    }],
     key: changed.customerOrders[0].orderCode,
     label: `Dòng Excel ${changed.customerOrders[0].sourceRow} · ${changed.customerOrders[0].customerName} · ${changed.customerOrders[0].productName}`,
   }]);

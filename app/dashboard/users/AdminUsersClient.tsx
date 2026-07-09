@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useNotify } from "@/components/NotifyProvider";
+import PaginationControls from "@/components/PaginationControls";
 import { formatVietnamDate } from "@/lib/vietnam-time";
 
 interface UserData {
@@ -841,31 +842,14 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
           </table>
         </div>
       </div>
-      {filteredUsers.length > USER_PAGE_SIZE ? (
-        <div className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm sm:flex-row">
-          <p className="font-body text-sm font-semibold text-slate-500">
-            Trang {currentPage} / {pageCount}
-          </p>
-          <div className="flex w-full gap-2 sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              disabled={currentPage === 1}
-              className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-300 sm:flex-none"
-            >
-              Trước
-            </button>
-            <button
-              type="button"
-              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-              disabled={currentPage === pageCount}
-              className="min-h-11 flex-1 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-body font-bold text-white transition-colors hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
-            >
-              Tiếp
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <PaginationControls
+        itemLabel="khách"
+        onPageChange={setPage}
+        page={currentPage}
+        pageCount={pageCount}
+        pageSize={USER_PAGE_SIZE}
+        totalItems={filteredUsers.length}
+      />
     </div>
   );
 }

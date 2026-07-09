@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import PaginationControls from "@/components/PaginationControls";
 
 const pageSize = 6;
 
@@ -114,31 +115,15 @@ export default function TestimonialsReviewPager({ reviews }: { reviews: PublicRe
             ))}
           </div>
 
-          {pageCount > 1 ? (
-            <div className="mt-8 flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm sm:flex-row">
-              <p className="font-body text-sm font-semibold text-slate-500">
-                Trang {currentPage}/{pageCount}
-              </p>
-              <div className="flex w-full gap-2 sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => setPage((value) => Math.max(1, value - 1))}
-                  disabled={currentPage === 1}
-                  className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 disabled:bg-slate-100 disabled:text-slate-300 sm:flex-none"
-                >
-                  Trước
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
-                  disabled={currentPage === pageCount}
-                  className="min-h-11 flex-1 rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
-                >
-                  Tiếp
-                </button>
-              </div>
-            </div>
-          ) : null}
+          <PaginationControls
+            className="mt-8"
+            itemLabel="đánh giá"
+            onPageChange={setPage}
+            page={currentPage}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            totalItems={reviews.length}
+          />
         </div>
       ) : null}
     </div>

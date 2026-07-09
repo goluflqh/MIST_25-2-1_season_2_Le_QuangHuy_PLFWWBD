@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useNotify } from "@/components/NotifyProvider";
+import PaginationControls from "@/components/PaginationControls";
 import { getLeadSourceLabel } from "@/lib/lead-sources";
 
 interface ContactRequest {
@@ -745,33 +746,16 @@ export default function ContactsManagementClient({
             </div>
           ))}
         </div>
-        {totalPages > 1 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-            <p className="font-body text-xs text-slate-500">
-              Trang {currentPage} / {totalPages}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                data-testid="dashboard-contacts-prev"
-                type="button"
-                onClick={() => setPage((value) => Math.max(1, value - 1))}
-                disabled={currentPage === 1}
-                className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-body font-bold text-slate-600 transition-colors hover:bg-slate-200 disabled:cursor-not-allowed disabled:text-slate-300"
-              >
-                Trước
-              </button>
-              <button
-                data-testid="dashboard-contacts-next"
-                type="button"
-                onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
-                disabled={currentPage === totalPages}
-                className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-body font-bold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-              >
-                Sau
-              </button>
-            </div>
-          </div>
-        )}
+        <PaginationControls
+          itemLabel="yêu cầu"
+          nextTestId="dashboard-contacts-next"
+          onPageChange={setPage}
+          page={currentPage}
+          pageCount={totalPages}
+          pageSize={PAGE_SIZE}
+          previousTestId="dashboard-contacts-prev"
+          totalItems={filtered.length}
+        />
         </>
       )}
       {selectedContact && selectedHeat ? (
