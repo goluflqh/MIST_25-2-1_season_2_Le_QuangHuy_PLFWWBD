@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { useNotify } from "@/components/NotifyProvider";
+import {
+  MINHHONG_MANUAL_WORKBOOK_MAX_BYTES,
+  MINHHONG_MANUAL_WORKBOOK_MAX_MB,
+} from "@/lib/minhhong-import/workbook-limits";
 
 interface ImportResponse {
   success: boolean;
@@ -81,6 +85,10 @@ function formatMoney(value: number | undefined) {
   return `${Number(value || 0).toLocaleString("vi-VN")}đ`;
 }
 
+function formatFileSize(bytes: number) {
+  return `${(bytes / (1024 * 1024)).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} MB`;
+}
+
 function totalChanges(changes: ImportChanges | undefined, scope: ImportScope = "all") {
   if (!changes) return { created: 0, updated: 0, unchanged: 0 };
   if (scope === "service-orders") return { ...changes.serviceOrders };
@@ -145,6 +153,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
   const serviceOrderScope = scope === "service-orders";
   const partnerScope = scope === "partners";
   const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportResponse | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -155,6 +164,12 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
   const submitImport = async (mode: "preview" | "confirm", source: ImportSource) => {
     if (source === "workbook" && !file) {
       showToast("Chọn workbook .xlsx trước khi import.", "error");
+      return;
+    }
+    if (source === "workbook" && file && file.size > MINHHONG_MANUAL_WORKBOOK_MAX_BYTES) {
+      const message = `File Excel vượt quá giới hạn ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`;
+      setFileError(message);
+      showToast(message, "error");
       return;
     }
 
@@ -303,20 +318,47 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
               Sheet nhập cũ
             </a>
           ) : null}
-          <input
-            data-testid="minhhong-workbook-file"
-            type="file"
-            accept=".xlsx"
-            onChange={(event) => {
-              setFile(event.target.files?.[0] || null);
-              setPreview(null);
-              setPreviewSource(null);
-            }}
-            className="min-h-11 max-w-full rounded-lg border border-slate-200 px-3 py-2 font-body text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:font-body file:text-xs file:font-bold file:text-slate-700 lg:w-[280px]"
-          />
-          <p className="-mt-1 font-body text-xs text-slate-500 sm:hidden">
-            File Excel chuẩn là đường dự phòng; chọn file .xlsx thì 2 nút Excel mới dùng được.
-          </p>
+          <div className="min-w-0 lg:w-[280px]">
+            <input
+              data-testid="minhhong-workbook-file"
+              type="file"
+              accept=".xlsx"
+              aria-describedby={fileError ? "minhhong-workbook-file-help minhhong-workbook-file-error" : "minhhong-workbook-file-help"}
+              aria-invalid={Boolean(fileError)}
+              onChange={(event) => {
+                const selectedFile = event.target.files?.[0] || null;
+                let error: string | null = null;
+                if (selectedFile && !selectedFile.name.toLowerCase().endsWith(".xlsx")) {
+                  error = "Chỉ nhận file Excel có đuôi .xlsx.";
+                } else if (selectedFile && selectedFile.size > MINHHONG_MANUAL_WORKBOOK_MAX_BYTES) {
+                  error = `File đã chọn ${formatFileSize(selectedFile.size)}, vượt mức tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`;
+                }
+
+                if (error) {
+                  event.currentTarget.value = "";
+                  setFile(null);
+                  setFileError(error);
+                  showToast(error, "error");
+                } else {
+                  setFile(selectedFile);
+                  setFileError(null);
+                }
+                setPreview(null);
+                setPreviewSource(null);
+              }}
+              className="min-h-11 w-full max-w-full rounded-lg border border-slate-200 px-3 py-2 font-body text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:font-body file:text-xs file:font-bold file:text-slate-700"
+            />
+            <p id="minhhong-workbook-file-help" data-testid="minhhong-workbook-file-help" className="mt-1 font-body text-xs text-slate-500">
+              {file
+                ? `Đã chọn ${file.name} · ${formatFileSize(file.size)} / tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`
+                : `File .xlsx dự phòng, tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`}
+            </p>
+            {fileError ? (
+              <p id="minhhong-workbook-file-error" data-testid="minhhong-workbook-file-error" role="alert" className="mt-1 font-body text-xs font-bold text-red-600">
+                {fileError}
+              </p>
+            ) : null}
+          </div>
           <button
             type="button"
             data-testid="minhhong-source-sheet-preview"

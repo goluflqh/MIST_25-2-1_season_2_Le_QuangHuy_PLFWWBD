@@ -535,9 +535,11 @@ export default function ContactForm() {
                     id="contact-name"
                     {...register("name")}
                     type="text"
+                    autoComplete="name"
                     placeholder="Ví dụ: Nguyễn Văn A"
                     aria-label="Họ và tên"
                     aria-invalid={Boolean(errors.name)}
+                    aria-describedby={errors.name ? "contact-name-error" : undefined}
                     className={`w-full rounded-xl border px-4 py-4 font-body text-slate-800 transition-shadow focus:border-transparent focus:outline-none focus:ring-2 ${
                       errors.name
                         ? "border-red-500 focus:ring-red-500"
@@ -545,7 +547,7 @@ export default function ContactForm() {
                     }`}
                   />
                   {errors.name ? (
-                    <p className="ml-1 mt-1 font-body text-sm text-red-500">{errors.name.message}</p>
+                    <p id="contact-name-error" className="ml-1 mt-1 font-body text-sm text-red-500">{errors.name.message}</p>
                   ) : null}
                 </div>
 
@@ -559,9 +561,12 @@ export default function ContactForm() {
                       id="contact-phone"
                       {...register("phone")}
                       type="tel"
+                      autoComplete="tel"
+                      inputMode="tel"
                       placeholder="Ví dụ: 0987 443 258"
                       aria-label="Số điện thoại"
                       aria-invalid={Boolean(errors.phone)}
+                      aria-describedby={errors.phone ? "contact-phone-error" : undefined}
                       className={`w-full rounded-xl border px-4 py-4 font-body text-slate-800 transition-shadow focus:border-transparent focus:outline-none focus:ring-2 ${
                         errors.phone
                           ? "border-red-500 focus:ring-red-500"
@@ -584,7 +589,7 @@ export default function ContactForm() {
                     </div>
                   </div>
                   {errors.phone ? (
-                    <p className="ml-1 mt-1 font-body text-sm text-red-500">{errors.phone.message}</p>
+                    <p id="contact-phone-error" className="ml-1 mt-1 font-body text-sm text-red-500">{errors.phone.message}</p>
                   ) : null}
                 </div>
 
@@ -598,6 +603,7 @@ export default function ContactForm() {
                     {...register("serviceId")}
                     aria-label="Dịch vụ quan tâm"
                     aria-invalid={Boolean(errors.serviceId)}
+                    aria-describedby={errors.serviceId ? "contact-service-error" : undefined}
                     className={`w-full appearance-none rounded-xl border px-4 py-4 font-body text-slate-700 focus:border-transparent focus:outline-none focus:ring-2 ${
                       errors.serviceId
                         ? "border-red-500 focus:ring-red-500"
@@ -612,7 +618,7 @@ export default function ContactForm() {
                     ))}
                   </select>
                   {errors.serviceId ? (
-                    <p className="ml-1 mt-1 font-body text-sm text-red-500">
+                    <p id="contact-service-error" className="ml-1 mt-1 font-body text-sm text-red-500">
                       {errors.serviceId.message}
                     </p>
                   ) : null}

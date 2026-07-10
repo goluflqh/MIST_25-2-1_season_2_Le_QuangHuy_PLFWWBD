@@ -247,12 +247,44 @@ export default function ChatbotWidget() {
   const [isLoading, setIsLoading] = useState(false);
   const [pendingMeta, setPendingMeta] = useState<AssistantMeta | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
+  const chatToggleRef = useRef<HTMLButtonElement>(null);
   const isDashboardPath = pathname?.startsWith("/dashboard") ?? false;
   const loadingCopy = getChatbotLoadingCopy(pendingMeta?.intent, pendingMeta?.serviceLabel);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
   }, [messages]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => chatInputRef.current?.focus());
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      setIsOpen(false);
+      window.requestAnimationFrame(() => chatToggleRef.current?.focus());
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen]);
+
+  const closeChat = () => {
+    setIsOpen(false);
+    window.requestAnimationFrame(() => chatToggleRef.current?.focus());
+  };
 
   const sendMessage = async (overrideText?: string) => {
     const text = (overrideText || inputValue).trim();
@@ -369,8 +401,8 @@ export default function ChatbotWidget() {
         {message.actions.map((action) => {
           const baseClass =
             action.tone === "primary"
-              ? "inline-flex items-center justify-center rounded-full bg-slate-900 px-3 py-1.5 text-xs font-body font-semibold text-white transition-colors hover:bg-slate-800"
-              : "inline-flex items-center justify-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100";
+              ? "inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-3 py-2.5 text-xs font-body font-semibold text-white transition-colors hover:bg-slate-800"
+              : "inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200 px-3 py-2.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100";
 
           if (action.kind === "prompt") {
             return (
@@ -426,7 +458,10 @@ export default function ChatbotWidget() {
     <>
       {isOpen && (
         <div
+          id="chatbot-dialog"
           data-testid="chatbot-panel"
+          role="dialog"
+          aria-labelledby="chatbot-title"
           className="animate-fade-in-up fixed bottom-20 left-3 right-3 z-50 flex h-[min(78dvh,34rem)] max-h-[calc(100dvh-6rem)] flex-col overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-2xl sm:bottom-24 sm:left-auto sm:right-6 sm:h-[500px] sm:w-[380px] sm:max-w-[380px]"
         >
           <div className="flex shrink-0 items-center justify-between bg-slate-900 px-5 py-4">
@@ -435,7 +470,7 @@ export default function ChatbotWidget() {
                 MH
               </div>
               <div>
-                <p className="font-heading text-sm font-bold text-white">{CHATBOT_WIDGET_COPY.title}</p>
+                <h2 id="chatbot-title" className="font-heading text-sm font-bold text-white">{CHATBOT_WIDGET_COPY.title}</h2>
                 <p className="flex items-center gap-1 text-[10px] text-green-400 font-body">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400"></span>{" "}
                   {CHATBOT_WIDGET_COPY.onlineStatus}
@@ -443,8 +478,8 @@ export default function ChatbotWidget() {
               </div>
             </div>
             <button
-              onClick={() => setIsOpen(false)}
-              className="text-slate-400 transition-colors hover:text-white"
+              onClick={closeChat}
+              className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
               aria-label="Đóng chat"
               type="button"
             >
@@ -454,7 +489,13 @@ export default function ChatbotWidget() {
             </button>
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4">
+          <div
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions text"
+            aria-label="Nội dung cuộc trò chuyện"
+            className="flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4"
+          >
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -488,7 +529,7 @@ export default function ChatbotWidget() {
               </div>
             ))}
             {isLoading && (
-              <div className="flex justify-start">
+              <div role="status" className="flex justify-start">
                 <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm">
                   <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-body font-semibold uppercase tracking-[0.12em] text-slate-500">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"></span>
@@ -513,7 +554,7 @@ export default function ChatbotWidget() {
                 <button
                   key={item.label}
                   onClick={() => sendMessage(item.prompt)}
-                  className="shrink-0 snap-start whitespace-nowrap rounded-full border border-slate-200 px-3 py-1.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
+                  className="min-h-11 shrink-0 snap-start whitespace-nowrap rounded-full border border-slate-200 px-3 py-2.5 text-xs font-body font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
                   type="button"
                 >
                   {item.label}
@@ -524,9 +565,16 @@ export default function ChatbotWidget() {
 
           <div className="shrink-0 border-t border-slate-100 bg-white px-3 py-3">
             <div className="flex items-center gap-2">
+              <label htmlFor="chatbot-message" className="sr-only">
+                Nhập tin nhắn tư vấn
+              </label>
               <input
+                ref={chatInputRef}
+                id="chatbot-message"
+                name="message"
                 data-testid="chatbot-input"
                 type="text"
+                autoComplete="off"
                 value={inputValue}
                 onChange={(event) => setInputValue(event.target.value)}
                 onKeyDown={handleKeyDown}
@@ -538,7 +586,7 @@ export default function ChatbotWidget() {
                 data-testid="chatbot-send"
                 onClick={() => sendMessage()}
                 disabled={isLoading || !inputValue.trim()}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
                 aria-label="Gửi tin nhắn"
                 type="button"
               >
@@ -564,10 +612,13 @@ export default function ChatbotWidget() {
         )}
 
         <button
+          ref={chatToggleRef}
           data-testid="chatbot-toggle"
           onClick={() => setIsOpen((current) => !current)}
           className="chatbot-float-button group relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-orange-200 sm:h-16 sm:w-16"
-          aria-label="Mở AI tư vấn chuyên nghiệp"
+          aria-label={isOpen ? "Đóng trợ lý tư vấn" : "Mở trợ lý tư vấn"}
+          aria-expanded={isOpen}
+          aria-controls="chatbot-dialog"
           style={{
             background: "linear-gradient(135deg, #dc2626 0%, #ea580c 50%, #f59e0b 100%)",
           }}

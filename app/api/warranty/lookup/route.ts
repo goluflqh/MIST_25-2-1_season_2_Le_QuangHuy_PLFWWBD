@@ -1,105 +1,116 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { consumeRateLimitForRequest, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import {
+  buildWarrantyLookupPhoneKey,
+  serializePublicWarranty,
+} from "@/lib/public-warranty";
 import { isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
 
-function serializeWarranty(warranty: {
-  id: string;
-  serialNo: string;
-  productName: string;
-  customerName: string;
-  customerPhone: string;
-  service: string;
-  startDate: Date;
-  endDate: Date;
-  notes: string | null;
-}) {
-  return {
-    id: warranty.id,
-    serialNo: warranty.serialNo,
-    productName: warranty.productName,
-    customerName: warranty.customerName,
-    customerPhone: warranty.customerPhone,
-    service: warranty.service,
-    startDate: warranty.startDate,
-    endDate: warranty.endDate,
-    notes: warranty.notes,
-    isValid: new Date() < new Date(warranty.endDate),
-  };
+const MAX_PUBLIC_RESULTS = 10;
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, max-age=0",
+  Pragma: "no-cache",
+};
+const lookupSchema = z
+  .object({
+    phone: z.string().min(1).max(32),
+  })
+  .strict();
+
+function jsonResponse(
+  body: Record<string, unknown>,
+  options: { status?: number; headers?: Record<string, string> } = {}
+) {
+  return NextResponse.json(body, {
+    status: options.status,
+    headers: { ...NO_STORE_HEADERS, ...options.headers },
+  });
 }
 
-// GET /api/warranty/lookup?query=XXX — Public warranty lookup by serial or phone.
-export async function GET(request: Request) {
+// POST keeps the phone number out of URLs, browser history, and common access logs.
+export async function POST(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const explicitSerial = sanitizeText(searchParams.get("serial") || "");
-    const explicitPhone = sanitizeText(searchParams.get("phone") || "");
-    const query = sanitizeText(searchParams.get("query") || "");
-    const rawLookup = explicitSerial || explicitPhone || query;
+    const ipRateLimit = await consumeRateLimitForRequest(
+      `warranty-lookup:ip:${getClientIP(request)}`,
+      RATE_LIMITS.warrantyLookup
+    );
+    if (!ipRateLimit.allowed) {
+      return jsonResponse(
+        { success: false, message: "Bạn đã tra cứu quá nhiều lần. Vui lòng chờ rồi thử lại." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(ipRateLimit.retryAfterSec) },
+        }
+      );
+    }
 
-    if (!rawLookup) {
-      return NextResponse.json(
-        { success: false, message: "Vui lòng nhập số serial hoặc số điện thoại." },
+    const parsedBody = lookupSchema.safeParse(await request.json().catch(() => null));
+
+    if (!parsedBody.success) {
+      return jsonResponse(
+        { success: false, message: "Vui lòng nhập số điện thoại đã dùng khi đăng ký dịch vụ." },
         { status: 400 }
       );
     }
 
-    const normalizedPhone = normalizePhone(explicitPhone || query);
-    const shouldLookupPhone = Boolean(explicitPhone) || (!explicitSerial && isValidPhone(normalizedPhone));
+    const phone = normalizePhone(sanitizeText(parsedBody.data.phone));
 
-    if (shouldLookupPhone) {
-      if (!isValidPhone(normalizedPhone)) {
-        return NextResponse.json(
-          { success: false, message: "Số điện thoại tra cứu chưa đúng định dạng." },
-          { status: 400 }
-        );
-      }
-
-      const warranties = await prisma.warranty.findMany({
-        where: { customerPhone: normalizedPhone, deletedAt: null },
-        orderBy: [{ createdAt: "desc" }, { endDate: "desc" }],
-      });
-
-      if (warranties.length === 0) {
-        return NextResponse.json(
-          { success: false, message: "Không tìm thấy phiếu bảo hành theo số điện thoại này." },
-          { status: 404 }
-        );
-      }
-
-      const serialized = warranties.map(serializeWarranty);
-      return NextResponse.json({
-        success: true,
-        lookupType: "phone",
-        warranty: serialized[0],
-        warranties: serialized,
-      });
-    }
-
-    const serial = sanitizeText(explicitSerial || query).toUpperCase();
-    const warranty = await prisma.warranty.findFirst({
-      where: {
-        deletedAt: null,
-        serialNo: { equals: serial, mode: "insensitive" },
-      },
-    });
-
-    if (!warranty) {
-      return NextResponse.json(
-        { success: false, message: "Không tìm thấy thông tin bảo hành." },
-        { status: 404 }
+    if (!isValidPhone(phone)) {
+      return jsonResponse(
+        { success: false, message: "Số điện thoại chưa đúng định dạng. Vui lòng kiểm tra lại." },
+        { status: 400 }
       );
     }
 
-    const serialized = serializeWarranty(warranty);
-    return NextResponse.json({
+    const phoneRateLimit = await consumeRateLimitForRequest(
+      `warranty-lookup:phone:${buildWarrantyLookupPhoneKey(phone)}`,
+      RATE_LIMITS.warrantyLookupPhone
+    );
+    if (!phoneRateLimit.allowed) {
+      return jsonResponse(
+        { success: false, message: "Số điện thoại này đã được tra cứu nhiều lần. Vui lòng thử lại sau." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(phoneRateLimit.retryAfterSec) },
+        }
+      );
+    }
+
+    const warranties = await prisma.warranty.findMany({
+      where: {
+        customerPhone: phone,
+        deletedAt: null,
+      },
+      select: {
+        endDate: true,
+        productName: true,
+        serialNo: true,
+        service: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: MAX_PUBLIC_RESULTS + 1,
+    });
+
+    const hasMore = warranties.length > MAX_PUBLIC_RESULTS;
+    const summaries = warranties
+      .slice(0, MAX_PUBLIC_RESULTS)
+      .map((warranty) => serializePublicWarranty(warranty));
+
+    return jsonResponse({
       success: true,
-      lookupType: "serial",
-      warranty: serialized,
-      warranties: [serialized],
+      lookupType: "phone",
+      warranties: summaries,
+      total: summaries.length,
+      hasMore,
     });
   } catch (error) {
-    console.error("Warranty lookup error:", error);
-    return NextResponse.json(
+    console.error(
+      "Warranty lookup error:",
+      error instanceof Error ? error.message : "Unknown error"
+    );
+    return jsonResponse(
       { success: false, message: "Chưa tra cứu được bảo hành lúc này." },
       { status: 500 }
     );

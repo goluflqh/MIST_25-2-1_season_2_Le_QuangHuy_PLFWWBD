@@ -229,8 +229,7 @@ export default function Hero() {
                 src={slide.image}
                 alt={slide.alt}
                 fill
-                loading={index === currentSlide ? "eager" : "lazy"}
-                unoptimized
+                priority={index === 0}
                 sizes="(max-width: 1024px) 100vw, 48vw"
                 className={`object-cover transition-opacity duration-700 ease-out ${
                   index === currentSlide ? "opacity-100" : "opacity-0"
@@ -290,13 +289,18 @@ export default function Hero() {
                       <button
                         key={slide.label}
                         onClick={() => goToSlide(index)}
-                        className={`h-2 w-4 rounded-full transition-colors sm:h-2.5 sm:w-2.5 ${
-                          index === currentSlide ? "bg-white" : "bg-white/38 hover:bg-red-200"
-                        }`}
+                        className="group inline-flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                         aria-label={`Chuyển tới ảnh ${index + 1}`}
                         aria-pressed={index === currentSlide}
                         type="button"
-                      />
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`h-2 w-4 rounded-full transition-colors sm:h-2.5 sm:w-2.5 ${
+                            index === currentSlide ? "bg-white" : "bg-white/38 group-hover:bg-red-200"
+                          }`}
+                        />
+                      </button>
                     ))}
                   </div>
                 </div>

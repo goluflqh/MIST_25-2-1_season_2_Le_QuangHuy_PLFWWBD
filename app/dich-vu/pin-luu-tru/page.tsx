@@ -178,7 +178,6 @@ export default function StorageBatteryPage() {
                 alt="Bộ pin lưu trữ và kích đề được sắp xếp trên quầy kỹ thuật."
                 fill
                 priority
-                unoptimized
                 sizes="(max-width: 1024px) 100vw, 38vw"
                 className="object-cover"
               />

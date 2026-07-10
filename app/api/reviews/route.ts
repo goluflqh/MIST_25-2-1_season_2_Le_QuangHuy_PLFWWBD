@@ -62,7 +62,6 @@ export async function POST(request: Request) {
       const order = await prisma.serviceOrder.findUnique({
         where: { id: serviceOrderId },
         select: {
-          customerPhone: true,
           customerVisible: true,
           deletedAt: true,
           id: true,
@@ -82,7 +81,7 @@ export async function POST(request: Request) {
 
       if (
         session.user.role !== "ADMIN"
-        && (!order.customerVisible || (order.userId !== session.user.id && order.customerPhone !== session.user.phone))
+        && (!order.customerVisible || order.userId !== session.user.id)
       ) {
         return createErrorResponse({
           status: 403,

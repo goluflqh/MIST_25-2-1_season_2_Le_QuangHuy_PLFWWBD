@@ -21,6 +21,9 @@ export default function Header({
   const [notifCount, setNotifCount] = useState(initialNotificationCount);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const servicesCloseTimerRef = useRef<number | null>(null);
+  const servicesButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   const isMobileMenuOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
   const isServicesOpen = servicesMenuState.pathname === pathname && servicesMenuState.open;
@@ -121,11 +124,6 @@ export default function Header({
     }
   };
 
-  const openServicesMenu = () => {
-    clearServicesCloseTimer();
-    setServicesMenuState({ open: true, pathname });
-  };
-
   const scheduleServicesClose = () => {
     clearServicesCloseTimer();
     servicesCloseTimerRef.current = window.setTimeout(() => {
@@ -146,6 +144,75 @@ export default function Header({
     clearServicesCloseTimer();
     setMobileMenuState({ open: false, pathname });
     setServicesMenuState({ open: false, pathname });
+  };
+
+  useEffect(() => {
+    if (!isMobileMenuOpen && !isServicesOpen) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      if (servicesCloseTimerRef.current !== null) {
+        window.clearTimeout(servicesCloseTimerRef.current);
+        servicesCloseTimerRef.current = null;
+      }
+      setMobileMenuState({ open: false, pathname });
+      setServicesMenuState({ open: false, pathname });
+
+      window.requestAnimationFrame(() => {
+        if (isMobileMenuOpen) {
+          mobileMenuButtonRef.current?.focus();
+        } else {
+          servicesButtonRef.current?.focus();
+        }
+      });
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isMobileMenuOpen, isServicesOpen, pathname]);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      mobileMenuRef.current?.querySelector<HTMLElement>("a, button")?.focus();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [isMobileMenuOpen]);
+
+  const handleMobileMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const focusableElements = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    );
+    const first = focusableElements[0];
+    const last = focusableElements.at(-1);
+
+    if (!first || !last) {
+      return;
+    }
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   };
 
   useEffect(() => {
@@ -220,13 +287,18 @@ export default function Header({
       ) : null}
       <div className="relative z-10 mx-auto max-w-7xl">
         <div className="glass-panel flex items-center justify-between rounded-[1.6rem] border border-white/80 px-4 py-3 shadow-[0_24px_60px_-42px_rgba(15,23,42,0.45)] sm:px-5">
-        <button
-          onClick={() => {
+        <Link
+          href="/"
+          onClick={(event) => {
             closeMenus();
             if (pathname === "/") {
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            } else {
-              router.push("/");
+              event.preventDefault();
+              window.scrollTo({
+                top: 0,
+                behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                  ? "auto"
+                  : "smooth",
+              });
             }
           }}
           className="group flex min-h-11 min-w-0 shrink-0 cursor-pointer items-center gap-2.5"
@@ -270,9 +342,9 @@ export default function Header({
               Điện máy - Đóng pin
             </span>
           </div>
-        </button>
+        </Link>
 
-        <nav className="hidden items-center gap-1 lg:flex">
+        <nav aria-label="Điều hướng chính" className="hidden items-center gap-1 lg:flex">
           <Link
             href="/"
             className={`font-body font-semibold text-sm px-3 py-2 rounded-lg transition-colors ${isActive("/") ? "text-primary bg-red-50" : "text-slate-600 hover:text-primary hover:bg-slate-50"}`}
@@ -289,14 +361,12 @@ export default function Header({
                 scheduleServicesClose();
               }
             }}
-            onFocus={openServicesMenu}
-            onMouseEnter={openServicesMenu}
-            onMouseLeave={scheduleServicesClose}
           >
             <button
+              ref={servicesButtonRef}
               type="button"
               aria-expanded={isServicesOpen}
-              aria-haspopup="menu"
+              aria-controls="desktop-services-menu"
               onClick={toggleServicesMenu}
               className={`font-body font-semibold text-sm px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${pathname.startsWith("/dich-vu") ? "text-primary bg-red-50" : "text-slate-600 hover:text-primary hover:bg-slate-50"}`}
             >
@@ -313,14 +383,13 @@ export default function Header({
             {isServicesOpen ? (
               <div className="absolute left-0 top-full w-64 pt-2">
                 <div
-                  role="menu"
+                  id="desktop-services-menu"
                   className="animate-fade-in rounded-xl border border-slate-100 bg-white py-2 shadow-xl"
                 >
                   {serviceLinks.map((link) => (
                     <Link
                       key={link.href}
                       href={link.href}
-                      role="menuitem"
                       onClick={closeMenus}
                       className={`block px-4 py-2.5 font-body text-sm transition-colors ${isActive(link.href) ? "text-primary bg-red-50 font-bold" : "text-slate-700 hover:bg-slate-50 hover:text-primary"}`}
                     >
@@ -331,6 +400,13 @@ export default function Header({
               </div>
             ) : null}
           </div>
+
+          <Link
+            href="/tra-cuu-bao-hanh"
+            className={`font-body font-semibold text-sm px-3 py-2 rounded-lg transition-colors ${isActive("/tra-cuu-bao-hanh") ? "text-primary bg-red-50" : "text-slate-600 hover:text-primary hover:bg-slate-50"}`}
+          >
+            Bảo Hành
+          </Link>
 
           <Link
             href="/bao-gia"
@@ -390,7 +466,11 @@ export default function Header({
         </div>
 
         <button
-          aria-label="Toggle Mobile Menu"
+          ref={mobileMenuButtonRef}
+          type="button"
+          aria-label={isMobileMenuOpen ? "Đóng menu điều hướng" : "Mở menu điều hướng"}
+          aria-expanded={isMobileMenuOpen}
+          aria-controls="mobile-navigation-menu"
           onClick={toggleMobileMenu}
           className="flex h-11 w-11 items-center justify-center rounded-full text-slate-700 transition-colors hover:bg-slate-100 hover:text-primary lg:hidden"
         >
@@ -407,8 +487,13 @@ export default function Header({
       </div>
 
       {isMobileMenuOpen ? (
-        <div className="animate-fade-in mt-2 overflow-hidden rounded-[1.4rem] border border-white/80 bg-white/95 shadow-[0_18px_48px_-36px_rgba(15,23,42,0.45)] backdrop-blur lg:hidden">
-          <nav className="px-4 py-4 space-y-1">
+        <div
+          ref={mobileMenuRef}
+          id="mobile-navigation-menu"
+          onKeyDown={handleMobileMenuKeyDown}
+          className="animate-fade-in mt-2 overflow-hidden rounded-[1.4rem] border border-white/80 bg-white/95 shadow-[0_18px_48px_-36px_rgba(15,23,42,0.45)] backdrop-blur lg:hidden"
+        >
+          <nav aria-label="Điều hướng trên thiết bị di động" className="px-4 py-4 space-y-1">
             <Link
               href="/"
               onClick={closeMenus}
@@ -430,6 +515,14 @@ export default function Header({
                 {link.name}
               </Link>
             ))}
+
+            <Link
+              href="/tra-cuu-bao-hanh"
+              onClick={closeMenus}
+              className={`block px-4 py-3 rounded-xl font-body font-semibold text-sm ${isActive("/tra-cuu-bao-hanh") ? "text-primary bg-red-50" : "text-slate-700 hover:bg-slate-50"}`}
+            >
+              Tra Cứu Bảo Hành
+            </Link>
 
             <Link
               href="/bao-gia"

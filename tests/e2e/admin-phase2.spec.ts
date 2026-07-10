@@ -266,7 +266,7 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("partner-history-results")).toBeVisible();
   });
 
-  test("workbook import panel previews workbook issues without writing DB", async ({ page }) => {
+  test("workbook import panel previews the service-order scope without writing DB", async ({ page }) => {
     await login(page);
     await page.goto("/dashboard/orders");
     await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
@@ -274,15 +274,18 @@ test.describe("Admin phase 2 workflows", () => {
     await page.getByTestId("minhhong-workbook-file").setInputFiles(ADMIN_IMPORT_WORKBOOK);
     await page.getByTestId("minhhong-workbook-preview").click();
 
-    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("12.720.000đ", { timeout: 15_000 });
-    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("80 dòng");
-    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("41 dòng");
-    await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("Cần kiểm tra");
-    await expect(page.getByTestId("minhhong-workbook-blocking-issues")).toContainText("37/1/2026");
-    await expect(page.getByTestId("minhhong-workbook-confirm")).toBeDisabled();
+    const summary = page.getByTestId("minhhong-workbook-preview-summary");
+    await expect(summary).toContainText("Đơn khách trong Sheet", { timeout: 15_000 });
+    await expect(summary).toContainText("41 dòng");
+    await expect(summary).toContainText("Đơn đã sửa");
+    await expect(summary).toContainText("Sẵn sàng áp dụng");
+    await expect(summary).not.toContainText("Ledger đối tác");
+    await expect(summary).not.toContainText("Long cần trả");
+    await expect(page.getByTestId("minhhong-workbook-blocking-issues")).toHaveCount(0);
+    await expect(page.getByTestId("minhhong-workbook-confirm")).toBeEnabled();
   });
 
-  test("source Sheet import panel previews live raw Sheet data and surfaces row-level date warnings without writing DB", async ({ page }) => {
+  test("source Sheet import panel previews live raw Sheet data without writing DB", async ({ page }) => {
     await login(page);
     await page.goto("/dashboard/orders");
     await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
@@ -295,9 +298,6 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(summary).not.toContainText("Long cần trả");
     await expect(summary).toContainText("Sẵn sàng áp dụng");
     await expect(page.getByTestId("minhhong-workbook-blocking-issues")).toHaveCount(0);
-    await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Dòng cần kiểm tra trong Sheet");
-    await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Dòng Excel");
-    await expect(page.getByTestId("minhhong-workbook-warnings")).not.toContainText("Đối soát");
     await expect(page.getByTestId("minhhong-source-sheet-confirm")).toBeEnabled();
     await expect(page.getByTestId("minhhong-workbook-confirm")).toBeDisabled();
   });
@@ -432,10 +432,19 @@ test.describe("Admin phase 2 workflows", () => {
     await page.getByTestId("minhhong-workbook-mobile-toggle").click();
     await expect(page.getByTestId("minhhong-workbook-mobile-toggle")).toContainText("Ẩn khu nhập");
     await expect(page.getByTestId("minhhong-workbook-file")).toBeVisible();
+    await expect(page.getByTestId("minhhong-workbook-file-help")).toContainText("tối đa 10 MB");
     await expectMinTouchHeight(page.getByTestId("minhhong-source-sheet-preview"));
     await expectMinTouchHeight(page.getByTestId("minhhong-source-sheet-confirm"));
     await expectMinTouchHeight(page.getByTestId("minhhong-workbook-preview"));
     await expectMinTouchHeight(page.getByTestId("minhhong-workbook-confirm"));
+
+    await page.getByTestId("minhhong-workbook-file").setInputFiles({
+      name: "vuot-gioi-han.xlsx",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: Buffer.alloc(10 * 1024 * 1024 + 1),
+    });
+    await expect(page.getByTestId("minhhong-workbook-file-error")).toContainText("vượt mức tối đa 10 MB");
+    await expect(page.getByTestId("minhhong-workbook-preview")).toBeDisabled();
   });
 
   test("mobile toast notifications appear at the top instead of covering lower content", async ({ page }) => {
@@ -573,6 +582,32 @@ test.describe("Admin phase 2 workflows", () => {
     await expectMinTouchHeight(page.getByRole("button", { name: "Ghi thu" }).first());
     await expectMinTouchHeight(page.getByRole("button", { name: "Thu đủ" }).first());
     await expectMinTouchHeight(page.getByRole("button", { name: "Xoá" }).first());
+  });
+
+  test("dashboard financial summary includes confirmed-order receivables", async ({ page, request }) => {
+    await seedServiceOrder(request, { orderDate: vietnamDateText() });
+
+    const ordersResponse = await request.get("/api/admin/service-orders");
+    expect(ordersResponse.ok()).toBeTruthy();
+    const { orders } = await ordersResponse.json() as {
+      orders: Array<{
+        discountAmount: number | null;
+        paidAmount: number | null;
+        priceStatus: string;
+        quotedPrice: number | null;
+      }>;
+    };
+    const expectedDebt = orders.reduce((total, order) => {
+      if (order.priceStatus !== "CONFIRMED") return total;
+      return total + Math.max((order.quotedPrice ?? 0) - (order.discountAmount ?? 0) - (order.paidAmount ?? 0), 0);
+    }, 0);
+
+    expect(expectedDebt).toBeGreaterThan(0);
+    await login(page);
+    await page.goto("/dashboard");
+
+    const debtCard = page.getByText("Còn phải thu", { exact: true }).locator("..");
+    await expect(debtCard).toContainText(`${expectedDebt.toLocaleString("vi-VN")}đ`);
   });
 
   test("orders edit drawer saves without jumping to the create form", async ({ page, request }) => {

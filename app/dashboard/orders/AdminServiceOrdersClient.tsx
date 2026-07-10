@@ -436,6 +436,7 @@ export default function AdminServiceOrdersClient({
   const importPanelRef = useRef<HTMLDivElement | null>(null);
   const importTextRef = useRef<HTMLTextAreaElement | null>(null);
   const appliedPrefillRef = useRef(false);
+  const editDrawerOpenerRef = useRef<HTMLElement | null>(null);
   const [orders, setOrders] = useState(initialOrders);
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -667,6 +668,9 @@ export default function AdminServiceOrdersClient({
   };
 
   const editOrder = (order: ServiceOrderData) => {
+    editDrawerOpenerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     setEditingId(order.id);
     setFormData(buildOrderFormData(order));
     setShowImport(false);
@@ -676,6 +680,47 @@ export default function AdminServiceOrdersClient({
       orderFirstFieldRef.current?.focus({ preventScroll: true });
     }, 50);
   };
+
+  useEffect(() => {
+    if (!editingId) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setShowForm(false);
+        setEditingId(null);
+        setFormData(createEmptyOrderForm());
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = orderFormRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    const opener = editDrawerOpenerRef.current;
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      opener?.focus();
+    };
+  }, [editingId]);
 
   const saveOrderForm = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1019,10 +1064,9 @@ export default function AdminServiceOrdersClient({
       {showForm ? (
         <div className={editingId ? "fixed inset-0 z-[80] flex items-end bg-slate-950/30 p-0 backdrop-blur-[1px] sm:items-stretch sm:justify-end" : ""}>
           {editingId ? (
-            <button
-              type="button"
-              aria-label="Đóng sửa đơn"
-              onClick={() => {
+            <div
+              aria-hidden="true"
+              onMouseDown={() => {
                 setShowForm(false);
                 resetForm();
               }}
@@ -1032,6 +1076,9 @@ export default function AdminServiceOrdersClient({
           <form
             ref={orderFormRef}
             onSubmit={saveOrderForm}
+            role={editingId ? "dialog" : undefined}
+            aria-modal={editingId ? true : undefined}
+            aria-labelledby={editingId ? "dashboard-order-edit-title" : undefined}
             className={editingId
               ? "relative z-10 max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-slate-100 bg-white p-4 shadow-2xl sm:h-full sm:max-h-none sm:w-[min(760px,100vw)] sm:rounded-none sm:p-6"
               : "scroll-mt-28 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6"}
@@ -1039,7 +1086,7 @@ export default function AdminServiceOrdersClient({
             <div className={`${editingId ? "sticky top-0 z-10 -mx-4 -mt-4 mb-4 border-b border-slate-100 bg-white/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6" : "mb-4"}`}>
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-heading text-lg font-bold text-slate-900">
+                  <h3 id={editingId ? "dashboard-order-edit-title" : undefined} className="font-heading text-lg font-bold text-slate-900">
                     {editingId ? "Sửa đơn đang xem" : "Thêm đơn nhanh"}
                   </h3>
                   <p className="font-body text-sm text-slate-500">

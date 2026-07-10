@@ -400,11 +400,12 @@ export function normalizeServiceOrderPayload(
 
 export async function createServiceOrder(
   payload: Record<string, unknown>,
-  fallbackSource: ServiceOrderSource = "MANUAL"
+  fallbackSource: ServiceOrderSource = "MANUAL",
+  transaction?: Prisma.TransactionClient
 ) {
   const normalized = normalizeServiceOrderPayload(payload, fallbackSource);
 
-  return prisma.$transaction(async (tx) => {
+  const createWithinTransaction = async (tx: PrismaRunner) => {
     const contactRequest = normalized.contactRequestId
       ? await tx.contactRequest.findUnique({
           where: { id: normalized.contactRequestId },
@@ -430,17 +431,12 @@ export async function createServiceOrder(
       throw new ServiceOrderValidationError("Yêu cầu tư vấn này đã có đơn dịch vụ liên kết.");
     }
 
-    const linkedUser = await tx.user.findUnique({
-      where: { phone: normalized.customerPhone },
-      select: { id: true, role: true },
-    });
     const existingCustomer = await tx.customer.findUnique({
       where: { phone: normalized.customerPhone },
       select: { userId: true },
     });
     const contactUserId = contactRequest?.user?.role === "CUSTOMER" ? contactRequest.user.id : null;
-    const linkedCustomerUserId = linkedUser?.role === "CUSTOMER" ? linkedUser.id : null;
-    const effectiveUserId = linkedCustomerUserId || contactUserId || existingCustomer?.userId || null;
+    const effectiveUserId = contactUserId || existingCustomer?.userId || null;
     const requestedCouponRedemptionId = normalized.couponRedemptionId || contactRequest?.couponRedemptionId || null;
     const couponRedemption = contactRequest?.couponRedemption
       || (requestedCouponRedemptionId
@@ -527,7 +523,11 @@ export async function createServiceOrder(
     }
 
     return order;
-  });
+  };
+
+  return transaction
+    ? createWithinTransaction(transaction)
+    : prisma.$transaction(createWithinTransaction);
 }
 
 export function serializeServiceOrder(

@@ -70,7 +70,7 @@ export async function DELETE(request: Request) {
       await tx.review.deleteMany({ where: { userId } });
       await tx.warranty.deleteMany({ where: { userId } });
       await tx.contactRequest.deleteMany({
-        where: { OR: [{ userId }, { phone: targetUser.phone }] },
+        where: { userId },
       });
       await tx.couponRedemption.deleteMany({ where: { userId } });
       await tx.auditLog.deleteMany({ where: { userId } });

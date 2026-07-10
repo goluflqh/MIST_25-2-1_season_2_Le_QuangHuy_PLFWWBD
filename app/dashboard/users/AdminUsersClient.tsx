@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useNotify } from "@/components/NotifyProvider";
 import PaginationControls from "@/components/PaginationControls";
 import { formatVietnamDate } from "@/lib/vietnam-time";
+
+interface HistoryCounts {
+  customerProfiles: number;
+  contactRequests: number;
+  serviceOrders: number;
+  warranties: number;
+  total: number;
+}
 
 interface UserData {
   id: string;
@@ -20,7 +29,13 @@ interface UserData {
   serviceOrderCount: number;
   totalDebt: number;
   warrantyCount: number;
+  unlinkedHistory: HistoryCounts;
   _count: { contactRequests: number; reviews: number };
+}
+
+interface HistoryLinkNotice {
+  hasConflict: boolean;
+  message: string;
 }
 
 type TierKey = "diamond" | "gold" | "silver" | "bronze";
@@ -71,6 +86,7 @@ function sanitizeSignedIntegerText(value: string) {
 }
 
 export default function AdminUsersClient({ initialUsers }: { initialUsers: UserData[] }) {
+  const router = useRouter();
   const { showToast, showConfirm } = useNotify();
   const [users, setUsers] = useState<UserData[]>(initialUsers);
   const [editingPoints, setEditingPoints] = useState<string | null>(null);
@@ -81,6 +97,8 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
   const [resettingPointsId, setResettingPointsId] = useState<string | null>(null);
   const [resettingPasswordId, setResettingPasswordId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [linkingHistoryUserId, setLinkingHistoryUserId] = useState<string | null>(null);
+  const [historyLinkNotices, setHistoryLinkNotices] = useState<Record<string, HistoryLinkNotice>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
@@ -166,6 +184,10 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
     setPage(1);
     setExpandedUserIds(new Set());
   };
+
+  useEffect(() => {
+    setUsers(initialUsers);
+  }, [initialUsers]);
 
   useEffect(() => {
     setPage(1);
@@ -303,6 +325,66 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
         setDeletingUserId(null);
       }
     });
+  };
+
+  const linkCustomerHistory = (user: UserData) => {
+    const pendingCount = user.unlinkedHistory.total;
+    showConfirm(
+      `Gắn ${pendingCount} dữ liệu chưa có chủ theo SĐT ${user.phone} vào tài khoản "${user.name}"?\n\nChỉ tiếp tục sau khi đã đối chiếu SĐT với khách qua cuộc gọi hoặc Zalo. Dữ liệu đã thuộc tài khoản khác sẽ không bị ghi đè.`,
+      async () => {
+        setLinkingHistoryUserId(user.id);
+        setHistoryLinkNotices((current) => {
+          const next = { ...current };
+          delete next[user.id];
+          return next;
+        });
+
+        try {
+          const response = await fetch("/api/admin/users/link-history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: user.id }),
+          });
+          const data = await response.json();
+          const conflictCount = typeof data.conflicts?.total === "number" ? data.conflicts.total : 0;
+          const remainingUnlinked = data.remainingUnlinked as HistoryCounts | undefined;
+
+          if (!response.ok || !data.success) {
+            const message = data.message || "Chưa gắn được lịch sử khách hàng.";
+            setHistoryLinkNotices((current) => ({
+              ...current,
+              [user.id]: { hasConflict: true, message },
+            }));
+            showToast(message, "error");
+            return;
+          }
+
+          const message = conflictCount > 0
+            ? `${data.message} Có ${conflictCount} dữ liệu xung đột đã được giữ nguyên để kiểm tra.`
+            : data.message;
+          setHistoryLinkNotices((current) => ({
+            ...current,
+            [user.id]: { hasConflict: conflictCount > 0, message },
+          }));
+          setUsers((current) => current.map((item) => (
+            item.id === user.id && remainingUnlinked
+              ? { ...item, unlinkedHistory: remainingUnlinked }
+              : item
+          )));
+          showToast(message, "success");
+          router.refresh();
+        } catch {
+          const message = "Không thể gắn lịch sử khách hàng lúc này.";
+          setHistoryLinkNotices((current) => ({
+            ...current,
+            [user.id]: { hasConflict: true, message },
+          }));
+          showToast(message, "error");
+        } finally {
+          setLinkingHistoryUserId(null);
+        }
+      }
+    );
   };
 
   if (users.length === 0) {
@@ -462,7 +544,8 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
             const isBusy = savingPointsId === user.id
               || resettingPointsId === user.id
               || resettingPasswordId === user.id
-              || deletingUserId === user.id;
+              || deletingUserId === user.id
+              || linkingHistoryUserId === user.id;
             const isExpanded = expandedUserIds.has(user.id);
 
             return (
@@ -598,6 +681,19 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
 
                 {user.role !== "ADMIN" ? (
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {user.unlinkedHistory.total > 0 ? (
+                      <button
+                        type="button"
+                        data-testid="dashboard-link-history-mobile"
+                        onClick={() => linkCustomerHistory(user)}
+                        disabled={linkingHistoryUserId === user.id}
+                        className="min-h-11 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 disabled:bg-slate-100 disabled:text-slate-300"
+                      >
+                        {linkingHistoryUserId === user.id
+                          ? "Đang gắn..."
+                          : `Gắn ${user.unlinkedHistory.total} dữ liệu cũ`}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => resetPassword(user.id, user.name)}
@@ -623,6 +719,17 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
                       {deletingUserId === user.id ? "..." : "Xoá tài khoản"}
                     </button>
                   </div>
+                ) : null}
+
+                {historyLinkNotices[user.id] ? (
+                  <p
+                    role="status"
+                    className={`mt-3 rounded-lg px-3 py-2 font-body text-xs ${historyLinkNotices[user.id].hasConflict
+                      ? "border border-amber-200 bg-amber-50 text-amber-800"
+                      : "border border-emerald-200 bg-emerald-50 text-emerald-800"}`}
+                  >
+                    {historyLinkNotices[user.id].message}
+                  </p>
                 ) : null}
 
                 {resetPwId === user.id && tempCode ? (
@@ -694,7 +801,8 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
                   const isBusy = savingPointsId === user.id
                     || resettingPointsId === user.id
                     || resettingPasswordId === user.id
-                    || deletingUserId === user.id;
+                    || deletingUserId === user.id
+                    || linkingHistoryUserId === user.id;
 
                   return (
                     <tr
@@ -783,6 +891,18 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
                         {user.role !== "ADMIN" && (
                           <div className="space-y-1">
                             <div className="flex gap-1">
+                              {user.unlinkedHistory.total > 0 ? (
+                                <button
+                                  type="button"
+                                  data-testid="dashboard-link-history-desktop"
+                                  onClick={() => linkCustomerHistory(user)}
+                                  disabled={linkingHistoryUserId === user.id}
+                                  title="Chỉ gắn dữ liệu chưa có chủ sau khi admin xác nhận SĐT"
+                                  className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 disabled:bg-slate-100 disabled:text-slate-300"
+                                >
+                                  {linkingHistoryUserId === user.id ? "..." : `Gắn ${user.unlinkedHistory.total}`}
+                                </button>
+                              ) : null}
                               <button
                                 onClick={() => resetPassword(user.id, user.name)}
                                 disabled={resettingPasswordId === user.id}
@@ -808,6 +928,16 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
                                 {deletingUserId === user.id ? "..." : "🗑️"}
                               </button>
                             </div>
+                            {historyLinkNotices[user.id] ? (
+                              <p
+                                role="status"
+                                className={`max-w-48 rounded-lg px-2 py-1 font-body text-[10px] ${historyLinkNotices[user.id].hasConflict
+                                  ? "bg-amber-50 text-amber-800"
+                                  : "bg-emerald-50 text-emerald-800"}`}
+                              >
+                                {historyLinkNotices[user.id].message}
+                              </p>
+                            ) : null}
                             {resetPwId === user.id && tempCode && (
                               <div className="flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-2 py-1">
                                 <code className="font-mono text-xs font-bold text-green-700">{tempCode}</code>

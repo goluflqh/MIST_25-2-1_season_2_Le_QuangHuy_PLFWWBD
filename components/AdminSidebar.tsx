@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
 interface NavCounts { contacts: number; reviews: number; }
 
@@ -17,26 +17,49 @@ const navItems = [
   { href: "/dashboard/warranty", label: "Bảo Hành", icon: "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" },
 ];
 
-function SidebarNav({ pathname, counts }: { pathname: string; counts: NavCounts }) {
+function SidebarNav({
+  pathname,
+  counts,
+  onNavigate,
+  titleId,
+  onClose,
+}: {
+  pathname: string;
+  counts: NavCounts;
+  onNavigate?: () => void;
+  titleId?: string;
+  onClose?: () => void;
+}) {
   return (
     <>
-      <div className="p-6 border-b border-slate-700">
-        <h2 className="font-heading font-bold text-lg text-yellow-400">🔧 Admin Panel</h2>
+      <div className="relative border-b border-slate-700 p-6 pr-16">
+        <h2 id={titleId} className="font-heading font-bold text-lg text-yellow-400">🔧 Admin Panel</h2>
         <p className="text-xs text-slate-400 font-body mt-1">Minh Hồng Dashboard</p>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            data-admin-menu-close
+            className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-xl text-slate-300 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+            aria-label="Đóng menu quản trị"
+          >
+            <svg className="h-5 w-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        ) : null}
       </div>
-      <nav className="flex-1 p-4 space-y-2">
+      <nav aria-label="Điều hướng quản trị" className="flex-1 overflow-y-auto p-4 space-y-2">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           const count = item.countKey ? counts[item.countKey] : 0;
           return (
-            <Link key={item.href} href={item.href}
+            <Link key={item.href} href={item.href} onClick={onNavigate} aria-current={isActive ? "page" : undefined}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl font-body font-semibold transition-colors relative ${isActive ? "bg-slate-800 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"}`}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon} />
               </svg>
               {item.label}
               {count > 0 && (
-                <span className="ml-auto bg-red-500 text-white text-[10px] font-black rounded-full min-w-[20px] h-5 flex items-center justify-center px-1.5 animate-pulse">
+                <span aria-label={`${count} mục mới`} className="ml-auto bg-red-500 text-white text-[10px] font-black rounded-full min-w-[20px] h-5 flex items-center justify-center px-1.5 animate-pulse">
                   {count}
                 </span>
               )}
@@ -45,10 +68,10 @@ function SidebarNav({ pathname, counts }: { pathname: string; counts: NavCounts 
         })}
       </nav>
       <div className="p-4 border-t border-slate-700 space-y-2">
-        <Link href="/tai-khoan" className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors font-body">
+        <Link href="/tai-khoan" onClick={onNavigate} className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm text-slate-400 transition-colors hover:bg-slate-800 hover:text-white font-body">
           👤 Tài Khoản
         </Link>
-        <Link href="/" className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors font-body">
+        <Link href="/" onClick={onNavigate} className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm text-slate-400 transition-colors hover:bg-slate-800 hover:text-white font-body">
           ← Về Trang Chủ
         </Link>
       </div>
@@ -60,19 +83,25 @@ function MobileAdminToolbar({
   adminName,
   mobileOpen,
   onToggle,
+  buttonRef,
+  controlsId,
 }: {
   adminName?: string;
   mobileOpen: boolean;
   onToggle: () => void;
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  controlsId: string;
 }) {
   return (
     <div className="z-[45] flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur md:hidden">
       <button
+        ref={buttonRef}
         type="button"
         onClick={onToggle}
         aria-expanded={mobileOpen}
+        aria-controls={controlsId}
         className="admin-menu-toggle flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm shadow-slate-900/20 transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
-        aria-label="Toggle admin menu"
+        aria-label={mobileOpen ? "Đóng menu quản trị" : "Mở menu quản trị"}
         title="Menu admin"
       >
         {mobileOpen ? (
@@ -104,6 +133,9 @@ export default function AdminSidebar({
   const pathname = usePathname();
   const [counts, setCounts] = useState<NavCounts>(initialCounts);
   const [mobileMenuState, setMobileMenuState] = useState({ open: false, pathname });
+  const mobileDialogRef = useRef<HTMLElement>(null);
+  const mobileToggleRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuId = "mobile-admin-menu";
   const mobileOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
 
   useEffect(() => {
@@ -160,9 +192,9 @@ export default function AdminSidebar({
     setMobileMenuState({ open: nextOpen, pathname });
   };
 
-  const closeMobileMenu = () => {
+  const closeMobileMenu = useCallback(() => {
     setMobileMenuState({ open: false, pathname });
-  };
+  }, [pathname]);
 
   useEffect(() => {
     const closeAdminMenu = () => {
@@ -175,6 +207,46 @@ export default function AdminSidebar({
     };
   }, [pathname]);
 
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const toggleButton = mobileToggleRef.current;
+    document.body.style.overflow = "hidden";
+    mobileDialogRef.current?.querySelector<HTMLElement>("[data-admin-menu-close]")?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMobileMenu();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = mobileDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      toggleButton?.focus();
+    };
+  }, [closeMobileMenu, mobileOpen]);
+
   return (
     <div
       data-admin-shell
@@ -183,9 +255,22 @@ export default function AdminSidebar({
       {/* Mobile overlay + sidebar */}
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-[60]">
-          <div className="absolute inset-0 bg-black/50" onClick={closeMobileMenu} />
-          <aside className="absolute left-0 top-0 bottom-0 w-64 bg-slate-900 text-white flex flex-col animate-fade-in">
-            <SidebarNav pathname={pathname} counts={counts} />
+          <div className="absolute inset-0 bg-black/50" aria-hidden="true" onMouseDown={closeMobileMenu} />
+          <aside
+            ref={mobileDialogRef}
+            id={mobileMenuId}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-admin-menu-title"
+            className="absolute bottom-0 left-0 top-0 flex w-64 max-w-[85vw] flex-col overflow-hidden bg-slate-900 text-white shadow-2xl animate-fade-in"
+          >
+            <SidebarNav
+              pathname={pathname}
+              counts={counts}
+              onNavigate={closeMobileMenu}
+              onClose={closeMobileMenu}
+              titleId="mobile-admin-menu-title"
+            />
           </aside>
         </div>
       )}
@@ -196,7 +281,13 @@ export default function AdminSidebar({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
-        <MobileAdminToolbar adminName={adminName} mobileOpen={mobileOpen} onToggle={toggleMobileMenu} />
+        <MobileAdminToolbar
+          adminName={adminName}
+          mobileOpen={mobileOpen}
+          onToggle={toggleMobileMenu}
+          buttonRef={mobileToggleRef}
+          controlsId={mobileMenuId}
+        />
         <header className="hidden items-center justify-between border-b border-slate-200 bg-white px-6 py-4 md:flex">
           <h1 className="font-heading text-xl font-bold text-slate-900">Bảng Điều Khiển</h1>
           {adminName ? (

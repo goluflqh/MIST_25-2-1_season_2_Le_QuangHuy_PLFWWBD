@@ -8,9 +8,8 @@ export async function GET() {
     const session = await getCurrentSession();
     if (!session) return unauthorizedResponse();
 
-    // Find requests by phone number
     const requests = await prisma.contactRequest.findMany({
-      where: { phone: session.user.phone, deletedAt: null },
+      where: { userId: session.user.id, deletedAt: null },
       orderBy: { createdAt: "desc" },
     });
 

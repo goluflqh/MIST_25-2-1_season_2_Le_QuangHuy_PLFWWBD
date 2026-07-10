@@ -3,6 +3,7 @@
  * Uses in-memory storage in development and a database bucket in production.
  */
 
+import { isIP } from "node:net";
 import { isPrismaDatabaseUnavailable, logPrismaAvailabilityWarning, prisma } from "@/lib/prisma";
 
 interface RateLimitEntry {
@@ -173,6 +174,7 @@ export async function consumeRateLimitForRequest(
 
   try {
     const entry = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${identifier}, 0))::text AS lock`;
       const current = await tx.rateLimitBucket.findUnique({ where: { identifier } });
 
       if (!current || now > current.resetAt.getTime()) {
@@ -187,6 +189,9 @@ export async function consumeRateLimitForRequest(
         where: { identifier },
         data: { count: { increment: 1 } },
       });
+    }, {
+      maxWait: 10_000,
+      timeout: 10_000,
     });
 
     return {
@@ -240,17 +245,21 @@ export function formatDurationVi(totalSeconds: number) {
 
 export function getClientIP(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
+  const forwardedIP = forwarded?.split(",")[0].trim() || "";
+  if (isIP(forwardedIP)) return forwardedIP;
   const real = request.headers.get("x-real-ip");
-  if (real) return real;
+  const realIP = real?.trim() || "";
+  if (isIP(realIP)) return realIP;
   return "unknown";
 }
 
 /** Preset configs for common endpoints */
 export const RATE_LIMITS = {
   login: { limit: 5, windowSec: 5 * 60 } as RateLimitConfig,
-  register: { limit: 4, windowSec: 10 * 60 } as RateLimitConfig,
+  register: { limit: 20, windowSec: 10 * 60 } as RateLimitConfig,
   chat: { limit: 15, windowSec: 60 } as RateLimitConfig,
   contact: { limit: 5, windowSec: 10 * 60 } as RateLimitConfig,
+  warrantyLookup: { limit: 60, windowSec: 10 * 60 } as RateLimitConfig,
+  warrantyLookupPhone: { limit: 12, windowSec: 10 * 60 } as RateLimitConfig,
   general: { limit: 30, windowSec: 60 } as RateLimitConfig,
 } as const;

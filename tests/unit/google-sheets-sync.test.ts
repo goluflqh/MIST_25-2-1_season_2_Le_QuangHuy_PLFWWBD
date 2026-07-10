@@ -5,6 +5,7 @@ import {
   buildGoogleSheetsBatchClearPayload,
   buildGoogleSheetsBatchUpdatePayload,
   buildGoogleSheetsFormatRequests,
+  buildGoogleSheetsTailClearPayload,
   buildMinhHongSheetTabsFromData,
   buildPrepareSpreadsheetRequests,
   DEFAULT_MINHHONG_SHEET_ID,
@@ -69,15 +70,15 @@ test("writes formulas with USER_ENTERED so exported sheets recalculate", () => {
       {
         orderCode: "MH-DH-1",
         orderDate: "2026-07-08T00:00:00.000Z",
-        customerName: "Anh Minh",
+        customerName: "=HYPERLINK(\"https://example.test\")",
         customerPhone: "0900000000",
-        productName: "Pin lưu trữ",
+        productName: "+SUM(1;1)",
         priceStatus: "CONFIRMED",
         quotedPrice: 1000000,
         discountAmount: 100000,
         paidAmount: 400000,
-        notes: "",
-        sourceName: "Đơn hàng đã bán",
+        notes: "@private-note",
+        sourceName: "=UNTRUSTED_SOURCE",
         sourceRow: 5,
         source: "LEGACY",
         customerAddress: "",
@@ -94,7 +95,7 @@ test("writes formulas with USER_ENTERED so exported sheets recalculate", () => {
       {
         code: "LONG",
         id: "partner-1",
-        name: "Long",
+        name: "-10+20",
         phone: "",
         type: "SUPPLIER",
         active: true,
@@ -121,6 +122,11 @@ test("writes formulas with USER_ENTERED so exported sheets recalculate", () => {
   const reconciliationTab = tabs.find((tab) => tab.title === "WEB_Đối soát");
 
   assert.equal(updatePayload.valueInputOption, "USER_ENTERED");
+  assert.equal(orderTab?.rows[1][2], "'=HYPERLINK(\"https://example.test\")");
+  assert.equal(orderTab?.rows[1][4], "'+SUM(1;1)");
+  assert.equal(orderTab?.rows[1][8], "'@private-note");
+  assert.equal(orderTab?.rows[1][10], "'=UNTRUSTED_SOURCE:A5:K5");
+  assert.equal(partnerDebtTab?.rows[1][1], "'-10+20");
   assert.equal(orderTab?.rows[1][7], "=MAX(F2-G2;0)");
   assert.equal(partnerDebtTab?.rows[1][5], "=MAX(G2+J2+K2-H2-I2;0)");
   assert.match(String(reconciliationTab?.rows[2][1]), /^=COUNTA\(/);
@@ -439,4 +445,8 @@ test("can scope web-to-sheet sync to service orders or partner ledger tabs", () 
     buildGoogleSheetsBatchUpdatePayload(tabs, "service-orders").data.map((range) => range.range),
     ["'WEB_Đơn hàng'!A1"]
   );
+  const serviceOrderTab = tabs.find((tab) => tab.title === "WEB_Đơn hàng");
+  assert.deepEqual(buildGoogleSheetsTailClearPayload(tabs, "service-orders").ranges, [
+    `'WEB_Đơn hàng'!A${(serviceOrderTab?.rows.length ?? 0) + 1}:Z`,
+  ]);
 });

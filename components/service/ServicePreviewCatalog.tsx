@@ -97,7 +97,6 @@ export function ServicePreviewCatalog({
                 alt={item.imageAlt}
                 width={960}
                 height={720}
-                unoptimized
                 className="h-56 w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] sm:h-64"
               />
               <div className="absolute left-4 top-4 flex flex-wrap gap-2">

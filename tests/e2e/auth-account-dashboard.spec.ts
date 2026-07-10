@@ -3,6 +3,12 @@ import { expect, request as playwrightRequest, test, type APIRequestContext, typ
 const ADMIN_PHONE = process.env.PLAYWRIGHT_ADMIN_PHONE ?? "0987443258";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD ?? "admin123";
 const AUTH_REDIRECT_TIMEOUT = 30_000;
+let testIpCounter = 0;
+
+function buildUniqueTestIp() {
+  const seed = (Date.now() + testIpCounter++) % 16_000_000;
+  return `10.${Math.floor(seed / 65_536) % 256}.${Math.floor(seed / 256) % 256}.${(seed % 254) + 1}`;
+}
 
 function buildUniquePhone() {
   const timestamp = Date.now().toString().slice(-5);
@@ -85,10 +91,10 @@ test.describe("Auth, account and dashboard smoke", () => {
 
   test("guest can register a new account, land on account page and log out", async ({ page, request }) => {
     test.setTimeout(120_000);
+    await page.setExtraHTTPHeaders({ "x-forwarded-for": buildUniqueTestIp() });
 
     const name = "Khach Test Phase 5";
     const phone = buildUniquePhone();
-    const serialNo = `MH-E2E-${Date.now()}`;
     const couponCode = `E2E${Date.now().toString().slice(-8)}`;
 
     await page.goto("/dang-ky");
@@ -125,20 +131,7 @@ test.describe("Auth, account and dashboard smoke", () => {
     expect(couponResponse.ok()).toBeTruthy();
     const couponBody = await couponResponse.json();
 
-    const warrantyResponse = await request.post("/api/admin/warranty", {
-      data: {
-        serialNo,
-        productName: "Pin test Phase 5",
-        customerPhone: phone,
-        service: "DONG_PIN",
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        notes: "Bảo hành e2e Phase 5",
-      },
-    });
-    expect(warrantyResponse.ok()).toBeTruthy();
-    const warrantyBody = await warrantyResponse.json();
-
-    const contactResponse = await request.post("/api/contact", {
+    const contactResponse = await page.request.post("/api/contact", {
       data: {
         name,
         phone,
@@ -168,9 +161,11 @@ test.describe("Auth, account and dashboard smoke", () => {
     expect(orderResponse.ok()).toBeTruthy();
     const orderBody = await orderResponse.json();
     const orderId = orderBody.order?.id as string | undefined;
+    const warrantySerial = orderBody.order?.warranty?.serialNo as string | undefined;
+    expect(warrantySerial).toBeTruthy();
 
     await page.reload();
-    await expect(page.getByText(serialNo)).toBeVisible();
+    await expect(page.getByText(warrantySerial as string)).toBeVisible();
     await expect(page.getByText(couponCode)).toBeVisible();
 
     await page.getByTestId("account-referral-generate").click();
@@ -226,9 +221,6 @@ test.describe("Auth, account and dashboard smoke", () => {
       await request.delete("/api/admin/service-orders", { data: { id: orderId } });
     }
     await request.delete(`/api/contact/${contactBody.id}`).catch(() => undefined);
-    if (warrantyBody.warranty?.id) {
-      await request.delete("/api/admin/warranty", { data: { id: warrantyBody.warranty.id } });
-    }
     if (couponBody.coupon?.id) {
       await request.delete("/api/admin/coupons", { data: { id: couponBody.coupon.id } });
     }
@@ -238,14 +230,114 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("login-page")).toBeVisible();
   });
 
+  test("registration cannot claim existing customer records without phone verification", async ({ baseURL, request }) => {
+    test.setTimeout(180_000);
+
+    const unique = Date.now().toString().slice(-8);
+    const phone = buildUniquePhone();
+    const productName = `Private historical order ${unique}`;
+    const customer = await playwrightRequest.newContext({
+      baseURL: baseURL ?? "http://127.0.0.1:3001",
+      extraHTTPHeaders: { "x-forwarded-for": buildUniqueTestIp() },
+    });
+    let contactId: string | undefined;
+    let orderId: string | undefined;
+    let userId: string | undefined;
+
+    await loginAdminRequest(request);
+    try {
+      const contactResponse = await request.post("/api/contact", {
+        data: {
+          name: `Historical Customer ${unique}`,
+          phone,
+          service: "DONG_PIN",
+          message: `Private historical request ${unique}`,
+          source: "security-e2e",
+        },
+      });
+      expect(contactResponse.ok()).toBeTruthy();
+      contactId = (await contactResponse.json()).id as string;
+
+      const orderResponse = await request.post("/api/admin/service-orders", {
+        data: {
+          contactRequestId: contactId,
+          customerName: `Historical Customer ${unique}`,
+          customerPhone: phone,
+          customerVisible: true,
+          notes: `Private historical note ${unique}`,
+          paidAmount: "500000",
+          productName,
+          quotedPrice: "900000",
+          service: "DONG_PIN",
+          source: "CONTACT",
+          status: "COMPLETED",
+          warrantyMonths: "6",
+        },
+      });
+      expect(orderResponse.ok()).toBeTruthy();
+      const order = (await orderResponse.json()).order as { id: string; orderCode: string };
+      orderId = order.id;
+
+      const registerResponse = await customer.post("/api/auth/register", {
+        data: {
+          name: "Unverified Phone Claim",
+          phone,
+          password: "123456",
+        },
+      });
+      expect(registerResponse.ok()).toBeTruthy();
+      userId = (await registerResponse.json()).user?.id as string | undefined;
+
+      const requestsResponse = await customer.get("/api/user/requests");
+      expect(requestsResponse.ok()).toBeTruthy();
+      expect((await requestsResponse.json()).requests).toEqual([]);
+
+      const warrantiesResponse = await customer.get("/api/user/warranties");
+      expect(warrantiesResponse.ok()).toBeTruthy();
+      expect((await warrantiesResponse.json()).warranties).toEqual([]);
+
+      const accountResponse = await customer.get("/tai-khoan");
+      expect(accountResponse.ok()).toBeTruthy();
+      const accountHtml = await accountResponse.text();
+      expect(accountHtml).not.toContain(productName);
+      expect(accountHtml).not.toContain(order.orderCode);
+
+      const reviewResponse = await customer.post("/api/reviews", {
+        data: {
+          comment: "This account must not be allowed to review a historical order.",
+          rating: 5,
+          serviceOrderId: orderId,
+        },
+      });
+      expect(reviewResponse.status()).toBe(403);
+    } finally {
+      if (orderId) {
+        await request.delete("/api/admin/service-orders", { data: { id: orderId } });
+      }
+      if (contactId) {
+        await request.delete(`/api/contact/${contactId}`);
+      }
+      if (userId) {
+        await request.delete("/api/admin/users", { data: { userId } });
+      }
+      await customer.dispose();
+    }
+  });
+
   test("coupon with multiple uses remains available for different customers", async ({ baseURL, request }) => {
     const unique = Date.now().toString().slice(-8);
     const couponCode = `E2EMULTI${unique}`;
     const apiBaseURL = baseURL ?? "http://127.0.0.1:3001";
     let firstUserId: string | undefined;
     let secondUserId: string | undefined;
-    const firstCustomer = await playwrightRequest.newContext({ baseURL: apiBaseURL });
-    const secondCustomer = await playwrightRequest.newContext({ baseURL: apiBaseURL });
+    const firstCustomer = await playwrightRequest.newContext({
+      baseURL: apiBaseURL,
+      extraHTTPHeaders: { "x-forwarded-for": buildUniqueTestIp() },
+    });
+    const secondCustomer = await playwrightRequest.newContext({
+      baseURL: apiBaseURL,
+      extraHTTPHeaders: { "x-forwarded-for": buildUniqueTestIp() },
+    });
 
     await loginAdminRequest(request);
     const couponResponse = await request.post("/api/admin/coupons", {
@@ -317,6 +409,70 @@ test.describe("Auth, account and dashboard smoke", () => {
     }
   });
 
+  test("concurrent coupon redemptions cannot spend more loyalty points than available", async ({ baseURL, request }) => {
+    test.setTimeout(180_000);
+
+    const unique = Date.now().toString().slice(-8);
+    const apiBaseURL = baseURL ?? "http://127.0.0.1:3001";
+    const customer = await playwrightRequest.newContext({
+      baseURL: apiBaseURL,
+      extraHTTPHeaders: { "x-forwarded-for": buildUniqueTestIp() },
+    });
+    const couponIds: string[] = [];
+    let userId: string | undefined;
+
+    await loginAdminRequest(request);
+    try {
+      for (const suffix of ["A", "B"]) {
+        const couponResponse = await request.post("/api/admin/coupons", {
+          data: {
+            code: `E2ERACE${suffix}${unique}`,
+            description: "Coupon e2e kiểm tra trừ điểm đồng thời.",
+            discount: "10%",
+            pointsCost: 75,
+            usageLimit: 1,
+            active: true,
+          },
+        });
+        expect(couponResponse.ok()).toBeTruthy();
+        couponIds.push((await couponResponse.json()).coupon.id as string);
+      }
+
+      const registerResponse = await customer.post("/api/auth/register", {
+        data: {
+          name: "Coupon Race Customer",
+          phone: buildUniquePhone(),
+          password: "123456",
+        },
+      });
+      expect(registerResponse.ok()).toBeTruthy();
+      userId = (await registerResponse.json()).user?.id as string | undefined;
+      expect(userId).toBeTruthy();
+
+      const pointsResponse = await request.patch("/api/admin/loyalty", {
+        data: { userId, points: 100, reason: "E2E concurrent coupon redemption", setExact: true },
+      });
+      expect(pointsResponse.ok()).toBeTruthy();
+
+      const redemptions = await Promise.all(couponIds.map((couponId) => (
+        customer.post("/api/coupons/redeem", { data: { couponId } })
+      )));
+      expect(redemptions.map((response) => response.status()).sort()).toEqual([200, 400]);
+
+      const meResponse = await customer.get("/api/auth/me");
+      expect(meResponse.ok()).toBeTruthy();
+      expect((await meResponse.json()).user.loyaltyPoints).toBe(25);
+    } finally {
+      for (const couponId of couponIds) {
+        await request.delete("/api/admin/coupons", { data: { id: couponId } });
+      }
+      if (userId) {
+        await request.delete("/api/admin/users", { data: { userId } });
+      }
+      await customer.dispose();
+    }
+  });
+
   test("redeemed coupon follows a contact into a service order payment", async ({ baseURL, page, request }) => {
     test.setTimeout(120_000);
 
@@ -325,7 +481,10 @@ test.describe("Auth, account and dashboard smoke", () => {
     const customerName = `Coupon Payment ${unique}`;
     const customerPhone = buildUniquePhone();
     const apiBaseURL = baseURL ?? "http://127.0.0.1:3001";
-    const customerContext = await playwrightRequest.newContext({ baseURL: apiBaseURL });
+    const customerContext = await playwrightRequest.newContext({
+      baseURL: apiBaseURL,
+      extraHTTPHeaders: { "x-forwarded-for": buildUniqueTestIp() },
+    });
     let contactId: string | undefined;
     let orderId: string | undefined;
     let userId: string | undefined;
@@ -467,6 +626,7 @@ test.describe("Auth, account and dashboard smoke", () => {
     await page.getByTestId("dashboard-open-orders").click();
     await expect(page).toHaveURL(/\/dashboard\/orders/, { timeout: AUTH_REDIRECT_TIMEOUT });
     await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
+    await page.getByTestId("dashboard-orders-advanced-filters-toggle").click();
     await expect(page.getByTestId("dashboard-orders-source-filter")).toBeVisible();
     await expect(page.getByTestId("dashboard-orders-account-filter")).toBeVisible();
     await expect(page.getByTestId("dashboard-orders-payment-filter")).toBeVisible();
@@ -503,6 +663,7 @@ test.describe("Auth, account and dashboard smoke", () => {
     const warrantyResponse = await request.post("/api/admin/warranty", {
       data: {
         productName: "Pin CRM warranty E2E",
+        customerName: "Khách Warranty CRM E2E",
         customerPhone: ADMIN_PHONE,
         service: "DONG_PIN",
         endDate,
@@ -537,6 +698,74 @@ test.describe("Auth, account and dashboard smoke", () => {
       if (warrantyId) {
         await request.delete("/api/admin/warranty", { data: { id: warrantyId } });
       }
+    }
+  });
+
+  test("public warranty phone lookup hides private fields and rate-limits invisibly", async ({ baseURL, request }) => {
+    test.setTimeout(120_000);
+
+    const unique = Date.now().toString().slice(-8);
+    const phone = buildUniquePhone();
+    const rateLimitPhone = `${phone.slice(0, -1)}${(Number(phone.at(-1)) + 1) % 10}`;
+    const serialNo = `MH-PUBLIC-${unique}`;
+    const apiBaseURL = baseURL ?? "http://127.0.0.1:3001";
+    const lookup = await playwrightRequest.newContext({
+      baseURL: apiBaseURL,
+      extraHTTPHeaders: { "x-forwarded-for": `198.51.100.${20 + (Number(unique.slice(-2)) % 180)}` },
+    });
+    const throttledLookup = await playwrightRequest.newContext({
+      baseURL: apiBaseURL,
+      extraHTTPHeaders: { "x-forwarded-for": `203.0.113.${20 + (Number(unique.slice(-3)) % 180)}` },
+    });
+    let warrantyId: string | undefined;
+
+    await loginAdminRequest(request);
+    try {
+      const warrantyResponse = await request.post("/api/admin/warranty", {
+        data: {
+          customerName: "Nguyễn Văn Bảo Mật",
+          customerPhone: phone,
+          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          notes: `Private warranty note ${unique}`,
+          productName: `Public lookup product ${unique}`,
+          serialNo,
+          service: "DONG_PIN",
+        },
+      });
+      expect(warrantyResponse.ok()).toBeTruthy();
+      warrantyId = (await warrantyResponse.json()).warranty?.id as string | undefined;
+
+      expect((await lookup.get(`/api/warranty/lookup?phone=${phone}`)).status()).toBe(405);
+      expect((await lookup.post("/api/warranty/lookup", { data: { phone: "123" } })).status()).toBe(400);
+
+      const successResponse = await lookup.post("/api/warranty/lookup", { data: { phone } });
+      expect(successResponse.ok()).toBeTruthy();
+      const body = await successResponse.json();
+      expect(body.total).toBe(1);
+      expect(body.warranties).toHaveLength(1);
+      expect(body.warranties[0].maskedSerial).toMatch(new RegExp(`${serialNo.slice(-4)}$`));
+      expect(body.warranties[0].maskedSerial).not.toBe(serialNo);
+      expect(body.warranties[0]).not.toHaveProperty("customerName");
+      expect(body.warranties[0]).not.toHaveProperty("customerPhone");
+      expect(body.warranties[0]).not.toHaveProperty("id");
+      expect(body.warranties[0]).not.toHaveProperty("notes");
+      expect(body.warranties[0]).not.toHaveProperty("serialNo");
+
+      const attempts = [];
+      for (let index = 0; index < 13; index += 1) {
+        attempts.push(await throttledLookup.post("/api/warranty/lookup", {
+          data: { phone: rateLimitPhone },
+        }));
+      }
+      expect(attempts.slice(0, 12).every((response) => response.status() === 200)).toBeTruthy();
+      expect(attempts[12].status()).toBe(429);
+      expect(attempts[12].headers()["retry-after"]).toBeTruthy();
+    } finally {
+      if (warrantyId) {
+        await request.delete("/api/admin/warranty", { data: { id: warrantyId } });
+      }
+      await lookup.dispose();
+      await throttledLookup.dispose();
     }
   });
 
@@ -677,6 +906,40 @@ test.describe("Auth, account and dashboard smoke", () => {
       expect(completedBody.order?.warranty?.id).toBeTruthy();
       expect(new Date(completedBody.order?.warrantyEndDate).getUTCFullYear()).toBe(2026);
       expect(new Date(completedBody.order?.warrantyEndDate).getUTCMonth()).toBe(6);
+
+      const refreshedPhone = buildUniquePhone();
+      const refreshedName = `Status Map Updated ${unique}`;
+      const refreshedProduct = `Pin status mapping updated ${unique}`;
+      const refreshedResponse = await request.patch("/api/admin/service-orders", {
+        data: {
+          id: orderId,
+          customerName: refreshedName,
+          customerPhone: refreshedPhone,
+          productName: refreshedProduct,
+        },
+      });
+      expect(refreshedResponse.ok()).toBeTruthy();
+      const refreshedBody = await refreshedResponse.json();
+      expect(refreshedBody.order?.warranty?.id).toBe(completedBody.order?.warranty?.id);
+
+      const warrantiesResponse = await request.get("/api/admin/warranty");
+      expect(warrantiesResponse.ok()).toBeTruthy();
+      const refreshedWarranty = (await warrantiesResponse.json()).warranties.find(
+        (warranty: { id: string }) => warranty.id === refreshedBody.order?.warranty?.id
+      );
+      expect(refreshedWarranty).toMatchObject({
+        customerName: refreshedName,
+        customerPhone: refreshedPhone,
+        productName: refreshedProduct,
+      });
+
+      const refreshedLookup = await request.post("/api/warranty/lookup", {
+        data: { phone: refreshedPhone },
+      });
+      expect(refreshedLookup.ok()).toBeTruthy();
+      expect((await refreshedLookup.json()).warranties).toEqual([
+        expect.objectContaining({ productName: refreshedProduct }),
+      ]);
 
       const rollbackResponse = await request.patch("/api/admin/service-orders", {
         data: { id: orderId, status: "IN_PROGRESS" },

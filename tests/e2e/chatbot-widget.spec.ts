@@ -27,6 +27,22 @@ function buildChatResponse(reply: string, meta: Record<string, unknown>) {
 }
 
 test.describe("Chatbot widget", () => {
+  test("exposes an accessible dialog and restores focus when closed with Escape", async ({
+    page,
+  }) => {
+    await openChatbot(page);
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(page.getByTestId("chatbot-input")).toBeFocused();
+
+    await page.keyboard.press("Escape");
+
+    await expect(dialog).toBeHidden();
+    await expect(page.getByTestId("chatbot-toggle")).toBeFocused();
+    await expect(page.getByTestId("chatbot-toggle")).toHaveAttribute("aria-expanded", "false");
+  });
+
   test("keeps FAQ answers helpful without pushing quote actions", async ({ page }) => {
     await page.route("**/api/chat", async (route) => {
       await route.abort();

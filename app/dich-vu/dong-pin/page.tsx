@@ -178,7 +178,6 @@ export default function BatteryServicePage() {
                 alt="Bàn kỹ thuật đóng pin Lithium với cell, mạch BMS và pin máy công cụ."
                 fill
                 priority
-                unoptimized
                 sizes="(max-width: 1024px) 100vw, 38vw"
                 className="object-cover"
               />

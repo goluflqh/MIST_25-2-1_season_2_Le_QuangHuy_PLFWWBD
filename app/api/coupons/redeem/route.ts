@@ -40,12 +40,19 @@ export async function POST(request: Request) {
       if (coupon.usedCount >= coupon.usageLimit) throw redeemError("Mã đã hết lượt.");
       if (coupon.expiresAt && coupon.expiresAt < now) throw redeemError("Mã đã hết hạn.");
 
-      const user = await tx.user.findUnique({
-        where: { id: session.user.id },
-        select: { loyaltyPoints: true },
+      const pointsUpdate = await tx.user.updateMany({
+        where: {
+          id: session.user.id,
+          loyaltyPoints: { gte: coupon.pointsCost },
+        },
+        data: { loyaltyPoints: { decrement: coupon.pointsCost } },
       });
-      if (!user) throw redeemError("Tài khoản không hợp lệ.", 401);
-      if (user.loyaltyPoints < coupon.pointsCost) {
+      if (pointsUpdate.count !== 1) {
+        const user = await tx.user.findUnique({
+          where: { id: session.user.id },
+          select: { loyaltyPoints: true },
+        });
+        if (!user) throw redeemError("Tài khoản không hợp lệ.", 401);
         throw redeemError(`Cần ${coupon.pointsCost} điểm, bạn có ${user.loyaltyPoints} điểm.`);
       }
 
@@ -62,9 +69,8 @@ export async function POST(request: Request) {
       });
 
       const [updatedUser, redeemedCoupon] = await Promise.all([
-        tx.user.update({
+        tx.user.findUniqueOrThrow({
           where: { id: session.user.id },
-          data: { loyaltyPoints: { decrement: coupon.pointsCost } },
           select: { loyaltyPoints: true },
         }),
         tx.coupon.findUniqueOrThrow({

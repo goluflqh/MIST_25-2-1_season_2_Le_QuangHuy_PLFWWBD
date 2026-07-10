@@ -17,6 +17,7 @@ function createFakeImportRunner() {
     serviceOrders: new Map<string, Record<string, unknown>>(),
     warranties: new Map<string, Record<string, unknown>>(),
     auditLogs: [] as Array<Record<string, unknown>>,
+    transactionOptions: [] as Array<{ maxWait?: number; timeout?: number } | undefined>,
   };
 
   const findServiceOrder = (where: { id?: string; orderCode?: string }) => {
@@ -42,8 +43,17 @@ function createFakeImportRunner() {
   };
 
   const runner: ImportRunner = {
-    $transaction: async <T>(callback: (tx: ImportRunner) => Promise<T>) => callback(runner),
+    $transaction: async <T>(
+      callback: (tx: ImportRunner) => Promise<T>,
+      options?: { maxWait?: number; timeout?: number }
+    ) => {
+      state.transactionOptions.push(options);
+      return callback(runner);
+    },
     partner: {
+      findMany: async ({ where }: { where: { code: { in: string[] } } }) => (
+        where.code.in.map((code) => state.partners.get(code)).filter(Boolean) as Array<Record<string, unknown>>
+      ),
       findUnique: async ({ where }: { where: { code: string } }) => state.partners.get(where.code) || null,
       upsert: async ({ where, create, update }: { where: { code: string }; create: Record<string, unknown>; update: Record<string, unknown> }) => {
         const existing = state.partners.get(where.code);
@@ -53,6 +63,9 @@ function createFakeImportRunner() {
       },
     },
     partnerLedgerEntry: {
+      findMany: async ({ where }: { where: { sourceCode: { in: string[] } } }) => (
+        where.sourceCode.in.map((sourceCode) => state.partnerLedgerEntries.get(sourceCode)).filter(Boolean) as Array<Record<string, unknown>>
+      ),
       findUnique: async ({ where }: { where: { sourceCode: string } }) => state.partnerLedgerEntries.get(where.sourceCode) || null,
       upsert: async ({ where, create, update }: { where: { sourceCode: string }; create: Record<string, unknown>; update: Record<string, unknown> }) => {
         const existing = state.partnerLedgerEntries.get(where.sourceCode);
@@ -70,6 +83,11 @@ function createFakeImportRunner() {
       },
     },
     serviceOrder: {
+      findMany: async ({ where, include }: { where: { orderCode: { in: string[] } }; include?: Record<string, unknown> }) => (
+        where.orderCode.in
+          .map((orderCode) => withServiceOrderRelations(findServiceOrder({ orderCode }), include))
+          .filter(Boolean) as Array<Record<string, unknown>>
+      ),
       findUnique: async ({ where, include }: { where: { id?: string; orderCode?: string }; include?: Record<string, unknown> }) => (
         withServiceOrderRelations(findServiceOrder(where), include)
       ),
@@ -81,7 +99,11 @@ function createFakeImportRunner() {
       update: async ({ where, data }: { where: { id?: string; orderCode?: string }; data: Record<string, unknown> }) => {
         const existing = findServiceOrder(where) || { id: `order-${where.orderCode || where.id}`, orderCode: where.orderCode || where.id };
         const orderCode = String(existing.orderCode || data.orderCode || where.orderCode || where.id);
-        const value = { id: existing.id || `order-${orderCode}`, ...existing, ...data };
+        const value: Record<string, unknown> = {
+          ...existing,
+          ...data,
+          id: String(existing.id || `order-${orderCode}`),
+        };
         state.serviceOrders.set(String(value.orderCode), value);
         return value;
       },
@@ -138,6 +160,7 @@ test("imports the parsed workbook into idempotent partner and order records", as
   assert.equal([...state.serviceOrders.values()].every((order) => order.source === "IMPORT" && order.sourceName === "Đơn khách"), true);
   assert.equal([...state.serviceOrders.values()].every((order) => String(order.customerPhone || "").length >= 10), true);
   assert.equal(state.auditLogs.length, 1);
+  assert.deepEqual(state.transactionOptions, [{ maxWait: 10_000, timeout: 120_000 }]);
 });
 
 test("service-order scoped import leaves partner ledger records untouched", async () => {

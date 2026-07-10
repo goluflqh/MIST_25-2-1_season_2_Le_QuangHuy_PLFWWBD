@@ -844,7 +844,13 @@ function PasswordChangeSection() {
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
-      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center justify-between w-full px-6 py-4 hover:bg-slate-50 transition-colors">
+      <button
+        type="button"
+        aria-controls="account-password-panel"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex min-h-11 w-full items-center justify-between px-6 py-4 transition-colors hover:bg-slate-50"
+      >
         <span className="text-left">
           <span className="block font-heading font-bold text-slate-900">Bảo mật đăng nhập</span>
           <span className="block font-body text-xs text-slate-400 mt-0.5">
@@ -854,7 +860,7 @@ function PasswordChangeSection() {
         <span className="text-slate-400 text-sm">{isOpen ? "Thu gọn" : "Mở"}</span>
       </button>
       {isOpen ? (
-        <form onSubmit={handleSubmit} className="space-y-4 border-t border-slate-100 px-6 py-5">
+        <form id="account-password-panel" onSubmit={handleSubmit} className="space-y-4 border-t border-slate-100 px-6 py-5">
           {msg ? (
             <div
               className={`rounded-xl border px-3 py-2 text-xs font-body font-bold ${
@@ -862,32 +868,39 @@ function PasswordChangeSection() {
                   ? "bg-green-50 text-green-700 border-green-200"
                   : "bg-red-50 text-red-700 border-red-200"
               }`}
+              role={msg.type === "success" ? "status" : "alert"}
             >
               {msg.text}
             </div>
           ) : null}
           <div>
-            <label className="block text-xs font-body font-semibold text-slate-600 mb-1">
+            <label htmlFor="account-current-password" className="block text-xs font-body font-semibold text-slate-600 mb-1">
               Mật khẩu hiện tại
             </label>
             <input
+              id="account-current-password"
+              name="currentPassword"
               type="password"
               value={currentPw}
               onChange={(e) => setCurrentPw(e.target.value)}
               autoComplete="current-password"
+              required
               className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-body outline-none focus:ring-2 focus:ring-red-500"
               placeholder="••••••"
             />
           </div>
           <div>
-            <label className="block text-xs font-body font-semibold text-slate-600 mb-1">
+            <label htmlFor="account-new-password" className="block text-xs font-body font-semibold text-slate-600 mb-1">
               Mật khẩu mới
             </label>
             <input
+              id="account-new-password"
+              name="newPassword"
               type="password"
               value={newPw}
               onChange={(e) => setNewPw(e.target.value)}
               autoComplete="new-password"
+              required
               className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-body outline-none focus:ring-2 focus:ring-red-500"
               placeholder="Ít nhất 6 ký tự"
             />
@@ -1420,6 +1433,7 @@ export default function AccountPageClient({
         <button
           data-testid="account-request-toggle"
           type="button"
+          aria-controls="account-request-panel"
           aria-expanded={showForm}
           onClick={() => {
             if (showForm) {
@@ -1429,7 +1443,7 @@ export default function AccountPageClient({
 
             openRequestForm();
           }}
-          className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+          className="flex min-h-11 w-full items-center justify-between px-6 py-4 transition-colors hover:bg-slate-50"
         >
           <span className="font-heading font-bold text-slate-900 flex items-center gap-2">
             ✏️ Gửi Yêu Cầu Báo Giá / Tư Vấn Mới
@@ -1444,7 +1458,7 @@ export default function AccountPageClient({
           </svg>
         </button>
         {showForm ? (
-          <div className="px-6 pb-6 border-t border-slate-100 pt-4">
+          <div id="account-request-panel" className="px-6 pb-6 border-t border-slate-100 pt-4">
             {submitSuccess ? (
               <div className="text-center py-6">
                 <p className="text-3xl mb-2">✅</p>
@@ -1461,15 +1475,18 @@ export default function AccountPageClient({
                         ? "border-green-200 bg-green-50 text-green-700"
                         : "border-red-200 bg-red-50 text-red-600"
                     }`}
+                    role={requestFeedback.type === "success" ? "status" : "alert"}
                   >
                     {requestFeedback.text}
                   </div>
                 ) : null}
                 <div>
-                  <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">
+                  <label htmlFor="account-request-service" className="font-body font-semibold text-sm text-slate-700 mb-1 block">
                     Dịch vụ cần tư vấn
                   </label>
                   <select
+                    id="account-request-service"
+                    name="service"
                     data-testid="account-request-service"
                     value={formData.service}
                     onChange={(e) => setFormData({ ...formData, service: e.target.value })}
@@ -1487,12 +1504,14 @@ export default function AccountPageClient({
                   </select>
                 </div>
                 <div>
-                  <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">
+                  <label htmlFor="account-request-coupon" className="font-body font-semibold text-sm text-slate-700 mb-1 block">
                     Mã giảm giá muốn áp dụng
                   </label>
                   {requestCouponOptions.length > 0 ? (
                     <>
                       <select
+                        id="account-request-coupon"
+                        name="couponRedemptionId"
                         value={selectedCouponValue}
                         onChange={(e) => setSelectedCouponValue(e.target.value)}
                         className="w-full px-4 py-3 rounded-xl border border-slate-200 font-body text-sm focus:ring-2 focus:ring-red-500 outline-none"
@@ -1523,10 +1542,12 @@ export default function AccountPageClient({
                   )}
                 </div>
                 <div>
-                  <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">
+                  <label htmlFor="account-request-message" className="font-body font-semibold text-sm text-slate-700 mb-1 block">
                     Ghi chú (tuỳ chọn)
                   </label>
                   <textarea
+                    id="account-request-message"
+                    name="message"
                     value={formData.message}
                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                     rows={3}
@@ -1555,9 +1576,11 @@ export default function AccountPageClient({
       >
         <button
           data-testid="account-review-toggle"
+          type="button"
+          aria-controls="account-review-panel"
           aria-expanded={showReviewForm}
           onClick={() => setShowReviewForm(!showReviewForm)}
-          className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+          className="flex min-h-11 w-full items-center justify-between px-6 py-4 transition-colors hover:bg-slate-50"
         >
           <span className="font-heading font-bold text-slate-900 flex items-center gap-2">⭐ Đánh Giá Dịch Vụ</span>
           <svg
@@ -1570,7 +1593,7 @@ export default function AccountPageClient({
           </svg>
         </button>
         {showReviewForm ? (
-          <div className="px-6 pb-6 border-t border-slate-100 pt-4">
+          <div id="account-review-panel" className="px-6 pb-6 border-t border-slate-100 pt-4">
             {reviewSuccess ? (
               <div className="text-center py-6">
                 <p className="text-3xl mb-2">🎉</p>
@@ -1587,6 +1610,7 @@ export default function AccountPageClient({
                         ? "border-green-200 bg-green-50 text-green-700"
                         : "border-red-200 bg-red-50 text-red-600"
                     }`}
+                    role={reviewFeedback.type === "success" ? "status" : "alert"}
                   >
                     {reviewFeedback.text}
                   </div>
@@ -1596,31 +1620,35 @@ export default function AccountPageClient({
                     Chọn một đơn ở mục Chờ đánh giá để gửi đánh giá đúng đơn đã hoàn thành.
                   </div>
                 ) : null}
-                <div>
-                  <label className="font-body font-semibold text-sm text-slate-700 mb-2 block">
+                <fieldset>
+                  <legend className="font-body font-semibold text-sm text-slate-700 mb-2 block">
                     Đánh giá của bạn
-                  </label>
-                  <div className="flex gap-1">
+                  </legend>
+                  <div className="flex items-center gap-1" role="group" aria-label="Số sao đánh giá">
                     {[1, 2, 3, 4, 5].map((star) => (
                       <button
                         key={star}
                         type="button"
+                        aria-pressed={star === reviewData.rating}
+                        aria-label={`${star} sao`}
                         onClick={() => setReviewData({ ...reviewData, rating: star })}
-                        className={`text-2xl transition-colors ${star <= reviewData.rating ? "text-yellow-400" : "text-slate-200"} hover:text-yellow-400`}
+                        className={`inline-flex h-11 w-11 items-center justify-center rounded-lg text-2xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 ${star <= reviewData.rating ? "text-yellow-400" : "text-slate-200"} hover:text-yellow-400`}
                       >
-                        ★
+                        <span aria-hidden="true">★</span>
                       </button>
                     ))}
                     <span className="font-body text-sm text-slate-400 ml-2 self-center">
                       {reviewData.rating}/5
                     </span>
                   </div>
-                </div>
+                </fieldset>
                 <div>
-                  <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">
+                  <label htmlFor="account-review-service" className="font-body font-semibold text-sm text-slate-700 mb-1 block">
                     Dịch vụ đã sử dụng
                   </label>
                   <select
+                    id="account-review-service"
+                    name="service"
                     data-testid="account-review-service"
                     value={reviewData.service}
                     onChange={(e) => setReviewData({ ...reviewData, service: e.target.value })}
@@ -1637,10 +1665,12 @@ export default function AccountPageClient({
                   </select>
                 </div>
                 <div>
-                  <label className="font-body font-semibold text-sm text-slate-700 mb-1 block">
+                  <label htmlFor="account-review-comment" className="font-body font-semibold text-sm text-slate-700 mb-1 block">
                     Bình luận
                   </label>
                   <textarea
+                    id="account-review-comment"
+                    name="comment"
                     data-testid="account-review-comment"
                     value={reviewData.comment}
                     onChange={(e) => setReviewData({ ...reviewData, comment: e.target.value })}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useNotify } from "@/components/NotifyProvider";
 import PaginationControls from "@/components/PaginationControls";
@@ -269,6 +269,8 @@ export default function ContactsManagementClient({
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
   const [savingNotesId, setSavingNotesId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const contactDrawerRef = useRef<HTMLElement>(null);
+  const contactDrawerOpenerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setPage(1);
@@ -314,6 +316,51 @@ export default function ContactsManagementClient({
     setDrawerNotesValue(selectedContact.notes || "");
     setIsDrawerNotesEditing(false);
   }, [selectedContact]);
+
+  useEffect(() => {
+    if (!selectedContactId) return;
+
+    contactDrawerOpenerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    contactDrawerRef.current
+      ?.querySelector<HTMLElement>("[data-testid='dashboard-contact-detail-close']")
+      ?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSelectedContactId(null);
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = contactDrawerRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    const opener = contactDrawerOpenerRef.current;
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      opener?.focus();
+    };
+  }, [selectedContactId]);
 
   const updateStatus = async (id: string, status: string) => {
     const currentContact = contacts.find((contact) => contact.id === id);
@@ -480,8 +527,10 @@ export default function ContactsManagementClient({
           {[{ key: "ALL", label: "Tất cả" }, ...Object.entries(statusConfig).map(([key, value]) => ({ key, label: value.label }))].map((item) => (
             <button
               key={item.key}
+              type="button"
               onClick={() => setFilter(item.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-body font-bold transition-colors ${filter === item.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+              aria-pressed={filter === item.key}
+              className={`min-h-11 rounded-lg px-3 py-2 text-xs font-body font-bold transition-colors ${filter === item.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
             >
               {item.label}{" "}
               {item.key === "ALL"
@@ -574,7 +623,7 @@ export default function ContactsManagementClient({
                 setSourceFilter("ALL");
                 setSearchQuery("");
               }}
-              className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
+              className="min-h-11 rounded-lg bg-slate-100 px-3 py-2 text-xs font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
             >
               Xóa bộ lọc
             </button>
@@ -673,23 +722,24 @@ export default function ContactsManagementClient({
                       <div className="flex gap-2">
                         <input
                           type="text"
+                          aria-label={`Ghi chú cho ${contact.name}`}
                           value={notesValue}
                           onChange={(event) => setNotesValue(event.target.value)}
-                          className="flex-1 px-3 py-1.5 text-xs font-body border border-slate-200 rounded-lg focus:ring-1 focus:ring-red-500 outline-none"
+                          className="min-h-11 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-body outline-none focus:ring-1 focus:ring-red-500"
                           placeholder="Địa chỉ, ghi chú admin..."
                           autoFocus
                         />
                         <button
                           onClick={() => saveNotes(contact.id)}
                           disabled={savingNotesId === contact.id}
-                          className="px-3 py-1.5 text-xs font-bold bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:bg-slate-100 disabled:text-slate-400 transition-colors"
+                          className="min-h-11 rounded-lg bg-green-100 px-3 py-2 text-xs font-bold text-green-700 transition-colors hover:bg-green-200 disabled:bg-slate-100 disabled:text-slate-400"
                         >
                           {savingNotesId === contact.id ? "..." : "Lưu"}
                         </button>
                         <button
                           onClick={() => setEditingNotes(null)}
                           disabled={savingNotesId === contact.id}
-                          className="px-3 py-1.5 text-xs font-bold bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-200 disabled:text-slate-300 transition-colors"
+                          className="min-h-11 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500 transition-colors hover:bg-slate-200 disabled:text-slate-300"
                         >
                           Huỷ
                         </button>
@@ -700,7 +750,7 @@ export default function ContactsManagementClient({
                           setEditingNotes(contact.id);
                           setNotesValue(contact.notes || "");
                         }}
-                        className="flex items-center gap-1.5 text-xs font-body text-slate-400 hover:text-slate-600 transition-colors"
+                        className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-body text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
                       >
                         📍 {contact.notes || "Thêm địa chỉ / ghi chú..."}
                       </button>
@@ -713,7 +763,7 @@ export default function ContactsManagementClient({
                     data-testid="dashboard-contact-detail-open"
                     type="button"
                     onClick={() => setSelectedContactId(contact.id)}
-                    className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-body font-bold text-white transition-colors hover:bg-slate-800"
+                    className="min-h-11 rounded-lg bg-slate-900 px-3 py-2 text-xs font-body font-bold text-white transition-colors hover:bg-slate-800"
                   >
                     Chi tiết
                   </button>
@@ -721,8 +771,9 @@ export default function ContactsManagementClient({
                     value={contact.status}
                     onChange={(event) => updateStatus(contact.id, event.target.value)}
                     title="Cập nhật trạng thái"
+                    aria-label={`Cập nhật trạng thái của ${contact.name}`}
                     disabled={pendingStatusId === contact.id}
-                    className="text-xs font-body font-bold px-2 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 focus:ring-1 focus:ring-red-500 outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                    className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-body font-bold text-slate-700 outline-none focus:ring-1 focus:ring-red-500 disabled:bg-slate-100 disabled:text-slate-400"
                   >
                     {Object.entries(statusConfig).map(([key, value]) => (
                       <option key={key} value={key}>
@@ -730,13 +781,13 @@ export default function ContactsManagementClient({
                       </option>
                     ))}
                   </select>
-                  <a href={`tel:${contact.phone}`} className="p-2 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 transition-colors" title="Gọi">
+                  <a href={`tel:${contact.phone}`} aria-label={`Gọi ${contact.name}`} className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-green-50 text-green-600 transition-colors hover:bg-green-100" title="Gọi">
                     📞
                   </a>
                   <button
                     onClick={() => deleteContact(contact.id)}
                     disabled={deletingId === contact.id}
-                    className="rounded-lg bg-red-50 px-3 py-2 text-xs font-body font-bold text-red-600 transition-colors hover:bg-red-100 disabled:bg-slate-100 disabled:text-slate-300"
+                    className="min-h-11 rounded-lg bg-red-50 px-3 py-2 text-xs font-body font-bold text-red-600 transition-colors hover:bg-red-100 disabled:bg-slate-100 disabled:text-slate-300"
                     title="Xoá"
                   >
                     {deletingId === contact.id ? "Đang xoá..." : "Xoá"}
@@ -760,14 +811,17 @@ export default function ContactsManagementClient({
       )}
       {selectedContact && selectedHeat ? (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 p-3 sm:p-6">
-          <button
-            type="button"
-            aria-label="Đóng chi tiết khách"
+          <div
+            aria-hidden="true"
             className="absolute inset-0"
-            onClick={() => setSelectedContactId(null)}
+            onMouseDown={() => setSelectedContactId(null)}
           />
           <aside
+            ref={contactDrawerRef}
             data-testid="dashboard-contact-detail-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dashboard-contact-detail-title"
             className="relative flex h-full w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
           >
             <div className="border-b border-slate-100 p-5">
@@ -781,7 +835,7 @@ export default function ContactsManagementClient({
                       {statusConfig[selectedContact.status]?.label}
                     </span>
                   </div>
-                  <h3 className="truncate font-heading text-2xl font-extrabold text-slate-900">
+                  <h3 id="dashboard-contact-detail-title" className="truncate font-heading text-2xl font-extrabold text-slate-900">
                     {selectedContact.name}
                   </h3>
                   <p className="font-body text-sm text-slate-500">
@@ -792,7 +846,7 @@ export default function ContactsManagementClient({
                   data-testid="dashboard-contact-detail-close"
                   type="button"
                   onClick={() => setSelectedContactId(null)}
-                  className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
+                  className="min-h-11 rounded-lg bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
                 >
                   Đóng
                 </button>
@@ -848,7 +902,7 @@ export default function ContactsManagementClient({
                       type="button"
                       onClick={() => updateStatus(selectedContact.id, key)}
                       disabled={selectedContact.status === key || pendingStatusId === selectedContact.id}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-body font-bold transition-colors ${
+                      className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-body font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 ${
                         selectedContact.status === key
                           ? "border-slate-900 bg-slate-900 text-white"
                           : `${value.color} hover:opacity-80`
@@ -869,7 +923,7 @@ export default function ContactsManagementClient({
                     <button
                       type="button"
                       onClick={() => setIsDrawerNotesEditing(true)}
-                      className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
+                      className="min-h-11 rounded-lg bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
                     >
                       Sửa
                     </button>
@@ -879,6 +933,7 @@ export default function ContactsManagementClient({
                   <div className="space-y-3">
                     <textarea
                       data-testid="dashboard-contact-detail-notes"
+                      aria-label="Ghi chú chăm sóc"
                       value={drawerNotesValue}
                       onChange={(event) => setDrawerNotesValue(event.target.value)}
                       className="min-h-28 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-body text-slate-700 outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
@@ -892,7 +947,7 @@ export default function ContactsManagementClient({
                           setIsDrawerNotesEditing(false);
                         }}
                         disabled={savingNotesId === selectedContact.id}
-                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-body font-bold text-slate-600 transition-colors hover:bg-slate-200 disabled:text-slate-300"
+                        className="min-h-11 rounded-lg bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-200 disabled:text-slate-300"
                       >
                         Huỷ
                       </button>
@@ -901,7 +956,7 @@ export default function ContactsManagementClient({
                         type="button"
                         onClick={() => saveNotes(selectedContact.id, drawerNotesValue, () => setIsDrawerNotesEditing(false))}
                         disabled={savingNotesId === selectedContact.id}
-                        className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-body font-bold text-white transition-colors hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
+                        className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
                       >
                         {savingNotesId === selectedContact.id ? "Đang lưu..." : "Lưu ghi chú"}
                       </button>

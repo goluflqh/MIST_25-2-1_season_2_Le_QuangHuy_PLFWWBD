@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import {
   createErrorResponse,
   createInvalidJsonResponse,
@@ -108,49 +109,34 @@ export async function POST(request: Request) {
     }
 
     const hashedPassword = await hashPassword(password);
-
-    let referrer = null;
-    if (referralCode) {
-      referrer = await prisma.user.findUnique({ where: { referralCode } });
-    }
-
-    const user = await prisma.user.create({
-      data: {
-        name,
-        phone,
-        password: hashedPassword,
-        referredBy: referralCode || null,
-        loyaltyPoints: referrer ? 20 : 0,
-      },
-    });
-
-    await prisma.$transaction([
-      prisma.customer.updateMany({
-        where: { phone, userId: null, deletedAt: null },
-        data: { userId: user.id },
-      }),
-      prisma.serviceOrder.updateMany({
-        where: { customerPhone: phone, userId: null, deletedAt: null },
-        data: { userId: user.id },
-      }),
-      prisma.warranty.updateMany({
-        where: { customerPhone: phone, userId: null, deletedAt: null },
-        data: { userId: user.id },
-      }),
-    ]);
-
-    if (referrer) {
-      await prisma.user.update({
-        where: { id: referrer.id },
-        data: { loyaltyPoints: { increment: 20 } },
-      });
-    }
-
     const token = generateSessionToken();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const user = await prisma.$transaction(async (tx) => {
+      const referrer = referralCode
+        ? await tx.user.findUnique({ where: { referralCode } })
+        : null;
+      const createdUser = await tx.user.create({
+        data: {
+          name,
+          phone,
+          password: hashedPassword,
+          referredBy: referralCode || null,
+          loyaltyPoints: referrer ? 20 : 0,
+        },
+      });
 
-    await prisma.session.create({
-      data: { userId: user.id, token, expiresAt },
+      if (referrer) {
+        await tx.user.update({
+          where: { id: referrer.id },
+          data: { loyaltyPoints: { increment: 20 } },
+        });
+      }
+
+      await tx.session.create({
+        data: { userId: createdUser.id, token, expiresAt },
+      });
+
+      return createdUser;
     });
 
     const response = NextResponse.json(
@@ -173,6 +159,12 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     logApiError("Register API Error", error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return createErrorResponse({
+        status: 409,
+        message: "Số điện thoại này đã được đăng ký. Bạn có thể đăng nhập hoặc dùng quên mật khẩu.",
+      });
+    }
     return createErrorResponse({
       status: 500,
       message: "Lỗi hệ thống. Vui lòng thử lại.",

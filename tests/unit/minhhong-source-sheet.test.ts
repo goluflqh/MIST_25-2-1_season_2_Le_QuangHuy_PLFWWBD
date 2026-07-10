@@ -119,7 +119,8 @@ test("builds raw Google Sheet XLSX export URLs", () => {
 
 test("fetches the configured raw source Sheet exports", async () => {
   const requestedUrls: string[] = [];
-  const fetchImpl = async (url: string) => {
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = input instanceof Request ? input.url : input.toString();
     requestedUrls.push(url);
     return {
       arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,

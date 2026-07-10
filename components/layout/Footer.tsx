@@ -122,6 +122,14 @@ export default function Footer() {
               <ul className="grid grid-cols-1 gap-2 font-body text-sm sm:block sm:space-y-3 sm:text-base">
                 <li>
                   <Link
+                    href="/tra-cuu-bao-hanh"
+                    className="block rounded-lg bg-slate-800/60 px-3 py-2 text-slate-300 transition-colors hover:text-yellow-400 sm:bg-transparent sm:px-0 sm:py-0 sm:text-slate-400"
+                  >
+                    Tra Cứu Bảo Hành
+                  </Link>
+                </li>
+                <li>
+                  <Link
                     href="/dich-vu/dong-pin"
                     className="block rounded-lg bg-slate-800/60 px-3 py-2 text-slate-300 transition-colors hover:text-yellow-400 sm:bg-transparent sm:px-0 sm:py-0 sm:text-slate-400"
                   >

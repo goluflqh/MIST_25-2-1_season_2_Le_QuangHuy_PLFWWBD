@@ -146,12 +146,9 @@ export async function createManualWarranty(
     throw new WarrantyValidationError("Số điện thoại khách chưa đúng định dạng Việt Nam.");
   }
 
-  const [user, customer] = await Promise.all([
-    runner.user.findUnique({ where: { phone: customerPhone } }),
-    runner.customer.findUnique({ where: { phone: customerPhone } }),
-  ]);
+  const customer = await runner.customer.findUnique({ where: { phone: customerPhone } });
 
-  const customerName = typedCustomerName || user?.name || customer?.name || "";
+  const customerName = typedCustomerName || customer?.name || "";
   if (!customerName) {
     throw new WarrantyValidationError("Vui lòng nhập tên khách để tạo phiếu bảo hành.");
   }
@@ -166,7 +163,7 @@ export async function createManualWarranty(
       serialNo,
       service,
       startDate,
-      userId: user?.id || customer?.userId || null,
+      userId: customer?.userId || null,
     },
   });
 }

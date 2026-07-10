@@ -177,7 +177,6 @@ export default function CameraServicePage() {
                 alt="Camera an ninh Wi-Fi ngoài trời được lắp ở mặt tiền cửa hàng."
                 fill
                 priority
-                unoptimized
                 sizes="(max-width: 1024px) 100vw, 38vw"
                 className="object-cover"
               />

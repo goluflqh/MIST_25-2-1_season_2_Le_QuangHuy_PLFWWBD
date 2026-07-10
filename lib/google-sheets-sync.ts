@@ -124,6 +124,56 @@ interface SpreadsheetMetadata {
   sheets: SpreadsheetSheet[];
 }
 
+interface GoogleSheetsGridRange {
+  endColumnIndex?: number;
+  endRowIndex?: number;
+  sheetId: number;
+  startColumnIndex?: number;
+  startRowIndex?: number;
+}
+
+type GoogleSheetsFormatRequest =
+  | {
+      updateSheetProperties: {
+        fields: string;
+        properties: { gridProperties: { frozenRowCount: number }; sheetId: number };
+      };
+    }
+  | {
+      repeatCell: {
+        cell: {
+          userEnteredFormat: {
+            backgroundColor?: { blue: number; green: number; red: number };
+            numberFormat?: { pattern?: string; type: string };
+            textFormat?: { bold: boolean };
+          };
+        };
+        fields: string;
+        range: GoogleSheetsGridRange;
+      };
+    }
+  | {
+      autoResizeDimensions: {
+        dimensions: { dimension: string; endIndex: number; sheetId: number; startIndex: number };
+      };
+    }
+  | {
+      updateDimensionProperties: {
+        fields: string;
+        properties: { hiddenByUser: boolean };
+        range: { dimension: string; endIndex: number; sheetId: number; startIndex: number };
+      };
+    }
+  | {
+      addProtectedRange: {
+        protectedRange: {
+          description: string;
+          range: GoogleSheetsGridRange;
+          warningOnly: boolean;
+        };
+      };
+    };
+
 export class SheetSyncConfigError extends Error {
   status = 400;
 
@@ -288,7 +338,10 @@ const textColumnRanges: Partial<Record<MinhHongWebExportTabTitle, Array<{ end: n
   ],
 };
 
-function buildMoneyFormatRequests(sheet: SpreadsheetSheetProperties, title: MinhHongWebExportTabTitle) {
+function buildMoneyFormatRequests(
+  sheet: SpreadsheetSheetProperties,
+  title: MinhHongWebExportTabTitle
+): GoogleSheetsFormatRequest[] {
   return (moneyColumnRanges[title] || []).map((columns) => ({
     repeatCell: {
       cell: {
@@ -307,7 +360,10 @@ function buildMoneyFormatRequests(sheet: SpreadsheetSheetProperties, title: Minh
   }));
 }
 
-function buildTextFormatRequests(sheet: SpreadsheetSheetProperties, title: MinhHongWebExportTabTitle) {
+function buildTextFormatRequests(
+  sheet: SpreadsheetSheetProperties,
+  title: MinhHongWebExportTabTitle
+): GoogleSheetsFormatRequest[] {
   return (textColumnRanges[title] || []).map((columns) => ({
     repeatCell: {
       cell: {
@@ -329,7 +385,7 @@ function buildTextFormatRequests(sheet: SpreadsheetSheetProperties, title: MinhH
 export function buildGoogleSheetsFormatRequests(
   sheets: SpreadsheetSheetProperties[],
   scope: MinhHongSheetSyncScope = "all"
-) {
+): GoogleSheetsFormatRequest[] {
   const scopedTabs = new Set(getMinhHongWebExportTabTitlesForScope(scope));
 
   return sheets
@@ -337,7 +393,7 @@ export function buildGoogleSheetsFormatRequests(
     .flatMap((sheet) => {
       const title = sheet.title as MinhHongWebExportTabTitle;
       const technicalStartIndex = technicalColumnStartIndexes[title];
-      const baseRequests = [
+      const baseRequests: GoogleSheetsFormatRequest[] = [
         {
           updateSheetProperties: {
             fields: "gridProperties.frozenRowCount",
@@ -457,14 +513,22 @@ function buildSyncHash(values: unknown[]) {
   return createHash("sha256").update(JSON.stringify(values)).digest("hex").slice(0, 16);
 }
 
+function escapeGoogleSheetsUserText(value: SheetCellValue): SheetCellValue {
+  return typeof value === "string" && /^[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
+function escapeGoogleSheetsUserRow(row: SheetCellValue[]) {
+  return row.map(escapeGoogleSheetsUserText);
+}
+
 function appendTechnicalColumns(
   row: SheetCellValue[],
   technical: { sourceCode?: string | null; sourceRow?: number | string | null; updatedAt?: Date | string | null; webId?: string | null }
 ): SheetCellValue[] {
   const updatedAt = formatVietnamDateTime(technical.updatedAt) || "";
   const technicalValues: SheetCellValue[] = [
-    technical.webId || "",
-    technical.sourceCode || "",
+    escapeGoogleSheetsUserText(technical.webId || ""),
+    escapeGoogleSheetsUserText(technical.sourceCode || ""),
     technical.sourceRow ?? "",
     updatedAt,
     buildSyncHash([...row, technical.webId || "", technical.sourceCode || "", technical.sourceRow ?? "", updatedAt]),
@@ -515,7 +579,6 @@ export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
       where: { deletedAt: null },
       include: serviceOrderInclude,
       orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
-      take: 1000,
     }),
     prisma.partner.findMany({
       where: { deletedAt: null },
@@ -569,9 +632,10 @@ export function buildMinhHongSheetTabsFromData(
       formatVietnamDateTime(order.updatedAt),
     ];
 
-    row[7] = `=MAX(F${index + 2}-G${index + 2};0)`;
+    const safeRow = escapeGoogleSheetsUserRow(row);
+    safeRow[7] = `=MAX(F${index + 2}-G${index + 2};0)`;
 
-    return appendTechnicalColumns(row, {
+    return appendTechnicalColumns(safeRow, {
       sourceCode: order.sourceName || order.source,
       sourceRow: order.sourceRow,
       updatedAt: order.updatedAt,
@@ -597,9 +661,10 @@ export function buildMinhHongSheetTabsFromData(
       formatVietnamDateTime(partner.updatedAt),
     ];
 
-    row[5] = `=MAX(G${index + 2}+J${index + 2}+K${index + 2}-H${index + 2}-I${index + 2};0)`;
+    const safeRow = escapeGoogleSheetsUserRow(row);
+    safeRow[5] = `=MAX(G${index + 2}+J${index + 2}+K${index + 2}-H${index + 2}-I${index + 2};0)`;
 
-    return appendTechnicalColumns(row, {
+    return appendTechnicalColumns(safeRow, {
       sourceCode: partner.code,
       updatedAt: partner.updatedAt,
       webId: partner.id || partner.code,
@@ -630,7 +695,7 @@ export function buildMinhHongSheetTabsFromData(
         formatVietnamDateTime(entry.createdAt),
       ];
 
-      return appendTechnicalColumns(row, {
+      return appendTechnicalColumns(escapeGoogleSheetsUserRow(row), {
         sourceCode: entry.sourceCode,
         sourceRow: entry.sourceRow,
         updatedAt: entry.updatedAt || entry.createdAt,
@@ -700,20 +765,23 @@ export function buildMinhHongSheetTabsFromData(
       title: "WEB_Đối tác",
       rows: [
         ["Mã", "Tên", "SĐT", "Loại", "Trạng thái", "Ghi chú", "Tạo lúc", "Cập nhật", ...MINHHONG_TECHNICAL_COLUMN_HEADERS],
-        ...visiblePartners.map((partner) => appendTechnicalColumns([
-          partner.code,
-          partner.name,
-          partner.phone || "",
-          partner.type,
-          partner.active ? "Đang dùng" : "Tạm dừng",
-          partner.notes || "",
-          formatVietnamDateTime(partner.createdAt),
-          formatVietnamDateTime(partner.updatedAt),
-        ], {
-          sourceCode: partner.code,
-          updatedAt: partner.updatedAt,
-          webId: partner.id || partner.code,
-        })),
+        ...visiblePartners.map((partner) => appendTechnicalColumns(
+          escapeGoogleSheetsUserRow([
+            partner.code,
+            partner.name,
+            partner.phone || "",
+            partner.type,
+            partner.active ? "Đang dùng" : "Tạm dừng",
+            partner.notes || "",
+            formatVietnamDateTime(partner.createdAt),
+            formatVietnamDateTime(partner.updatedAt),
+          ]),
+          {
+            sourceCode: partner.code,
+            updatedAt: partner.updatedAt,
+            webId: partner.id || partner.code,
+          }
+        )),
       ],
     },
   ];
@@ -722,6 +790,14 @@ export function buildMinhHongSheetTabsFromData(
 export function buildGoogleSheetsBatchClearPayload(scope: MinhHongSheetSyncScope = "all") {
   return {
     ranges: getMinhHongWebExportTabTitlesForScope(scope).map((title) => `${quoteSheetName(title)}!A:Z`),
+  };
+}
+
+export function buildGoogleSheetsTailClearPayload(tabs: SheetTab[], scope: MinhHongSheetSyncScope = "all") {
+  return {
+    ranges: filterTabsForScope(tabs, scope).map((tab) => (
+      `${quoteSheetName(tab.title)}!A${tab.rows.length + 1}:Z`
+    )),
   };
 }
 
@@ -747,14 +823,14 @@ export async function syncMinhHongGoogleSheet(scope: MinhHongSheetSyncScope = "a
 
   await prepareSpreadsheet(accessToken, spreadsheetId, scope);
 
-  await googleSheetsFetch(accessToken, spreadsheetId, "/values:batchClear", {
-    method: "POST",
-    body: JSON.stringify(buildGoogleSheetsBatchClearPayload(scope)),
-  });
-
   const updateResult = await googleSheetsFetch<{ totalUpdatedCells?: number }>(accessToken, spreadsheetId, "/values:batchUpdate", {
     method: "POST",
     body: JSON.stringify(buildGoogleSheetsBatchUpdatePayload(tabs, scope)),
+  });
+
+  await googleSheetsFetch(accessToken, spreadsheetId, "/values:batchClear", {
+    method: "POST",
+    body: JSON.stringify(buildGoogleSheetsTailClearPayload(tabs, scope)),
   });
 
   return {

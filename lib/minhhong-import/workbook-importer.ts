@@ -9,10 +9,12 @@ import type { MinhHongParsedCustomerOrder, MinhHongParsedPartner, MinhHongParsed
 
 interface ImportTransaction {
   partner: {
+    findMany(args: { where: { code: { in: string[] } } }): Promise<Array<Record<string, unknown>>>;
     findUnique(args: { where: { code: string } }): Promise<Record<string, unknown> | null>;
     upsert(args: { where: { code: string }; create: Record<string, unknown>; update: Record<string, unknown> }): Promise<Record<string, unknown>>;
   };
   partnerLedgerEntry: {
+    findMany(args: { where: { sourceCode: { in: string[] } } }): Promise<Array<Record<string, unknown>>>;
     findUnique(args: { where: { sourceCode: string } }): Promise<Record<string, unknown> | null>;
     upsert(args: { where: { sourceCode: string }; create: Record<string, unknown>; update: Record<string, unknown> }): Promise<Record<string, unknown>>;
   };
@@ -20,6 +22,7 @@ interface ImportTransaction {
     upsert(args: { where: { phone: string }; create: Record<string, unknown>; update: Record<string, unknown> }): Promise<Record<string, unknown>>;
   };
   serviceOrder: {
+    findMany(args: { where: { orderCode: { in: string[] } }; include?: Record<string, unknown> }): Promise<Array<Record<string, unknown>>>;
     findUnique(args: { where: { id?: string; orderCode?: string }; include?: Record<string, unknown> }): Promise<Record<string, unknown> | null>;
     create(args: { data: Record<string, unknown> }): Promise<Record<string, unknown>>;
     update(args: { where: { id?: string; orderCode?: string }; data: Record<string, unknown> }): Promise<Record<string, unknown>>;
@@ -35,7 +38,10 @@ interface ImportTransaction {
 }
 
 export interface ImportRunner extends ImportTransaction {
-  $transaction<T>(callback: (tx: ImportTransaction) => Promise<T>): Promise<T>;
+  $transaction<T>(
+    callback: (tx: ImportTransaction) => Promise<T>,
+    options?: { maxWait?: number; timeout?: number }
+  ): Promise<T>;
 }
 
 export interface MinhHongImportOptions {
@@ -396,9 +402,15 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
   const partnerIds = new Map<string, string>();
 
   if (includePartnerLedger) {
+    const existingPartners = new Map(
+      (await tx.partner.findMany({
+        where: { code: { in: parsed.partners.map((partner) => partner.partnerCode) } },
+      })).map((partner) => [String(partner.code), partner])
+    );
+
     for (const partner of parsed.partners) {
       const data = partnerData(partner);
-      const existing = await tx.partner.findUnique({ where: { code: partner.partnerCode } });
+      const existing = existingPartners.get(partner.partnerCode) || null;
       const action: ImportAction = !existing ? "created" : recordMatches(existing, data) ? "unchanged" : "updated";
       countAction(preview.partners, action);
       if (action !== "unchanged") {
@@ -416,8 +428,14 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
 
   const partnerEntryPlans: PartnerEntryPlanItem[] = [];
   if (includePartnerLedger) {
+    const existingPartnerEntries = new Map(
+      (await tx.partnerLedgerEntry.findMany({
+        where: { sourceCode: { in: parsed.partnerEntries.map((entry) => entry.sourceCode) } },
+      })).map((entry) => [String(entry.sourceCode), entry])
+    );
+
     for (const entry of parsed.partnerEntries) {
-      const existing = await tx.partnerLedgerEntry.findUnique({ where: { sourceCode: entry.sourceCode } });
+      const existing = existingPartnerEntries.get(entry.sourceCode) || null;
       const partnerId = partnerIds.get(entry.partnerCode);
       const data = partnerId ? ledgerData(entry, partnerId) : null;
       const action: ImportAction = !existing
@@ -440,6 +458,13 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
 
   const serviceOrderPlans: ServiceOrderPlanItem[] = [];
   if (includeServiceOrders) {
+    const existingServiceOrders = new Map(
+      (await tx.serviceOrder.findMany({
+        where: { orderCode: { in: parsed.customerOrders.map((order) => order.orderCode) } },
+        include: { warranty: true },
+      })).map((order) => [String(order.orderCode), order])
+    );
+
     for (const order of parsed.customerOrders) {
       if (
         options.scope === "service-orders"
@@ -448,10 +473,7 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
         continue;
       }
 
-      const existing = await tx.serviceOrder.findUnique({
-        where: { orderCode: order.orderCode },
-        include: { warranty: true },
-      });
+      const existing = existingServiceOrders.get(order.orderCode) || null;
       if (existing && existing.source !== "IMPORT" && !existing.deletedAt) {
         const message = `Không ghi đè đơn thủ công ${order.orderCode}; dữ liệu trên web được giữ nguyên.`;
         preview.conflicts.push(message);
@@ -647,5 +669,5 @@ export async function importMinhHongParsedWorkbook(parsed: MinhHongParsedWorkboo
     };
     await writeAuditLog(tx, summary, options.userId);
     return summary;
-  });
+  }, { maxWait: 10_000, timeout: 120_000 });
 }

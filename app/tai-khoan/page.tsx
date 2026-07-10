@@ -9,13 +9,13 @@ import { normalizeServiceOrderStatus } from "@/lib/service-orders";
 import { getCurrentSessionUser } from "@/lib/session";
 import { formatVietnamDate, formatVietnamDateTime } from "@/lib/vietnam-time";
 
-async function loadAccountCollections(userId: string, phone: string, referralCode: string | null, loyaltyPoints: number) {
+async function loadAccountCollections(userId: string, referralCode: string | null, loyaltyPoints: number) {
   try {
     const [requests, warranties, serviceOrders, coupons, referralCount] = await Promise.all([
       prisma.contactRequest.findMany({
         where: {
           deletedAt: null,
-          OR: [{ userId }, { phone }],
+          userId,
         },
         include: {
           serviceOrder: {
@@ -34,7 +34,7 @@ async function loadAccountCollections(userId: string, phone: string, referralCod
       prisma.warranty.findMany({
         where: {
           deletedAt: null,
-          OR: [{ userId }, { customerPhone: phone }],
+          userId,
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -42,10 +42,9 @@ async function loadAccountCollections(userId: string, phone: string, referralCod
         where: {
           deletedAt: null,
           customerVisible: true,
-          OR: [{ userId }, { customerPhone: phone }],
+          userId,
         },
         orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
-        take: 20,
       }),
       prisma.coupon.findMany({
         where: {
@@ -189,7 +188,6 @@ export default async function AccountPage() {
 
   const { requests, warranties, serviceOrders, coupons, referralCount, dataWarning } = await loadAccountCollections(
     user.id,
-    user.phone,
     user.referralCode,
     user.loyaltyPoints
   );

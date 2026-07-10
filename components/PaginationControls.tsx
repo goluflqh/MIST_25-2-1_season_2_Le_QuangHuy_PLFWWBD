@@ -59,7 +59,7 @@ export default function PaginationControls({
           type="button"
           onClick={() => onPageChange(Math.max(1, activePage - 1))}
           disabled={activePage === 1}
-          className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 disabled:text-slate-300"
+          className="min-h-11 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 disabled:text-slate-300"
         >
           Trước
         </button>
@@ -69,7 +69,7 @@ export default function PaginationControls({
             type="button"
             onClick={() => onPageChange(pageNumber)}
             aria-current={pageNumber === activePage ? "page" : undefined}
-            className={`min-h-9 min-w-9 rounded-lg px-3 text-xs font-bold ${
+            className={`min-h-11 min-w-11 rounded-lg px-3 text-xs font-bold ${
               pageNumber === activePage
                 ? "bg-slate-900 text-white"
                 : "border border-slate-200 text-slate-600"
@@ -83,7 +83,7 @@ export default function PaginationControls({
           type="button"
           onClick={() => onPageChange(Math.min(pageCount, activePage + 1))}
           disabled={activePage === pageCount}
-          className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 disabled:text-slate-300"
+          className="min-h-11 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 disabled:text-slate-300"
         >
           Sau
         </button>
