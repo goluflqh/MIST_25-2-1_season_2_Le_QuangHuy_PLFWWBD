@@ -61,7 +61,7 @@ fi
 if command -v powershell.exe >/dev/null 2>&1 && [ -f "$repo_root/scripts/gitnexus-preflight.ps1" ]; then
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repo_root_win/scripts/gitnexus-preflight.ps1" -RepoPath "$repo_root_win" -Quiet
 elif command -v gitnexus >/dev/null 2>&1; then
-  gitnexus analyze "$repo_root"
+  gitnexus analyze "$repo_root" --skip-agents-md
 fi
 
 exit 0
