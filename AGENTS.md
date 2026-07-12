@@ -39,15 +39,27 @@ Adapted for this repo from `forrestchang/andrej-karpathy-skills`. Apply these de
 - If verification cannot run, say so explicitly and explain what is still unverified.
 - If unrelated cleanup opportunities are noticed, mention them separately instead of folding them into the same change.
 
+## Agent skills
+
+Repository conventions for the Matt Pocock engineering skills live in
+`docs/agents/`. Before using issue-tracker, triage, ticketing, wayfinding, or
+domain-modeling workflows, read the relevant document there. GitHub writes
+always require explicit authorization for the current task.
+
 <!-- gitnexus:start -->
 # GitNexus - Code Intelligence
 
-This project may be indexed by GitNexus as **minhhong-next-app-upgrades**. Use
-the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This repository may have a separate GitNexus index for each active branch or
+worktree. Do not assume or hard-code an index name.
 
-Before relying on GitNexus graph data, confirm the index matches the current
-HEAD with `list_repos` or `gitnexus status`. If the index is stale, refresh it
-with `npx gitnexus analyze .`.
+Before relying on GitNexus graph data, confirm that an indexed repository
+matches both the current worktree path and current `HEAD`, using `list_repos`
+or `gitnexus status`. If the matching index is missing or stale, refresh it
+with `npx gitnexus analyze .` and verify freshness again.
+
+If a current index cannot be produced, state that GitNexus is unavailable or
+stale, do not treat its graph as current truth, and use direct source reads,
+local search, tests, and runtime evidence instead.
 
 ## Always Do
 
