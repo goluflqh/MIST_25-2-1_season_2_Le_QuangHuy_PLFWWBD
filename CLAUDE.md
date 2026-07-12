@@ -7,7 +7,7 @@ worktree. Do not assume or hard-code an index name.
 Before relying on GitNexus graph data, confirm that an indexed repository
 matches both the current worktree path and current `HEAD`, using `list_repos`
 or `gitnexus status`. If the matching index is missing or stale, refresh it
-with `npx gitnexus analyze .` and verify freshness again.
+with `npx gitnexus analyze . --skip-agents-md` and verify freshness again.
 
 If a current index cannot be produced, state that GitNexus is unavailable or
 stale, do not treat its graph as current truth, and use direct source reads,

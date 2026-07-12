@@ -41,7 +41,11 @@ try {
     $from = if ($indexedCommit) { $indexedCommit.Substring(0, [Math]::Min(7, $indexedCommit.Length)) } else { "missing" }
     $to = $head.Substring(0, [Math]::Min(7, $head.Length))
     Write-Info "[gitnexus] refreshing index ($from -> $to)"
-    gitnexus analyze .
+    $analyzeArgs = @("analyze", ".", "--skip-agents-md")
+    if ($Force) {
+      $analyzeArgs += "--force"
+    }
+    & gitnexus @analyzeArgs
     if ($LASTEXITCODE -ne 0) {
       exit $LASTEXITCODE
     }
