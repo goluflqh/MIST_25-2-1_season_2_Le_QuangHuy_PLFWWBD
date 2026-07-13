@@ -640,16 +640,16 @@ export default function ContactForm() {
                 </div>
 
                 {user ? (
-                  <label className="block">
-                    <span className="mb-2 block font-body text-sm font-semibold text-slate-700">
+                  <div>
+                    <label htmlFor="contact-coupon" className="mb-2 block font-body text-sm font-semibold text-slate-700">
                       Mã giảm giá muốn áp dụng
-                    </span>
+                    </label>
                     {couponOptions.length > 0 ? (
                       <select
+                        id="contact-coupon"
                         value={selectedCouponValue}
                         onChange={(event) => setSelectedCouponValue(event.target.value)}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 font-body text-slate-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
-                        title="Mã giảm giá muốn áp dụng"
                       >
                         <option value="">Không áp dụng mã</option>
                         {couponOptions.map((coupon) => (
@@ -673,7 +673,7 @@ export default function ContactForm() {
                           : ""}
                       </p>
                     ) : null}
-                  </label>
+                  </div>
                 ) : (
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                     <p className="font-body text-sm font-semibold text-slate-700">Mã giảm giá</p>
@@ -718,6 +718,13 @@ export default function ContactForm() {
                     "Gửi yêu cầu tư vấn"
                   )}
                 </button>
+                <p className="text-center font-body text-xs leading-5 text-slate-600">
+                  Thông tin bạn gửi được dùng để phản hồi yêu cầu tư vấn. {" "}
+                  <Link href="/quyen-rieng-tu" className="font-semibold text-primary hover:text-red-700">
+                    Xem quyền riêng tư
+                  </Link>
+                  .
+                </p>
               </form>
             )}
           </div>

@@ -223,19 +223,29 @@ export default function Hero() {
             onPointerDown={handleSwipeStart}
             onPointerUp={handleSwipeEnd}
           >
-            {slidesData.map((slide, index) => (
-              <Image
-                key={slide.label}
-                src={slide.image}
-                alt={slide.alt}
-                fill
-                priority={index === 0}
-                sizes="(max-width: 1024px) 100vw, 48vw"
-                className={`object-cover transition-opacity duration-700 ease-out ${
-                  index === currentSlide ? "opacity-100" : "opacity-0"
-                }`}
-              />
-            ))}
+            {slidesData.map((slide, index) => {
+              const isActive = index === currentSlide;
+
+              return (
+                <div
+                  key={slide.label}
+                  aria-hidden={!isActive}
+                  className={`absolute inset-0 transition-opacity duration-700 ease-out motion-reduce:transition-none ${
+                    isActive ? "opacity-100" : "opacity-0"
+                  }`}
+                >
+                  <Image
+                    src={slide.image}
+                    alt={isActive ? `Ảnh minh hoạ: ${slide.alt}` : ""}
+                    fill
+                    loading={index === 0 ? "eager" : "lazy"}
+                    fetchPriority={index === 0 ? "high" : "low"}
+                    sizes="(max-width: 1024px) 100vw, 48vw"
+                    className="object-cover"
+                  />
+                </div>
+              );
+            })}
 
             <button
               type="button"
@@ -260,36 +270,54 @@ export default function Hero() {
 
             <div className="absolute inset-x-3 top-3 z-20 flex items-center justify-between gap-2 sm:inset-x-4 sm:top-4 sm:gap-3">
               <div className="rounded-full border border-white/20 bg-slate-950/72 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white backdrop-blur sm:px-4 sm:py-2 sm:text-[11px] sm:tracking-[0.18em]">
-                {activeSlide.label}
+                <span>{activeSlide.label}</span>
+                <span className="ml-2 normal-case tracking-normal text-white/85">Ảnh minh hoạ</span>
               </div>
               <Link
                 href={activeSlide.href}
-                className="inline-flex items-center rounded-full border border-white/20 bg-white/14 px-3 py-1.5 text-[10px] font-semibold text-white backdrop-blur transition-colors hover:bg-white/24 sm:px-3.5 sm:py-2 sm:text-[11px]"
+                className="inline-flex items-center rounded-full border border-white/35 bg-slate-950/60 px-3 py-1.5 text-[10px] font-semibold text-white backdrop-blur transition-colors hover:bg-slate-950/80 sm:px-3.5 sm:py-2 sm:text-[11px]"
               >
                 Xem dịch vụ
               </Link>
             </div>
 
-            <div className="absolute inset-x-3 bottom-3 z-20 rounded-2xl border border-white/15 bg-slate-950/58 px-3 py-2 text-white shadow-[0_16px_44px_-30px_rgba(15,23,42,0.8)] backdrop-blur sm:inset-x-4 sm:bottom-4 sm:px-4 sm:py-3">
-              <div className="flex items-end justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-body text-[11px] font-semibold leading-4 text-white/92 sm:text-sm sm:leading-5">
-                    {activeSlide.caption}
-                  </p>
-                  <span className="mt-1 block text-[10px] font-semibold text-white/62 sm:hidden">
+            <div className="absolute inset-x-3 bottom-3 z-20 rounded-xl border border-white/15 bg-slate-950/58 px-2.5 py-1.5 text-white shadow-[0_16px_44px_-30px_rgba(15,23,42,0.8)] backdrop-blur sm:inset-x-4 sm:bottom-4 sm:rounded-2xl sm:px-4 sm:py-2">
+              <div className="flex items-center justify-between gap-2 sm:gap-3">
+                <p className="min-w-0 flex-1 truncate font-body text-[11px] font-semibold leading-4 text-white/92 sm:text-sm sm:leading-5">
+                  {activeSlide.caption}
+                </p>
+                <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+                  <span className="text-[10px] font-semibold tabular-nums text-white/70 sm:text-xs">
                     {currentSlide + 1}/{slidesData.length}
                   </span>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-                  <span className="hidden text-xs font-semibold text-white/70 sm:inline">
-                    {currentSlide + 1}/{slidesData.length}
-                  </span>
-                  <div className="flex items-center gap-1.5 sm:gap-2">
+                  <div className="flex items-center sm:hidden">
+                    <button
+                      type="button"
+                      onClick={goToPreviousSlide}
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                      aria-label="Xem ảnh trước"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goToNextSlide}
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                      aria-label="Xem ảnh tiếp theo"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="hidden items-center sm:flex">
                     {slidesData.map((slide, index) => (
                       <button
                         key={slide.label}
                         onClick={() => goToSlide(index)}
-                        className="group inline-flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                        className="group inline-flex h-9 w-9 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                         aria-label={`Chuyển tới ảnh ${index + 1}`}
                         aria-pressed={index === currentSlide}
                         type="button"

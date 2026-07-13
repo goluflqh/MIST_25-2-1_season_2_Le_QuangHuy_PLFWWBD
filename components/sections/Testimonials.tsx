@@ -1,73 +1,56 @@
 import TestimonialsReviewPager from "@/components/sections/TestimonialsReviewPager";
 import { getPublicApprovedReviews } from "@/lib/public-data";
 
-const serviceLabels: Record<string, string> = {
-  DONG_PIN: "Đóng Pin",
-  DEN_NLMT: "Đèn NLMT",
-  PIN_LUU_TRU: "Pin Lưu Trữ",
-  CAMERA: "Camera",
-  CUSTOM: "Theo yêu cầu",
-  KHAC: "Dịch vụ",
-};
-
-const avatarColors = [
-  "from-red-500 to-red-700",
-  "from-orange-400 to-amber-500",
-  "from-slate-700 to-slate-900",
-  "from-red-400 to-orange-500",
-  "from-amber-500 to-red-600",
-];
-
-const defaultTestimonials = [
+const featuredTestimonials = [
   {
     name: "Anh Tuấn",
     comment:
       "Nội trở chuẩn, chạy máy cưa mượt hơn hẳn đồ zin đã chai. Hồng chủ cửa hàng kiểm tra trước mặt khách minh bạch, rất yên tâm.",
-    rating: 5,
-    service: "DONG_PIN",
+    service: "Đóng pin",
   },
   {
     name: "Chị Hoa",
     comment:
       "Mới lắp bộ 4 mắt giám sát ban đêm nét căng. Đội thợ đi dây siêu gọn gàng, không đục khoét tường bừa bãi. 10 điểm uy tín.",
-    rating: 5,
-    service: "CAMERA",
+    service: "Camera",
   },
   {
     name: "Chú Minh",
     comment:
       "Bình kích đề xe tải đóng ở đây xài hơn năm nay ngon ơ. Lúc hỏng mang qua thợ hỗ trợ liền không tính phí lặt vặt. Quá tốt!",
-    rating: 5,
-    service: "PIN_LUU_TRU",
+    service: "Pin lưu trữ",
   },
 ] as const;
 
-function ReviewCard({
-  testimonial,
+const featuredAvatarColors = [
+  "from-red-500 to-red-700",
+  "from-orange-400 to-amber-500",
+  "from-slate-700 to-slate-900",
+];
+
+function FeaturedTestimonialCard({
   index,
+  testimonial,
 }: {
-  testimonial: { name: string; comment: string; rating: number; service: string };
   index: number;
+  testimonial: typeof featuredTestimonials[number];
 }) {
   return (
-    <div className="relative mt-8 rounded-[2rem] border border-slate-100 bg-white p-8 shadow-[0_20px_80px_-52px_rgba(15,23,42,0.45)] transition-transform duration-300 hover:-translate-y-1">
+    <article className="relative mt-8 rounded-[2rem] border border-slate-100 bg-white p-8 shadow-[0_20px_80px_-52px_rgba(15,23,42,0.45)] transition-transform duration-200 hover:-translate-y-1">
       <div className="absolute -top-8 left-8">
-        <div
-          className={`flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br ${avatarColors[index % avatarColors.length]} font-heading text-2xl font-black text-white shadow-md`}
-        >
+        <div className={`flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br ${featuredAvatarColors[index]} font-heading text-2xl font-black text-white shadow-md`}>
           {testimonial.name.charAt(0)}
         </div>
       </div>
-
       <div className="mt-6 flex items-center justify-between gap-3">
         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
-          {serviceLabels[testimonial.service] || testimonial.service}
+          {testimonial.service}
         </span>
-        <div className="flex gap-0.5">
+        <div className="flex gap-0.5" role="img" aria-label="Đánh giá 5 sao">
           {[1, 2, 3, 4, 5].map((star) => (
             <svg
               key={star}
-              className={`h-4 w-4 ${star <= testimonial.rating ? "text-amber-400" : "text-slate-200"}`}
+              className="h-4 w-4 text-amber-400"
               viewBox="0 0 20 20"
               fill="currentColor"
               aria-hidden="true"
@@ -77,18 +60,11 @@ function ReviewCard({
           ))}
         </div>
       </div>
-
-      <div className="mt-5 rounded-[1.5rem] border border-slate-100 bg-slate-50/75 p-5">
-        <p className="font-body text-sm italic leading-7 text-slate-700">
-          &ldquo;{testimonial.comment}&rdquo;
-        </p>
-      </div>
-
-      <div className="mt-5">
-        <span className="font-heading text-lg font-bold text-textMain">{testimonial.name}</span>
-        <p className="font-body text-sm text-slate-400">Khách đã trải nghiệm dịch vụ thực tế</p>
-      </div>
-    </div>
+      <blockquote className="mt-5 rounded-[1.5rem] border border-slate-100 bg-slate-50/75 p-5">
+        <p className="font-body text-sm italic leading-7 text-slate-700">&ldquo;{testimonial.comment}&rdquo;</p>
+      </blockquote>
+      <p className="mt-5 font-heading text-lg font-bold text-textMain">{testimonial.name}</p>
+    </article>
   );
 }
 
@@ -103,7 +79,7 @@ export default async function Testimonials() {
   }));
 
   return (
-    <section id="testimonials" className="relative z-10 mx-auto mb-12 max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+    <section id="testimonials" className="relative z-10 mx-auto mb-12 max-w-7xl scroll-mt-24 px-4 py-16 sm:px-6 lg:px-8">
       <div className="mb-16 text-center">
         <span className="inline-flex rounded-full border border-red-100 bg-red-50 px-3 py-1 text-sm font-semibold text-primary">
           Chứng thực từ khách
@@ -128,13 +104,15 @@ export default async function Testimonials() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
-        {defaultTestimonials.map((testimonial, index) => (
-          <ReviewCard key={index} testimonial={testimonial} index={index} />
+      <div className="grid grid-cols-1 gap-8 md:grid-cols-3" data-testid="featured-testimonials">
+        {featuredTestimonials.map((testimonial, index) => (
+          <FeaturedTestimonialCard key={testimonial.name} testimonial={testimonial} index={index} />
         ))}
       </div>
 
-      <TestimonialsReviewPager reviews={realReviewSummaries} />
+      {realReviewSummaries.length > 0 ? (
+        <TestimonialsReviewPager reviews={realReviewSummaries} />
+      ) : null}
 
     </section>
   );

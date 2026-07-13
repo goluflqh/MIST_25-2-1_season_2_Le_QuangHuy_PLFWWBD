@@ -152,10 +152,12 @@ Xem thêm checklist rollout, env và migration ở:
 Repo có Dockerfile standalone cho Next.js và compose nền cho app + PostgreSQL:
 
 ```bash
-docker build -t minhhong-next .
-docker compose --profile migrate run --rm migrate
-docker compose up -d app
+docker compose up --build -d app
 ```
+
+Khi chạy production bằng Compose, dịch vụ `migrate` sẽ chạy `prisma migrate deploy` trước. `app` chỉ khởi động sau khi migration hoàn tất thành công. Nếu app chưa lên, hãy kiểm tra `docker compose logs migrate` trước.
+
+Với cơ sở dữ liệu production, chỉ dùng migration đã được lưu phiên bản qua `prisma migrate deploy`. Không dùng `prisma migrate dev`, `prisma db push`, `db:local:reset`, lệnh xóa schema hoặc `docker compose down -v`.
 
 Trước khi dùng thật, đặt lại `AUTH_SECRET`, `NEXT_PUBLIC_SITE_URL`, thông tin DB và provider AI trong môi trường deploy. Nếu dùng managed PostgreSQL, có thể giữ Dockerfile cho app và đổi compose theo secret/runtime của hạ tầng đó.
 

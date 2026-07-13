@@ -174,13 +174,16 @@ export default function CameraServicePage() {
             <div className="relative h-56 bg-slate-100 sm:h-96">
               <Image
                 src="/showcase/generated/hero-camera-install-v2.webp"
-                alt="Camera an ninh Wi-Fi ngoài trời được lắp ở mặt tiền cửa hàng."
+                alt="Ảnh minh hoạ camera an ninh Wi-Fi ngoài trời ở mặt tiền cửa hàng."
                 fill
                 priority
                 sizes="(max-width: 1024px) 100vw, 38vw"
                 className="object-cover"
               />
             </div>
+            <p className="px-4 pt-3 font-body text-xs leading-5 text-slate-600">
+              Ảnh minh hoạ bối cảnh lắp đặt; vị trí, số mắt và đường dây sẽ được khảo sát trước.
+            </p>
             <div className="grid grid-cols-2 gap-3 p-4">
               <div className="rounded-2xl bg-sky-50 px-4 py-3">
                 <p className="text-xs font-semibold text-sky-700">Khảo sát</p>
@@ -197,9 +200,9 @@ export default function CameraServicePage() {
 
       <ServicePreviewCatalog
         accent="blue"
-        eyebrow="Mẫu lắp đặt thực tế"
+        eyebrow="Mẫu cấu hình tham khảo"
         title="Các gói camera phổ biến"
-        description="Khách có thể tham khảo nhanh quy mô hệ thống. Minh Hồng vẫn sẽ điều chỉnh số mắt, vị trí lắp và giải pháp lưu trữ sau khi khảo sát thực tế."
+        description="Hình ảnh và quy mô dưới đây dùng để minh hoạ. Minh Hồng sẽ điều chỉnh số mắt, vị trí lắp và giải pháp lưu trữ sau khi khảo sát thực tế."
         items={cameraPreviewItems}
       />
 

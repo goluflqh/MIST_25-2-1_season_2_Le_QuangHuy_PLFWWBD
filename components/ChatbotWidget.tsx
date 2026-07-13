@@ -616,7 +616,7 @@ export default function ChatbotWidget() {
           data-testid="chatbot-toggle"
           onClick={() => setIsOpen((current) => !current)}
           className="chatbot-float-button group relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-orange-200 sm:h-16 sm:w-16"
-          aria-label={isOpen ? "Đóng trợ lý tư vấn" : "Mở trợ lý tư vấn"}
+          aria-label={isOpen ? "Đóng trợ lý AI" : "Mở trợ lý AI"}
           aria-expanded={isOpen}
           aria-controls="chatbot-dialog"
           style={{
@@ -649,7 +649,7 @@ export default function ChatbotWidget() {
           )}
 
           {!isOpen && (
-            <span className="absolute -right-0.5 -top-0.5 z-20 flex h-5 min-w-5">
+            <span className="absolute -right-0.5 -top-0.5 z-20 flex h-5 min-w-5" aria-hidden="true">
               <span className="chatbot-ai-badge relative inline-flex h-5 min-w-5 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-emerald-500 px-1 text-[8px] font-black text-white shadow-md shadow-emerald-500/30">
                 AI
               </span>

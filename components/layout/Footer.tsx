@@ -90,6 +90,7 @@ export default function Footer() {
                   rel="noopener noreferrer"
                   className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition-colors hover:bg-blue-600 hover:text-white"
                   title="Facebook"
+                  aria-label="Facebook Minh Hồng"
                 >
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
@@ -101,6 +102,7 @@ export default function Footer() {
                   rel="noopener noreferrer"
                   className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition-colors hover:bg-blue-500 hover:text-white"
                   title="Zalo"
+                  aria-label="Zalo Minh Hồng"
                 >
                   <span className="text-sm font-black">Zalo</span>
                 </a>
@@ -108,6 +110,7 @@ export default function Footer() {
                   href={siteConfig.hotlineHref}
                   className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition-colors hover:bg-green-600 hover:text-white"
                   title="Gọi ngay"
+                  aria-label={`Gọi Minh Hồng: ${siteConfig.hotlineDisplay}`}
                 >
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
@@ -116,9 +119,9 @@ export default function Footer() {
               </div>
             </div>
             <div>
-              <h4 className="mb-2 font-heading text-base font-bold text-white sm:mb-6 sm:text-lg">
+              <h2 className="mb-2 font-heading text-base font-bold text-white sm:mb-6 sm:text-lg">
                 Liên Kết Nhanh
-              </h4>
+              </h2>
               <ul className="grid grid-cols-1 gap-2 font-body text-sm sm:block sm:space-y-3 sm:text-base">
                 <li>
                   <Link
@@ -126,6 +129,14 @@ export default function Footer() {
                     className="block rounded-lg bg-slate-800/60 px-3 py-2 text-slate-300 transition-colors hover:text-yellow-400 sm:bg-transparent sm:px-0 sm:py-0 sm:text-slate-400"
                   >
                     Tra Cứu Bảo Hành
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/dich-vu"
+                    className="block rounded-lg bg-slate-800/60 px-3 py-2 text-slate-300 transition-colors hover:text-yellow-400 sm:bg-transparent sm:px-0 sm:py-0 sm:text-slate-400"
+                  >
+                    Tất Cả Dịch Vụ
                   </Link>
                 </li>
                 <li>
@@ -163,9 +174,9 @@ export default function Footer() {
               </ul>
             </div>
             <div>
-              <h4 className="mb-2 font-heading text-base font-bold text-white sm:mb-6 sm:text-lg">
+              <h2 className="mb-2 font-heading text-base font-bold text-white sm:mb-6 sm:text-lg">
                 Liên Hệ Chuyên Viên
-              </h4>
+              </h2>
               <p className="mb-3 font-body text-sm text-slate-400 sm:text-base">
                 Cơ sở tại: <a href={siteConfig.mapUrl} target="_blank" rel="noopener noreferrer" className="text-white hover:text-primary transition-colors underline underline-offset-2"><strong>{siteConfig.locationLabel}</strong></a>
               </p>
@@ -185,8 +196,11 @@ export default function Footer() {
               </div>
             </div>
           </div>
-          <div className="mt-6 border-t border-slate-800 pt-4 text-center font-body text-xs text-slate-500 sm:mt-10 sm:pt-6 sm:text-sm">
-            © 2026 Minh Hồng. Tối ưu cho tư vấn và chăm sóc khách hàng.
+          <div className="mt-6 border-t border-slate-800 pt-4 text-center font-body text-xs text-slate-400 sm:mt-10 sm:pt-6 sm:text-sm">
+            © 2026 Minh Hồng. Tối ưu cho tư vấn và chăm sóc khách hàng. {" "}
+            <Link href="/quyen-rieng-tu" className="font-semibold text-slate-200 underline underline-offset-2 hover:text-white">
+              Quyền riêng tư
+            </Link>
           </div>
         </div>
       </footer>
