@@ -53,14 +53,14 @@ export async function POST(request: Request) {
 
     if (!targetUser) {
       return NextResponse.json(
-        { success: false, message: "Không tìm thấy tài khoản khách hàng cần gắn lịch sử." },
+        { success: false, message: "Không tìm thấy tài khoản khách hàng cần ghép lịch sử cũ." },
         { status: 404 }
       );
     }
 
     if (targetUser.role === "ADMIN") {
       return NextResponse.json(
-        { success: false, message: "Không gắn lịch sử khách hàng vào tài khoản quản trị viên." },
+        { success: false, message: "Không thể ghép lịch sử khách hàng vào tài khoản quản trị viên." },
         { status: 400 }
       );
     }
@@ -283,7 +283,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          message: "Số điện thoại này đang xung đột với hồ sơ khách hàng của tài khoản khác. Chưa có dữ liệu nào bị thay đổi.",
+          message: "Số điện thoại này đang được dùng trong hồ sơ của tài khoản khác. Hệ thống chưa thay đổi dữ liệu; vui lòng kiểm tra lại trước khi ghép.",
           ...result,
         },
         { status: 409 }
@@ -291,14 +291,14 @@ export async function POST(request: Request) {
     }
 
     const message = result.linked.total > 0
-      ? `Đã gắn ${result.linked.total} dữ liệu chưa có chủ vào tài khoản ${targetUser.name}.`
-      : "Không có dữ liệu chưa có chủ nào đủ điều kiện để gắn.";
+      ? `Đã ghép ${result.linked.total} mục lịch sử cũ vào tài khoản ${targetUser.name}.`
+      : "Không có lịch sử cũ phù hợp để ghép vào tài khoản này.";
 
     return NextResponse.json({ success: true, message, ...result });
   } catch (error) {
     console.error("Admin user history link error:", error);
     return NextResponse.json(
-      { success: false, message: "Không thể gắn lịch sử khách hàng lúc này." },
+      { success: false, message: "Không thể ghép lịch sử khách hàng lúc này." },
       { status: 500 }
     );
   }

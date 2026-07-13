@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
+import { randomInt } from "node:crypto";
 import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
+
+const TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+function generateTemporaryPassword(length = 12) {
+  return Array.from(
+    { length },
+    () => TEMP_PASSWORD_ALPHABET[randomInt(TEMP_PASSWORD_ALPHABET.length)],
+  ).join("");
+}
 
 // GET /api/admin/users — List all users
 export async function GET() {
@@ -109,23 +119,20 @@ export async function DELETE(request: Request) {
   }
 }
 
-// PATCH /api/admin/users — Reset user password
+// PATCH /api/admin/users — Issue a temporary password
 export async function PATCH(request: Request) {
   try {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
-    const { userId, newPassword } = await request.json();
+    const { userId } = await request.json();
 
-    if (!userId || !newPassword) {
-      return NextResponse.json({ success: false, message: "userId và newPassword bắt buộc." }, { status: 400 });
-    }
-    if (newPassword.length < 6) {
-      return NextResponse.json({ success: false, message: "Mật khẩu mới phải ≥ 6 ký tự." }, { status: 400 });
+    if (typeof userId !== "string" || !userId.trim() || userId.length > 100) {
+      return NextResponse.json({ success: false, message: "Tài khoản khách hàng không hợp lệ." }, { status: 400 });
     }
 
-    const hashed = await hashPassword(newPassword);
+    const normalizedUserId = userId.trim();
     const targetUser = await prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: normalizedUserId },
       select: {
         id: true,
         name: true,
@@ -139,8 +146,24 @@ export async function PATCH(request: Request) {
       },
     });
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
+    if (!targetUser) {
+      return NextResponse.json(
+        { success: false, message: "Không tìm thấy tài khoản cần cấp lại mật khẩu." },
+        { status: 404 },
+      );
+    }
+
+    if (targetUser.role === "ADMIN") {
+      return NextResponse.json(
+        { success: false, message: "Kh\u00f4ng th\u1ec3 c\u1ea5p l\u1ea1i m\u1eadt kh\u1ea9u cho t\u00e0i kho\u1ea3n qu\u1ea3n tr\u1ecb." },
+        { status: 403 },
+      );
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+    const hashed = await hashPassword(temporaryPassword);
+    const passwordUpdate = prisma.user.update({
+      where: { id: normalizedUserId },
       data: { password: hashed },
       select: {
         id: true,
@@ -156,13 +179,17 @@ export async function PATCH(request: Request) {
     });
 
     // Xoá tất cả session cũ → buộc đăng nhập lại
-    const deletedSessions = await prisma.session.deleteMany({ where: { userId } });
+    const sessionRevocation = prisma.session.deleteMany({ where: { userId: normalizedUserId } });
+    const [updatedUser, deletedSessions] = await prisma.$transaction([
+      passwordUpdate,
+      sessionRevocation,
+    ]);
     await recordAuditLog({
       action: "USER_PASSWORD_RESET",
       actor: admin,
       entity: "User",
-      entityId: userId,
-      oldData: toAuditJson(targetUser || { id: userId }),
+      entityId: normalizedUserId,
+      oldData: toAuditJson(targetUser),
       newData: toAuditJson({
         ...updatedUser,
         passwordReset: true,
@@ -171,9 +198,13 @@ export async function PATCH(request: Request) {
       request,
     });
 
-    return NextResponse.json({ success: true, message: "Đã đặt lại mật khẩu." });
+    return NextResponse.json({
+      success: true,
+      message: "Đã cấp mật khẩu tạm. Mật khẩu này chỉ hiển thị một lần.",
+      temporaryPassword,
+    });
   } catch (error) {
     console.error("Admin reset password error:", error);
-    return NextResponse.json({ success: false, message: "Lỗi đặt lại mật khẩu." }, { status: 500 });
+    return NextResponse.json({ success: false, message: "Không thể cấp lại mật khẩu lúc này." }, { status: 500 });
   }
 }

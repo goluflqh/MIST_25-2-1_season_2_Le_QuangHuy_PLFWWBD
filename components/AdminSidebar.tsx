@@ -280,7 +280,7 @@ export default function AdminSidebar({
         <SidebarNav pathname={pathname} counts={counts} />
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
+      <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-x-hidden bg-slate-50">
         <MobileAdminToolbar
           adminName={adminName}
           mobileOpen={mobileOpen}
@@ -294,8 +294,8 @@ export default function AdminSidebar({
             <span className="font-body text-sm text-slate-500">Admin: {adminName}</span>
           ) : null}
         </header>
-        <div data-admin-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 md:overflow-visible">
-          {children}
+        <div data-admin-scroll className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-4 sm:p-6 md:overflow-visible">
+          <div className="min-w-0 max-w-full">{children}</div>
         </div>
       </div>
     </div>

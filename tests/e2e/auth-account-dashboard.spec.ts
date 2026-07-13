@@ -200,6 +200,7 @@ test.describe("Auth, account and dashboard smoke", () => {
     await expect(page.getByTestId("account-request-submit")).toBeEnabled();
 
     await page.getByTestId("account-review-toggle").click();
+    await expect(page.getByTestId("account-review-rating-value")).toHaveText("5★");
     await expect(page.getByTestId("account-review-submit")).toBeDisabled();
     await page.getByTestId("account-review-service").selectOption("DONG_PIN");
     await page.getByTestId("account-review-comment").fill("Dịch vụ tư vấn rõ ràng, phản hồi nhanh.");
@@ -570,6 +571,7 @@ test.describe("Auth, account and dashboard smoke", () => {
       expect(orderBody.order.quotedPrice).toBe(1_000_000);
       expect(orderBody.order.discountAmount).toBe(100_000);
       expect(orderBody.order.paidAmount).toBe(200_000);
+      expect(orderBody.order.paidAt).toBeTruthy();
 
       const paymentResponse = await request.patch("/api/admin/service-orders", {
         data: {
@@ -582,6 +584,9 @@ test.describe("Auth, account and dashboard smoke", () => {
       const paymentBody = await paymentResponse.json();
       expect(paymentBody.order.discountAmount).toBe(100_000);
       expect(paymentBody.order.paidAmount).toBe(900_000);
+      expect(new Date(paymentBody.order.paidAt).getTime()).toBeGreaterThanOrEqual(
+        new Date(orderBody.order.paidAt).getTime()
+      );
 
       const contactsResponse = await request.get("/api/contact");
       expect(contactsResponse.ok()).toBeTruthy();
@@ -994,7 +999,46 @@ test.describe("Auth, account and dashboard smoke", () => {
       await expect(page.getByTestId("dashboard-review-card")).toContainText("Chờ duyệt");
     } finally {
       if (reviewId) {
-        await request.delete("/api/admin/reviews", { data: { id: reviewId } });
+        await request.delete("/api/admin/reviews", { data: { id: reviewId } }).catch(() => undefined);
+      }
+    }
+  });
+
+  test("approved real reviews stay behind a simple homepage show-more action", async ({ page, request }) => {
+    test.setTimeout(120_000);
+    const unique = Date.now().toString().slice(-8);
+    const comment = `Public review E2E ${unique}`;
+
+    await loginAdminRequest(request);
+    const reviewResponse = await request.post("/api/reviews", {
+      data: { rating: 5, comment, service: "DONG_PIN" },
+    });
+    expect(reviewResponse.ok()).toBeTruthy();
+    const reviewId = (await reviewResponse.json()).review?.id as string | undefined;
+
+    try {
+      const approveResponse = await request.patch("/api/admin/reviews", {
+        data: { id: reviewId, approved: true },
+      });
+      expect(approveResponse.ok()).toBeTruthy();
+
+      await page.goto("/", { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("featured-testimonials")).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(comment)).toHaveCount(0);
+      await expect(page.getByText("Đánh giá do khách gửi")).toHaveCount(0);
+      await expect(page.getByText(/Danh sách dưới đây chỉ hiển thị/)).toHaveCount(0);
+      await page.waitForLoadState("load");
+      const reviewsToggle = page.getByTestId("public-reviews-toggle");
+      await reviewsToggle.click();
+      await expect(reviewsToggle).toHaveAttribute("aria-expanded", "true", { timeout: 15_000 });
+      await expect(page.getByTestId("public-reviews-list")).toContainText(comment, { timeout: 15_000 });
+      await expect(page.getByTestId("public-reviews-rating-filter")).toBeVisible();
+      await expect(page.getByTestId("public-reviews-service-filter")).toBeVisible();
+      await expect(page.getByTestId("public-reviews-previous")).toBeVisible();
+      await expect(page.getByTestId("public-reviews-next")).toBeVisible();
+    } finally {
+      if (reviewId) {
+        await request.delete("/api/admin/reviews", { data: { id: reviewId } }).catch(() => undefined);
       }
     }
   });

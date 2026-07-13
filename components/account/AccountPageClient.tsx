@@ -1637,8 +1637,11 @@ export default function AccountPageClient({
                         <span aria-hidden="true">★</span>
                       </button>
                     ))}
-                    <span className="font-body text-sm text-slate-400 ml-2 self-center">
-                      {reviewData.rating}/5
+                    <span
+                      data-testid="account-review-rating-value"
+                      className="ml-2 self-center font-body text-sm font-semibold text-amber-600"
+                    >
+                      {reviewData.rating}★
                     </span>
                   </div>
                 </fieldset>

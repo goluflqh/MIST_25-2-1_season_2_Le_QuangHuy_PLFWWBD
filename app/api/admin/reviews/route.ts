@@ -63,7 +63,7 @@ export async function PATCH(request: Request) {
       newData: toAuditJson(review),
       request,
     });
-    revalidateTag(PUBLIC_REVIEWS_TAG, "max");
+    revalidateTag(PUBLIC_REVIEWS_TAG, { expire: 0 });
     return NextResponse.json({ success: true, review });
   } catch (error) {
     console.error("Admin review PATCH error:", error);
@@ -108,7 +108,7 @@ export async function DELETE(request: Request) {
       oldData: toAuditJson(deletedReview),
       request,
     });
-    revalidateTag(PUBLIC_REVIEWS_TAG, "max");
+    revalidateTag(PUBLIC_REVIEWS_TAG, { expire: 0 });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Admin review DELETE error:", error);
