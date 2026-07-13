@@ -13,6 +13,7 @@ import {
   buildMinhHongSourceSheetDateRepairsFromExports,
   buildMinhHongSourceImportWorkbook,
   buildMinhHongSourceImportWorkbookFromExports,
+  buildMinhHongSourceImportPreviewFromExports,
   buildSourceSheetExportUrl,
   fetchMinhHongSourceSheetExports,
   getMinhHongSourceSheetLinkTargets,
@@ -68,17 +69,50 @@ async function buildSourceWorkbooksWithAssignedIds() {
 type SourceIdAssignment = Awaited<ReturnType<typeof buildMinhHongSourceIdPlanFromExports>>["assignments"][number];
 
 function sourceIdPreflightRow(assignment: SourceIdAssignment) {
-  assert.ok(assignment.rowFingerprint, `missing row fingerprint for ${assignment.range}`);
-  const cells = JSON.parse(assignment.rowFingerprint) as Array<[string, unknown?]>;
+  return sourceIdPreflightValues(assignment.rowFingerprint, "", assignment.range);
+}
+
+function sourceIdPreflightValues(rowFingerprint: string, sourceId: string, label: string) {
+  assert.ok(rowFingerprint, `missing row fingerprint for ${label}`);
+  const cells = JSON.parse(rowFingerprint) as Array<[string, unknown?]>;
   const values = cells.map((cell) => {
-    assert.ok(Array.isArray(cell), `non-canonical fingerprint cell for ${assignment.range}`);
+    assert.ok(Array.isArray(cell), `non-canonical fingerprint cell for ${label}`);
     if (cell[0] === "empty") return "";
     if (cell[0] === "number") return Number(cell[1]);
     if (cell[0] === "boolean") return Boolean(cell[1]);
+    if (cell[0] === "formula") return `=${String(cell[1] ?? "")}`;
     if (cell[0] === "text") return String(cell[1] ?? "");
-    assert.fail(`unknown fingerprint type ${cell[0]} for ${assignment.range}`);
+    assert.fail(`unknown fingerprint type ${cell[0]} for ${label}`);
   });
-  return [...values, ""];
+  return [...values, sourceId];
+}
+
+function sourceIdPreflightRange(assignment: Pick<SourceIdAssignment, "kind" | "rowNumber" | "sheetName">) {
+  const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => (
+    item.kind === assignment.kind && item.sheetName === assignment.sheetName
+  ));
+  assert.ok(target, `missing source_id target for ${assignment.sheetName}`);
+  const columnLetter = String.fromCharCode(64 + target.sourceIdColumn);
+  const sheetName = `'${assignment.sheetName.replace(/'/g, "''")}'`;
+  return `${sheetName}!A${assignment.rowNumber}:${columnLetter}${assignment.rowNumber}`;
+}
+
+function sourceIdDataFilterRanges(init?: RequestInit) {
+  const body = JSON.parse(String(init?.body || "{}"));
+  return (body.dataFilters || []).map((filter: { a1Range: string }) => filter.a1Range) as string[];
+}
+
+function sourceIdDataFilterResponse(ranges: string[], rows: unknown[][]) {
+  return {
+    json: async () => ({
+      valueRanges: rows.map((values, index) => ({
+        valueRange: { range: ranges[index], values: [values] },
+      })),
+    }),
+    ok: true,
+    status: 200,
+    statusText: "OK",
+  } as Response;
 }
 
 async function withoutGoogleServiceAccountCredentials<T>(callback: () => Promise<T>) {
@@ -86,6 +120,23 @@ async function withoutGoogleServiceAccountCredentials<T>(callback: () => Promise
   const originalKey = process.env.GOOGLE_PRIVATE_KEY;
   delete process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   delete process.env.GOOGLE_PRIVATE_KEY;
+
+  try {
+    return await callback();
+  } finally {
+    if (originalEmail === undefined) delete process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    else process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = originalEmail;
+    if (originalKey === undefined) delete process.env.GOOGLE_PRIVATE_KEY;
+    else process.env.GOOGLE_PRIVATE_KEY = originalKey;
+  }
+}
+
+async function withGoogleServiceAccountCredentials<T>(callback: () => Promise<T>) {
+  const originalEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const originalKey = process.env.GOOGLE_PRIVATE_KEY;
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = "minhhong-sync@example.iam.gserviceaccount.com";
+  process.env.GOOGLE_PRIVATE_KEY = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
 
   try {
     return await callback();
@@ -178,27 +229,18 @@ test("builds raw Google Sheet XLSX export URLs", () => {
   );
 });
 
-test("fetches the configured raw source Sheet exports", async () => {
-  const requestedUrls: string[] = [];
-  const fetchImpl: typeof fetch = async (input) => {
-    const url = input instanceof Request ? input.url : input.toString();
-    requestedUrls.push(url);
-    return {
-      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
-      ok: true,
-      status: 200,
-      statusText: "OK",
-    } as Response;
+test("fails before requesting a private source Sheet when Google credentials are missing", async () => {
+  let requests = 0;
+  const fetchImpl: typeof fetch = async () => {
+    requests += 1;
+    return new Response();
   };
 
-  const exports = await withoutGoogleServiceAccountCredentials(() => fetchMinhHongSourceSheetExports(fetchImpl));
-
-  assert.deepEqual(exports.map((item) => item.kind), ["legacy", "manual"]);
-  assert.deepEqual(
-    requestedUrls,
-    MINHHONG_SOURCE_SHEET_EXPORTS.map((source) => buildSourceSheetExportUrl(source.spreadsheetId))
+  await assert.rejects(
+    withoutGoogleServiceAccountCredentials(() => fetchMinhHongSourceSheetExports(fetchImpl)),
+    /Kết nối Google Sheet chưa được cấu hình trên máy chủ/
   );
-  assert.deepEqual([...exports[0].buffer], [1, 2, 3]);
+  assert.equal(requests, 0);
 });
 
 test("fetches only the legacy source Sheet for service-order imports", async () => {
@@ -206,6 +248,9 @@ test("fetches only the legacy source Sheet for service-order imports", async () 
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = input instanceof Request ? input.url : input.toString();
     requests.push({ init, url });
+    if (url.includes("oauth2.googleapis.com/token")) {
+      return Response.json({ access_token: "service-order-token" });
+    }
     return {
       arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
       ok: true,
@@ -214,13 +259,14 @@ test("fetches only the legacy source Sheet for service-order imports", async () 
     } as Response;
   };
 
-  const exports = await withoutGoogleServiceAccountCredentials(() => (
+  const exports = await withGoogleServiceAccountCredentials(() => (
     fetchMinhHongSourceSheetExports(fetchImpl, "service-orders")
   ));
+  const exportRequests = requests.filter((request) => request.url.includes("docs.google.com/spreadsheets"));
 
   assert.deepEqual(exports.map((item) => item.kind), ["legacy"]);
-  assert.deepEqual(requests.map((request) => request.url), [buildSourceSheetExportUrl(MINHHONG_SOURCE_SHEET_EXPORTS[0].spreadsheetId)]);
-  assert.equal(requests.some((request) => request.url.includes("batchUpdate") || request.init?.method === "POST"), false);
+  assert.deepEqual(exportRequests.map((request) => request.url), [buildSourceSheetExportUrl(MINHHONG_SOURCE_SHEET_EXPORTS[0].spreadsheetId)]);
+  assert.equal(exportRequests.some((request) => request.url.includes("batchUpdate") || request.init?.method === "POST"), false);
 });
 
 test("uses service account authorization for private raw source Sheet exports when configured", async () => {
@@ -373,7 +419,7 @@ test("blocks normalization when an existing source_id column was moved", async (
   assert.ok(plan.headerConflicts.some((issue) => issue.includes("đã bị di chuyển")));
 });
 
-test("applies source_id assignments in RAW batch updates grouped by spreadsheet", async () => {
+test("applies source_id assignments when batch preflight results are reordered and formulas lack cached results", async () => {
   const originalEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const originalKey = process.env.GOOGLE_PRIVATE_KEY;
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -381,6 +427,16 @@ test("applies source_id assignments in RAW batch updates grouped by spreadsheet"
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const sourceExports = buildSourceExports();
   const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports);
+  const sourceWorkbooks = {
+    legacy: new ExcelJS.Workbook(),
+    manual: new ExcelJS.Workbook(),
+  };
+  await sourceWorkbooks.legacy.xlsx.load(
+    sourceExports[0].buffer as unknown as Parameters<typeof sourceWorkbooks.legacy.xlsx.load>[0]
+  );
+  await sourceWorkbooks.manual.xlsx.load(
+    sourceExports[1].buffer as unknown as Parameters<typeof sourceWorkbooks.manual.xlsx.load>[0]
+  );
 
   process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = "minhhong-sync@example.iam.gserviceaccount.com";
   process.env.GOOGLE_PRIVATE_KEY = privateKeyPem;
@@ -397,16 +453,36 @@ test("applies source_id assignments in RAW batch updates grouped by spreadsheet"
         } as Response;
       }
 
-      if (String(url).includes("/values:batchGet")) {
-        const ranges = new URL(String(url)).searchParams.getAll("ranges");
-        const spreadsheetId = String(url).match(/\/spreadsheets\/([^/]+)\/values:batchGet/)?.[1];
-        const assignments = plan.assignments.filter((assignment) => assignment.spreadsheetId === spreadsheetId);
+      if (String(url).endsWith(":batchGetByDataFilter")) {
+        const body = JSON.parse(String(init?.body || "{}"));
+        const ranges = (body.dataFilters as Array<{ a1Range: string }>).map((filter) => filter.a1Range);
+        const assignments = ranges.map((range) => {
+          const assignment = plan.assignments.find((candidate) => sourceIdPreflightRange(candidate) === range);
+          assert.ok(assignment, `unexpected preflight range ${range}`);
+          return assignment;
+        });
         return {
           json: async () => ({
-            valueRanges: assignments.map((assignment, index) => ({
-              range: ranges[index],
-              values: [sourceIdPreflightRow(assignment)],
-            })),
+            valueRanges: assignments.toReversed().map((assignment) => {
+              const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => (
+                item.kind === assignment.kind && item.sheetName === assignment.sheetName
+              ));
+              assert.ok(target);
+              const worksheet = sourceWorkbooks[assignment.kind].getWorksheet(assignment.sheetName);
+              assert.ok(worksheet);
+              const values = sourceIdPreflightRow(assignment);
+              for (let column = 1; column < target.sourceIdColumn; column += 1) {
+                const formula = worksheet.getRow(assignment.rowNumber).getCell(column).formula;
+                if (formula) values[column - 1] = `=${formula}`;
+              }
+              return {
+                dataFilters: [{ a1Range: sourceIdPreflightRange(assignment) }],
+                valueRange: {
+                  range: sourceIdPreflightRange(assignment),
+                  values: [values],
+                },
+              };
+            }),
           }),
           ok: true,
           status: 200,
@@ -423,27 +499,35 @@ test("applies source_id assignments in RAW batch updates grouped by spreadsheet"
       } as Response;
     };
 
-    const result = await applyMinhHongSourceIdPlan(plan, sourceExports, fetchImpl as typeof fetch);
+    const result = await applyMinhHongSourceIdPlan(plan, plan.fingerprint, sourceExports, fetchImpl as typeof fetch);
     const batchRequests = requests.filter((request) => request.url.endsWith("/values:batchUpdate"));
-    const preflightRequests = requests.filter((request) => request.url.includes("/values:batchGet"));
+    const preflightRequests = requests.filter((request) => request.url.endsWith(":batchGetByDataFilter"));
     const sheetRequests = requests.filter((request) => request.url.includes("sheets.googleapis.com"));
 
     assert.equal(result.updatedCells, plan.assignments.length);
     assert.equal(preflightRequests.length, 2);
     assert.equal(batchRequests.length, 2);
-    assert.equal(sheetRequests.length, 4);
-    for (let index = 0; index < sheetRequests.length; index += 2) {
-      assert.match(sheetRequests[index].url, /\/values:batchGet/);
-      assert.match(sheetRequests[index + 1].url, /\/values:batchUpdate$/);
-      const preflightSpreadsheet = sheetRequests[index].url.match(/\/spreadsheets\/([^/]+)/)?.[1];
-      const updateSpreadsheet = sheetRequests[index + 1].url.match(/\/spreadsheets\/([^/]+)/)?.[1];
-      assert.equal(preflightSpreadsheet, updateSpreadsheet);
-    }
+    assert.equal(sheetRequests.length, preflightRequests.length + batchRequests.length);
+    assert.equal(
+      preflightRequests.reduce((count, request) => {
+        const body = JSON.parse(String(request.init?.body || "{}"));
+        assert.equal(request.init?.method, "POST");
+        assert.equal(body.majorDimension, "ROWS");
+        assert.equal(body.valueRenderOption, "FORMULA");
+        assert.equal(body.dateTimeRenderOption, "SERIAL_NUMBER");
+        return count + body.dataFilters.length;
+      }, 0),
+      plan.rowChecks.length
+    );
+    assert.ok(sheetRequests.slice(0, preflightRequests.length).every((request) => request.url.endsWith(":batchGetByDataFilter")));
+    assert.ok(sheetRequests.slice(preflightRequests.length).every((request) => request.url.endsWith("/values:batchUpdate")));
+    assert.deepEqual(
+      new Set(sheetRequests.slice(0, preflightRequests.length).map((request) => request.url.match(/\/spreadsheets\/([^/]+)/)?.[1])),
+      new Set(sheetRequests.slice(preflightRequests.length).map((request) => request.url.match(/\/spreadsheets\/([^/]+)/)?.[1]))
+    );
     for (const request of preflightRequests) {
-      const url = new URL(request.url);
-      assert.equal(url.searchParams.get("valueRenderOption"), "UNFORMATTED_VALUE");
-      assert.equal(url.searchParams.get("dateTimeRenderOption"), "SERIAL_NUMBER");
-      assert.ok(url.searchParams.getAll("ranges").every((range) => /!A\d+:[A-Z]+\d+$/.test(range)));
+      const body = JSON.parse(String(request.init?.body || "{}"));
+      assert.ok(body.dataFilters.every((filter: { a1Range: string }) => /!A\d+:[A-Z]+\d+$/.test(filter.a1Range)));
     }
     assert.deepEqual(
       new Set(batchRequests.map((request) => request.url)),
@@ -470,6 +554,149 @@ test("applies source_id assignments in RAW batch updates grouped by spreadsheet"
   }
 });
 
+test("refuses every source_id write when an already-stamped row changes during final preflight", async () => {
+  const originalExports = buildSourceExports();
+  const originalPlan = await buildMinhHongSourceIdPlanFromExports(originalExports, "service-orders");
+  const stampedAssignment = originalPlan.assignments.find((assignment) => (
+    assignment.value !== "source_id" && assignment.rowNumber === 4
+  ));
+  assert.ok(stampedAssignment);
+
+  const legacyWorkbook = new ExcelJS.Workbook();
+  await legacyWorkbook.xlsx.load(
+    originalExports[0].buffer as unknown as Parameters<typeof legacyWorkbook.xlsx.load>[0]
+  );
+  const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => item.id === "customer-orders");
+  assert.ok(target);
+  const worksheet = legacyWorkbook.getWorksheet(target.sheetName);
+  assert.ok(worksheet);
+  worksheet.getRow(stampedAssignment.rowNumber).getCell(target.sourceIdColumn).value = stampedAssignment.value;
+
+  const sourceExports = buildSourceExports(
+    Buffer.from(await legacyWorkbook.xlsx.writeBuffer()),
+    Buffer.from(originalExports[1].buffer)
+  ).filter((source) => source.kind === "legacy");
+  const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "service-orders");
+  const stampedRange = sourceIdPreflightRange(stampedAssignment);
+  let attemptedWrite = false;
+
+  await withGoogleServiceAccountCredentials(async () => {
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href.includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (href.endsWith(":batchGetByDataFilter")) {
+        const ranges = sourceIdDataFilterRanges(init);
+        const rows = ranges.map((range) => {
+          if (range === stampedRange) {
+            const changedRow = sourceIdPreflightRow(stampedAssignment);
+            changedRow[0] = "Khach da thay doi sau preview";
+            changedRow[changedRow.length - 1] = stampedAssignment.value;
+            return changedRow;
+          }
+          const assignment = plan.assignments.find((candidate) => sourceIdPreflightRange(candidate) === range);
+          assert.ok(assignment, `unexpected preflight range ${range}`);
+          return sourceIdPreflightRow(assignment);
+        });
+        return sourceIdDataFilterResponse(ranges, rows);
+      }
+
+      attemptedWrite = true;
+      const body = JSON.parse(String(init?.body || "{}"));
+      return { json: async () => ({ totalUpdatedCells: body.data?.length || 0 }), ok: true } as Response;
+    };
+
+    await assert.rejects(
+      () => applyMinhHongSourceIdPlan(
+        plan,
+        plan.fingerprint,
+        sourceExports,
+        fetchImpl as typeof fetch,
+        "service-orders"
+      ),
+      MinhHongSourceIdPlanChangedError
+    );
+  });
+
+  assert.equal(attemptedWrite, false);
+});
+
+test("keeps first-time setup retryable until the technical source_id column is hidden", async () => {
+  const stamped = await buildSourceWorkbooksWithAssignedIds();
+  const visibleExports = buildSourceExports(stamped.legacyBuffer, stamped.manualBuffer)
+    .filter((source) => source.kind === "legacy");
+  const visiblePlan = await buildMinhHongSourceIdPlanFromExports(visibleExports, "service-orders");
+
+  assert.equal(visiblePlan.assignments.length, 0);
+  assert.equal(visiblePlan.requiresSetup, true);
+
+  const legacyWorkbook = new ExcelJS.Workbook();
+  await legacyWorkbook.xlsx.load(
+    stamped.legacyBuffer as unknown as Parameters<typeof legacyWorkbook.xlsx.load>[0]
+  );
+  const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => item.id === "customer-orders");
+  assert.ok(target);
+  const worksheet = legacyWorkbook.getWorksheet(target.sheetName);
+  assert.ok(worksheet);
+  worksheet.getColumn(target.sourceIdColumn).hidden = true;
+
+  const hiddenExports = buildSourceExports(
+    Buffer.from(await legacyWorkbook.xlsx.writeBuffer()),
+    stamped.manualBuffer
+  ).filter((source) => source.kind === "legacy");
+  const hiddenPlan = await buildMinhHongSourceIdPlanFromExports(hiddenExports, "service-orders");
+
+  assert.equal(hiddenPlan.assignments.length, 0);
+  assert.equal(hiddenPlan.requiresSetup, false);
+});
+
+test("revalidates source rows before retrying a failed technical-column hide", async () => {
+  const stamped = await buildSourceWorkbooksWithAssignedIds();
+  const sourceExports = buildSourceExports(stamped.legacyBuffer, stamped.manualBuffer)
+    .filter((source) => source.kind === "legacy");
+  const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "service-orders");
+  const changedCheck = plan.rowChecks.find((rowCheck) => rowCheck.rowNumber === 4);
+  assert.ok(changedCheck);
+  let attemptedMetadataWrite = false;
+
+  await withGoogleServiceAccountCredentials(async () => {
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href.includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (href.endsWith(":batchGetByDataFilter")) {
+        const ranges = sourceIdDataFilterRanges(init);
+        const rows = ranges.map((range) => {
+          const rowCheck = plan.rowChecks.find((candidate) => sourceIdPreflightRange(candidate) === range);
+          assert.ok(rowCheck, `unexpected preflight range ${range}`);
+          const values = sourceIdPreflightValues(rowCheck.rowFingerprint, rowCheck.sourceId, range);
+          if (rowCheck === changedCheck) values[0] = "Khach da thay doi truoc khi an cot";
+          return values;
+        });
+        return sourceIdDataFilterResponse(ranges, rows);
+      }
+
+      attemptedMetadataWrite = true;
+      throw new Error("unexpected Google Sheet metadata write");
+    };
+
+    await assert.rejects(
+      () => applyMinhHongSourceIdPlan(
+        plan,
+        plan.fingerprint,
+        sourceExports,
+        fetchImpl as typeof fetch,
+        "service-orders"
+      ),
+      MinhHongSourceIdPlanChangedError
+    );
+  });
+
+  assert.equal(attemptedMetadataWrite, false);
+});
+
 test("service-order preparation never reads or writes partner source tabs", async () => {
   const originalEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const originalKey = process.env.GOOGLE_PRIVATE_KEY;
@@ -488,17 +715,26 @@ test("service-order preparation never reads or writes partner source tabs", asyn
       if (String(url).includes("oauth2.googleapis.com/token")) {
         return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
       }
-      if (String(url).includes("/values:batchGet")) {
-        return {
-          json: async () => ({ valueRanges: plan.assignments.map((assignment) => ({ values: [sourceIdPreflightRow(assignment)] })) }),
-          ok: true,
-        } as Response;
+      if (String(url).endsWith(":batchGetByDataFilter")) {
+        const ranges = sourceIdDataFilterRanges(init);
+        const rows = ranges.map((range) => {
+          const assignment = plan.assignments.find((candidate) => sourceIdPreflightRange(candidate) === range);
+          assert.ok(assignment, `unexpected preflight range ${range}`);
+          return sourceIdPreflightRow(assignment);
+        });
+        return sourceIdDataFilterResponse(ranges, rows);
       }
       const body = JSON.parse(String(init?.body || "{}"));
       return { json: async () => ({ totalUpdatedCells: body.data.length }), ok: true } as Response;
     };
 
-    const result = await applyMinhHongSourceIdPlan(plan, sourceExports, fetchImpl as typeof fetch, "service-orders");
+    const result = await applyMinhHongSourceIdPlan(
+      plan,
+      plan.fingerprint,
+      sourceExports,
+      fetchImpl as typeof fetch,
+      "service-orders"
+    );
 
     assert.equal(result.updatedCells, plan.assignments.length);
     assert.ok(plan.assignments.every((assignment) => assignment.sheetName === "Đơn hàng đã bán"));
@@ -582,7 +818,7 @@ test("refuses source_id writes when business rows swap after the final export re
   process.env.GOOGLE_PRIVATE_KEY = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
 
   try {
-    const fetchImpl = async (url: string | URL) => {
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
       const href = String(url);
       if (href.includes("oauth2.googleapis.com/token")) {
         return {
@@ -593,21 +829,20 @@ test("refuses source_id writes when business rows swap after the final export re
         } as Response;
       }
 
-      if (href.includes("/values:batchGet")) {
-        const spreadsheetId = href.match(/\/spreadsheets\/([^/]+)\/values:batchGet/)?.[1];
-        const assignments = plan.assignments.filter((assignment) => assignment.spreadsheetId === spreadsheetId);
+      if (href.endsWith(":batchGetByDataFilter")) {
+        const ranges = sourceIdDataFilterRanges(init);
+        const assignments = ranges.map((range) => {
+          const assignment = plan.assignments.find((candidate) => sourceIdPreflightRange(candidate) === range);
+          assert.ok(assignment, `unexpected preflight range ${range}`);
+          return assignment;
+        });
         const rows = assignments.map(sourceIdPreflightRow);
         const businessIndexes = assignments
           .map((assignment, index) => assignment.value === "source_id" ? -1 : index)
           .filter((index) => index >= 0);
         assert.ok(businessIndexes.length >= 2);
         [rows[businessIndexes[0]], rows[businessIndexes[1]]] = [rows[businessIndexes[1]], rows[businessIndexes[0]]];
-        return {
-          json: async () => ({ valueRanges: rows.map((values) => ({ values: [values] })) }),
-          ok: true,
-          status: 200,
-          statusText: "OK",
-        } as Response;
+        return sourceIdDataFilterResponse(ranges, rows);
       }
 
       attemptedWrite = true;
@@ -615,7 +850,7 @@ test("refuses source_id writes when business rows swap after the final export re
     };
 
     await assert.rejects(
-      () => applyMinhHongSourceIdPlan(plan, sourceExports, fetchImpl as typeof fetch),
+      () => applyMinhHongSourceIdPlan(plan, plan.fingerprint, sourceExports, fetchImpl as typeof fetch),
       MinhHongSourceIdPlanChangedError
     );
     assert.equal(attemptedWrite, false);
@@ -639,7 +874,7 @@ test("refuses source_id writes when the final batch read is incomplete", async (
   process.env.GOOGLE_PRIVATE_KEY = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
 
   try {
-    const fetchImpl = async (url: string | URL) => {
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
       const href = String(url);
       if (href.includes("oauth2.googleapis.com/token")) {
         return {
@@ -650,19 +885,17 @@ test("refuses source_id writes when the final batch read is incomplete", async (
         } as Response;
       }
 
-      if (href.includes("/values:batchGet")) {
-        const spreadsheetId = href.match(/\/spreadsheets\/([^/]+)\/values:batchGet/)?.[1];
-        const assignments = plan.assignments.filter((assignment) => assignment.spreadsheetId === spreadsheetId);
-        return {
-          json: async () => ({
-            valueRanges: assignments.slice(0, -1).map((assignment) => ({
-              values: [sourceIdPreflightRow(assignment)],
-            })),
-          }),
-          ok: true,
-          status: 200,
-          statusText: "OK",
-        } as Response;
+      if (href.endsWith(":batchGetByDataFilter")) {
+        const assignments = sourceIdDataFilterRanges(init).map((range) => {
+          const assignment = plan.assignments.find((candidate) => sourceIdPreflightRange(candidate) === range);
+          assert.ok(assignment, `unexpected preflight range ${range}`);
+          return assignment;
+        });
+        const returnedAssignments = assignments.slice(0, -1);
+        return sourceIdDataFilterResponse(
+          returnedAssignments.map(sourceIdPreflightRange),
+          returnedAssignments.map(sourceIdPreflightRow)
+        );
       }
 
       attemptedWrite = true;
@@ -670,7 +903,7 @@ test("refuses source_id writes when the final batch read is incomplete", async (
     };
 
     await assert.rejects(
-      () => applyMinhHongSourceIdPlan(plan, sourceExports, fetchImpl as typeof fetch),
+      () => applyMinhHongSourceIdPlan(plan, plan.fingerprint, sourceExports, fetchImpl as typeof fetch),
       MinhHongSourceIdPlanChangedError
     );
     assert.equal(attemptedWrite, false);
@@ -680,6 +913,26 @@ test("refuses source_id writes when the final batch read is incomplete", async (
     if (originalKey === undefined) delete process.env.GOOGLE_PRIVATE_KEY;
     else process.env.GOOGLE_PRIVATE_KEY = originalKey;
   }
+});
+
+test("refuses source_id writes when the Sheet no longer matches the reviewed preview", async () => {
+  const sourceExports = buildSourceExports();
+  const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports);
+  let attemptedRequest = false;
+
+  await assert.rejects(
+    () => applyMinhHongSourceIdPlan(
+      plan,
+      "f".repeat(64),
+      sourceExports,
+      (async () => {
+        attemptedRequest = true;
+        throw new Error("unexpected Google request");
+      }) as typeof fetch
+    ),
+    MinhHongSourceIdPlanChangedError
+  );
+  assert.equal(attemptedRequest, false);
 });
 
 test("refuses source_id writes when the source Sheet changed after planning", async () => {
@@ -708,7 +961,7 @@ test("refuses source_id writes when the source Sheet changed after planning", as
   let attemptedRequest = false;
 
   await assert.rejects(
-    () => applyMinhHongSourceIdPlan(plan, changedExports, (async () => {
+    () => applyMinhHongSourceIdPlan(plan, plan.fingerprint, changedExports, (async () => {
       attemptedRequest = true;
       throw new Error("unexpected Google request");
     }) as typeof fetch),
@@ -819,6 +1072,18 @@ test("builds a service-order preview from the legacy Sheet without partner sourc
     false,
     "partner-only source issues must not block the service-order preview"
   );
+});
+
+test("builds the service-order preview and first-time setup plan together", async () => {
+  const serviceExports = buildSourceExports().filter((source) => source.kind === "legacy");
+  const preview = await buildMinhHongSourceImportPreviewFromExports(serviceExports, "service-orders");
+  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+
+  assert.equal(parsed.customerOrders.length, 41);
+  assert.deepEqual(preview.sourceIdPlan.targets.map((target) => target.id), ["customer-orders"]);
+  assert.equal(preview.sourceIdPlan.targets[0].totalRows, parsed.customerOrders.length);
+  assert.equal(preview.sourceIdPlan.canApply, true);
+  assert.ok(preview.sourceIdPlan.assignments.length > 0);
 });
 
 test("derives stable service-order identities without changing the raw Sheet", async () => {

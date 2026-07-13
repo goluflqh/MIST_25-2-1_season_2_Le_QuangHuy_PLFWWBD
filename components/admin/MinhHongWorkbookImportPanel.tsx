@@ -16,6 +16,10 @@ interface ImportResponse {
     enabled: boolean;
     message?: string;
   };
+  sourceSetup?: {
+    required: boolean;
+    fingerprint?: string;
+  };
   reconciliation?: {
     ok: boolean;
     blockingIssues: string[];
@@ -158,7 +162,7 @@ function friendlyImportMessage(message: string | undefined, fallback: string) {
   if (!message) return fallback;
   if (/source_id|fingerprint|dấu vân tay|32 ký tự|HEX/i.test(message)) {
     if (/chưa có source_id/i.test(message)) {
-      return "Google Sheet chưa sẵn sàng cho lần cập nhật đầu tiên. Hãy liên hệ người quản trị hệ thống.";
+      return "Google Sheet chưa sẵn sàng. Hãy mở Google Sheet, kiểm tra quyền chỉnh sửa rồi thử lại.";
     }
     if (/trùng/i.test(message)) return "Google Sheet có dòng bị trùng. Hãy kiểm tra các dòng được báo trước khi cập nhật.";
     if (/thay đổi/i.test(message)) return "Google Sheet vừa được chỉnh sửa. Hãy kiểm tra lại dữ liệu.";
@@ -184,12 +188,16 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
   const [preview, setPreview] = useState<ImportResponse | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [isPreparingSourceSheet, setIsPreparingSourceSheet] = useState(false);
   const [previewSource, setPreviewSource] = useState<ImportSource | null>(null);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(true);
   const [changedRecordsPage, setChangedRecordsPage] = useState(1);
 
-  const submitImport = async (mode: "preview" | "confirm", source: ImportSource) => {
+  const submitImport = async (
+    mode: "preview" | "confirm",
+    source: ImportSource,
+    options?: { preservePreview?: boolean; previewSuccessMessage?: string }
+  ): Promise<void> => {
     if (source === "workbook" && !file) {
       showToast("Chọn file Excel .xlsx trước khi kiểm tra.", "error");
       return;
@@ -211,7 +219,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
 
     if (mode === "preview") {
       setIsPreviewing(true);
-      setPreview(null);
+      if (!options?.preservePreview) setPreview(null);
       setChangedRecordsPage(1);
     }
     if (mode === "confirm") setIsConfirming(true);
@@ -241,6 +249,10 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       const sourceLabel = source === "raw-sheet" ? "Google Sheet" : "File Excel";
 
       if (!response.ok || !data.success) {
+        if (mode === "confirm" && source === "raw-sheet" && data.sourceSetup?.required) {
+          await submitImport("preview", "raw-sheet");
+          return;
+        }
         const message = friendlyImportMessage(data.message, sourceLabel + " chưa xử lý được.");
         showToast(message, "error");
         if (mode === "preview") {
@@ -255,13 +267,20 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       if (mode === "confirm") {
         showToast("Đã áp dụng dữ liệu Minh Hồng vào web.", "success");
         onImported?.();
+      } else if (data.sourceSetup?.required) {
+        showToast("Dữ liệu đã được kiểm tra. Hãy hoàn tất thiết lập lần đầu.", "success");
       } else if (data.reconciliation?.ok) {
-        showToast(previewToast(sourceLabel, data.changes, scope), "success");
+        showToast(options?.previewSuccessMessage || previewToast(sourceLabel, data.changes, scope), "success");
       } else {
         showToast(sourceLabel + " còn điểm cần đối soát trước khi import.", "error");
       }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Kết nối bị gián đoạn khi xử lý dữ liệu Minh Hồng.", "error");
+    } catch {
+      showToast(
+        mode === "preview"
+          ? "Kết nối bị gián đoạn khi kiểm tra dữ liệu. Hãy thử lại."
+          : "Kết nối bị gián đoạn khi cập nhật dữ liệu. Hãy thử lại.",
+        "error"
+      );
       if (mode === "preview") {
         setPreview(null);
         setPreviewSource(null);
@@ -272,12 +291,45 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
     }
   };
 
+  const completeSourceSheetSetup = async () => {
+    const setupFingerprint = preview?.sourceSetup?.fingerprint;
+    if (!setupFingerprint) {
+      showToast("Dữ liệu kiểm tra đã cũ. Hãy bấm Kiểm tra dữ liệu rồi thử lại.", "error");
+      return;
+    }
+
+    setIsPreparingSourceSheet(true);
+    try {
+      const params = new URLSearchParams({ scope });
+      const response = await fetch("/api/admin/minhhong-source-sheet-ids?" + params.toString(), {
+        body: JSON.stringify({ setupFingerprint }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const data = await response.json() as ImportResponse;
+      if (!response.ok || !data.success) {
+        showToast(friendlyImportMessage(data.message, "Chưa hoàn tất được thiết lập Google Sheet."), "error");
+        return;
+      }
+
+      await submitImport("preview", "raw-sheet", {
+        preservePreview: true,
+        previewSuccessMessage: "Google Sheet đã sẵn sàng. Dữ liệu đã được kiểm tra lại.",
+      });
+    } catch {
+      showToast("Kết nối bị gián đoạn khi thiết lập Google Sheet. Hãy thử lại.", "error");
+    } finally {
+      setIsPreparingSourceSheet(false);
+    }
+  };
+
   const changeTotals = totalChanges(preview?.changes, scope);
   const hasPendingChanges = changeTotals.created + changeTotals.updated > 0;
   const canConfirmPreview = Boolean(
     preview?.reconciliation?.ok
     && preview.changes
     && preview.changes.conflicts.length === 0
+    && preview.sourceSetup?.required !== true
     && preview.previewFingerprint
     && preview.confirmation?.enabled !== false
     && hasPendingChanges
@@ -309,11 +361,18 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
     .map((message) => friendlyImportMessage(message, message)));
   const previewStatus = visibleConflicts.length > 0
     ? "Có xung đột"
+    : preview?.sourceSetup?.required && preview.confirmation?.enabled !== false
+      ? "Cần hoàn tất thiết lập"
     : preview?.reconciliation?.ok && preview.confirmation?.enabled !== false
       ? "Sẵn sàng áp dụng"
       : preview?.reconciliation?.ok
         ? "Chờ duyệt số liệu"
         : "Cần kiểm tra";
+  const previewStatusTone = visibleConflicts.length > 0 || !preview?.reconciliation?.ok
+    ? { card: "bg-red-50", text: "text-red-700" }
+    : preview?.sourceSetup?.required || preview?.confirmation?.enabled === false
+      ? { card: "bg-amber-50", text: "text-amber-700" }
+      : { card: "bg-green-50", text: "text-green-700" };
   const importResultCreated = preview?.importResult
     ? serviceOrderScope
       ? preview.importResult.changes.serviceOrders.created
@@ -338,7 +397,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
   return (
     <section data-testid="minhhong-workbook-import-panel" className="rounded-lg border border-red-100 bg-white p-3 shadow-sm sm:p-4">
       <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)] lg:items-start lg:gap-4 xl:grid-cols-[minmax(240px,300px)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between lg:block">
+        <div className="lg:block">
           <div className="min-w-0">
             <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Dữ liệu Minh Hồng</p>
             <h3 className="text-pretty font-heading text-lg font-extrabold text-slate-900">
@@ -352,28 +411,22 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                   : "Luôn kiểm tra thay đổi trước khi cập nhật dữ liệu lên web."}
             </p>
           </div>
-          <button
-            type="button"
-            data-testid="minhhong-workbook-mobile-toggle"
-            onClick={() => setIsMobileOpen((current) => !current)}
-            aria-expanded={isMobileOpen}
-            className="min-h-11 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-50 sm:hidden"
-          >
-            {isMobileOpen ? "Ẩn công cụ" : "Mở công cụ"}
-          </button>
         </div>
-        <div className={`${isMobileOpen ? "flex" : "hidden"} min-w-0 flex-col gap-3 sm:flex`}>
+        <div className="flex min-w-0 flex-col gap-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
             <button
               type="button"
               data-testid="minhhong-source-sheet-preview"
               onClick={() => submitImport("preview", "raw-sheet")}
-              disabled={isPreviewing || isConfirming}
+              disabled={isPreviewing || isConfirming || isPreparingSourceSheet}
               className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
             >
               {isPreviewing && previewSource === "raw-sheet" ? "Đang kiểm tra…" : "Kiểm tra dữ liệu"}
             </button>
-            {previewSource === "raw-sheet" && preview?.mode === "preview" && hasPendingChanges ? (
+            {previewSource === "raw-sheet"
+              && preview?.mode === "preview"
+              && hasPendingChanges
+              && !preview.sourceSetup?.required ? (
               <button
                 type="button"
                 data-testid="minhhong-source-sheet-confirm"
@@ -405,6 +458,34 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
               </a>
             ) : null}
           </div>
+          {previewSource === "raw-sheet"
+            && preview?.mode === "preview"
+            && preview.sourceSetup?.required
+            && preview.confirmation?.enabled !== false ? (
+            <div
+              className="rounded-lg border border-amber-200 bg-amber-50 p-3"
+              data-testid="minhhong-source-sheet-setup-card"
+              role="status"
+              aria-live="polite"
+            >
+              <p className="font-body text-sm font-extrabold text-amber-900">Cần hoàn tất thiết lập lần đầu</p>
+              <p className="mt-1 font-body text-sm leading-5 text-amber-900/80">
+                Hệ thống cần chuẩn bị Google Sheet để các lần cập nhật sau luôn đúng dòng. Thông tin đơn hàng và công nợ đang có không bị thay đổi.
+              </p>
+              <button
+                type="button"
+                data-testid="minhhong-source-sheet-setup"
+                onClick={completeSourceSheetSetup}
+                disabled={isPreparingSourceSheet || isPreviewing || isConfirming}
+                aria-busy={isPreparingSourceSheet}
+                className="mt-3 min-h-11 cursor-pointer rounded-lg bg-amber-700 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-amber-800 active:bg-amber-900 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {isPreparingSourceSheet
+                  ? isPreviewing ? "Đang kiểm tra lại…" : "Đang hoàn tất…"
+                  : "Hoàn tất thiết lập"}
+              </button>
+            </div>
+          ) : null}
           <p className="font-body text-xs leading-5 text-slate-500" data-testid="minhhong-source-sheet-preparation-note">
             Kiểm tra chỉ đọc Google Sheet gốc; không sửa thông tin khách, sản phẩm, số tiền, ngày hoặc cấu trúc dữ liệu.
           </p>
@@ -414,7 +495,11 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
             </summary>
             <div className="grid gap-2 border-t border-slate-200 p-3 sm:grid-cols-[minmax(220px,1fr)_auto] sm:items-start">
               <div className="min-w-0">
+                <label htmlFor="minhhong-workbook-file" className="mb-1 block font-body text-sm font-bold text-slate-700">
+                  Chọn file Excel dự phòng
+                </label>
                 <input
+                  id="minhhong-workbook-file"
                   data-testid="minhhong-workbook-file"
                   type="file"
                   accept=".xlsx"
@@ -501,7 +586,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
               data-testid="minhhong-workbook-preview-toggle"
               aria-expanded={isPreviewExpanded}
               onClick={() => setIsPreviewExpanded((current) => !current)}
-              className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-sm font-bold text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-100"
+              className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-sm font-bold text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-100"
             >
               {isPreviewExpanded ? "Thu gọn kết quả ▲" : "Mở kết quả ▼"}
             </button>
@@ -524,9 +609,9 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                       <p className="font-body text-xs font-bold text-amber-700">Đơn đã sửa</p>
                       <p className="mt-1 font-heading text-lg font-extrabold text-amber-700">{preview.changes?.serviceOrders.updated || 0} đơn</p>
                     </div>
-                    <div className="rounded-lg bg-red-50 p-3">
-                      <p className="font-body text-xs font-bold text-red-700">Trạng thái</p>
-                      <p className="mt-1 font-heading text-lg font-extrabold text-red-700">{previewStatus}</p>
+                    <div className={`rounded-lg p-3 ${previewStatusTone.card}`}>
+                      <p className={`font-body text-xs font-bold ${previewStatusTone.text}`}>Trạng thái</p>
+                      <p className={`mt-1 font-heading text-lg font-extrabold ${previewStatusTone.text}`}>{previewStatus}</p>
                     </div>
                   </>
                 ) : partnerScope ? (
@@ -543,9 +628,9 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                       <p className="font-body text-xs font-bold text-green-700">Đối tác</p>
                       <p className="mt-1 font-heading text-lg font-extrabold text-green-700">{preview.counts?.partners || 0} đối tác</p>
                     </div>
-                    <div className="rounded-lg bg-amber-50 p-3">
-                      <p className="font-body text-xs font-bold text-amber-700">Trạng thái</p>
-                      <p className="mt-1 font-heading text-lg font-extrabold text-amber-700">{previewStatus}</p>
+                    <div className={`rounded-lg p-3 ${previewStatusTone.card}`}>
+                      <p className={`font-body text-xs font-bold ${previewStatusTone.text}`}>Trạng thái</p>
+                      <p className={`mt-1 font-heading text-lg font-extrabold ${previewStatusTone.text}`}>{previewStatus}</p>
                     </div>
                   </>
                 ) : (
@@ -562,9 +647,9 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                       <p className="font-body text-xs font-bold text-green-700">Đơn khách</p>
                       <p className="mt-1 font-heading text-lg font-extrabold text-green-700">{preview.counts?.customerOrders || 0} dòng</p>
                     </div>
-                    <div className="rounded-lg bg-amber-50 p-3">
-                      <p className="font-body text-xs font-bold text-amber-700">Trạng thái</p>
-                      <p className="mt-1 font-heading text-lg font-extrabold text-amber-700">{previewStatus}</p>
+                    <div className={`rounded-lg p-3 ${previewStatusTone.card}`}>
+                      <p className={`font-body text-xs font-bold ${previewStatusTone.text}`}>Trạng thái</p>
+                      <p className={`mt-1 font-heading text-lg font-extrabold ${previewStatusTone.text}`}>{previewStatus}</p>
                     </div>
                   </>
                 )}
@@ -662,7 +747,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
 
               {identityRelinkedRecords.length ? (
                 <p className="mt-3 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 font-body text-sm text-sky-900" data-testid="minhhong-workbook-identity-relink-note">
-                  Đã liên kết lại định danh nguồn cho {identityRelinkedRecords.length} {changedRecordNoun}; không thay đổi số liệu nghiệp vụ.
+                  Đã nối lại {identityRelinkedRecords.length} {changedRecordNoun} với dữ liệu đã có; không thay đổi thông tin nghiệp vụ.
                 </p>
               ) : null}
 
@@ -707,7 +792,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                         data-testid="minhhong-workbook-change-page-previous"
                         disabled={currentChangedRecordsPage === 1}
                         onClick={() => setChangedRecordsPage((page) => Math.max(1, page - 1))}
-                        className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-body text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                        className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-body text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                       >
                         Trước
                       </button>
@@ -719,7 +804,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                         data-testid="minhhong-workbook-change-page-next"
                         disabled={currentChangedRecordsPage === changedRecordsPageCount}
                         onClick={() => setChangedRecordsPage((page) => Math.min(changedRecordsPageCount, page + 1))}
-                        className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-body text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                        className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-body text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                       >
                         Sau
                       </button>
@@ -760,7 +845,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                   type="button"
                   data-testid="minhhong-workbook-preview-collapse-bottom"
                   onClick={() => setIsPreviewExpanded(false)}
-                  className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-sm font-bold text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-100"
+                  className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-sm font-bold text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-100"
                 >
                   Thu gọn kết quả ↑
                 </button>

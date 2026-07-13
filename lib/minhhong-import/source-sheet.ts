@@ -12,6 +12,7 @@ import {
   MINHHONG_RETURN_COLUMNS,
 } from "./workbook-contract";
 import type { MinhHongImportScope } from "./import-scope";
+import { MinhHongSourceSheetFetchError } from "./source-fetch-guard";
 
 type SourceExportKind = "legacy" | "manual";
 
@@ -78,7 +79,17 @@ export interface MinhHongSourceIdAssignment {
   value: string;
 }
 
+export interface MinhHongSourceIdRowCheck {
+  kind: SourceExportKind;
+  rowFingerprint: string;
+  rowNumber: number;
+  sheetName: string;
+  sourceId: string;
+  spreadsheetId: string;
+}
+
 export interface MinhHongSourceIdTargetSummary {
+  hidden: boolean;
   id: MinhHongSourceIdTarget["id"];
   invalidRows: number;
   missingRows: number;
@@ -97,6 +108,8 @@ export interface MinhHongSourceIdPlan {
   invalidRows: number;
   issues: string[];
   missingRows: number;
+  requiresSetup: boolean;
+  rowChecks: MinhHongSourceIdRowCheck[];
   targets: MinhHongSourceIdTargetSummary[];
   totalRows: number;
   validRows: number;
@@ -413,6 +426,10 @@ function normalizedSourceIdNumber(value: number) {
   return String(Number(value.toFixed(12)));
 }
 
+function sourceIdFormulaFingerprint(formula: string): [string, string] {
+  return ["formula", formula.trim().replace(/^=/, "")];
+}
+
 function sourceIdFingerprintValue(value: CellValue): [string, unknown?] {
   if (value === null || value === undefined) return ["empty"];
   if (value instanceof Date) {
@@ -423,6 +440,7 @@ function sourceIdFingerprintValue(value: CellValue): [string, unknown?] {
   if (typeof value === "boolean") return ["boolean", value];
   if (typeof value !== "object") {
     const text = String(value).trim();
+    if (text.startsWith("=")) return sourceIdFormulaFingerprint(text);
     return text ? ["text", text] : ["empty"];
   }
 
@@ -443,9 +461,13 @@ function sourceIdValuesFingerprint(values: CellValue[], cellCount: number) {
 }
 
 function sourceIdRowFingerprint(target: MinhHongSourceIdTarget, row: ExcelJS.Row) {
-  return sourceIdValuesFingerprint(
-    Array.from({ length: target.sourceIdColumn - 1 }, (_, index) => row.getCell(index + 1).value),
-    target.sourceIdColumn - 1
+  return JSON.stringify(
+    Array.from({ length: target.sourceIdColumn - 1 }, (_, index) => {
+      const cell = row.getCell(index + 1);
+      return cell.formula
+        ? sourceIdFormulaFingerprint(cell.formula)
+        : sourceIdFingerprintValue(cell.value);
+    })
   );
 }
 
@@ -477,6 +499,7 @@ function inspectMinhHongSourceIds(
   const headerConflicts: string[] = [];
   const issues: string[] = [];
   const fingerprintRows: string[] = [];
+  const rowChecks: MinhHongSourceIdRowCheck[] = [];
   const validRowsById = new Map<string, Array<{ rowNumber: number; target: MinhHongSourceIdTarget }>>();
   const usedIds = new Set<string>();
   const summaries = new Map<MinhHongSourceIdTarget["id"], MinhHongSourceIdTargetSummary>();
@@ -492,6 +515,7 @@ function inspectMinhHongSourceIds(
     const worksheet = getWorksheet(workbook, target.sheetName);
     const spreadsheetId = spreadsheetIds[target.kind];
     const summary: MinhHongSourceIdTargetSummary = {
+      hidden: Boolean(worksheet.getColumn(target.sourceIdColumn).hidden),
       id: target.id,
       invalidRows: 0,
       missingRows: 0,
@@ -512,6 +536,14 @@ function inspectMinhHongSourceIds(
       target: target.id,
       values: Array.from({ length: target.sourceIdColumn }, (_, index) => clean(headerRow.getCell(index + 1).value)),
     }));
+    rowChecks.push({
+      kind: target.kind,
+      rowFingerprint: sourceIdRowFingerprint(target, headerRow),
+      rowNumber: target.headerRow,
+      sheetName: target.sheetName,
+      sourceId: headerValue,
+      spreadsheetId,
+    });
 
     if (!headerValue && sourceIdHeaderColumns.length > 0) {
       headerConflicts.push(
@@ -546,6 +578,14 @@ function inspectMinhHongSourceIds(
 
       summary.totalRows += 1;
       const sourceId = clean(row.getCell(target.sourceIdColumn).value);
+      rowChecks.push({
+        kind: target.kind,
+        rowFingerprint: sourceIdRowFingerprint(target, row),
+        rowNumber,
+        sheetName: target.sheetName,
+        sourceId,
+        spreadsheetId,
+      });
       if (!sourceId) {
         summary.missingRows += 1;
         if (generateAssignments) {
@@ -598,10 +638,11 @@ function inspectMinhHongSourceIds(
   const validRows = targets.reduce((sum, target) => sum + target.validRows, 0);
   const headerWrites = assignments.filter((assignment) => assignment.value === "source_id").length;
   const fingerprint = createHash("sha256").update(fingerprintRows.join("\n")).digest("hex");
+  const canApply = invalidRows === 0 && duplicateRows === 0 && headerConflicts.length === 0;
 
   return {
     assignments,
-    canApply: invalidRows === 0 && duplicateRows === 0 && headerConflicts.length === 0,
+    canApply,
     duplicateRows,
     fingerprint,
     headerConflicts,
@@ -609,6 +650,8 @@ function inspectMinhHongSourceIds(
     invalidRows,
     issues,
     missingRows,
+    requiresSetup: canApply && (assignments.length > 0 || targets.some((target) => !target.hidden)),
+    rowChecks,
     targets,
     totalRows,
     validRows,
@@ -1131,15 +1174,19 @@ export async function fetchMinhHongSourceSheetExports(
   scope: MinhHongImportScope = "all"
 ): Promise<SourceExport[]> {
   const exports: SourceExport[] = [];
-  const accessToken = hasGoogleServiceAccountCredentials()
-    ? await getGoogleAccessToken(fetchImpl)
-    : "";
+  if (!hasGoogleServiceAccountCredentials()) {
+    throw new MinhHongSourceSheetFetchError(
+      "Kết nối Google Sheet chưa được cấu hình trên máy chủ. Hãy liên hệ người quản trị rồi thử lại.",
+      503
+    );
+  }
+  const accessToken = await getGoogleAccessToken(fetchImpl);
 
   for (const source of MINHHONG_SOURCE_SHEET_EXPORTS) {
     if (scope === "service-orders" && source.kind !== "legacy") continue;
     const response = await fetchImpl(
       buildSourceSheetExportUrl(source.spreadsheetId),
-      accessToken ? { headers: { Authorization: "Bearer " + accessToken } } : undefined
+      { headers: { Authorization: "Bearer " + accessToken } }
     );
     if (!response.ok) {
       throw new Error("Không tải được Google Sheet nguồn " + source.spreadsheetId + " (" + response.status + " " + response.statusText + ").");
@@ -1327,53 +1374,72 @@ function sourceIdAssignmentSnapshot(plan: MinhHongSourceIdPlan) {
     .sort();
 }
 
-function sourceIdAssignmentTarget(assignment: MinhHongSourceIdAssignment) {
+function sourceIdRowTarget(row: Pick<MinhHongSourceIdAssignment, "kind" | "sheetName">) {
   const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => (
-    item.kind === assignment.kind && item.sheetName === assignment.sheetName
+    item.kind === row.kind && item.sheetName === row.sheetName
   ));
-  if (!target) throw new Error(`Khong tim thay cau hinh Sheet nguon ${assignment.sheetName}.`);
+  if (!target) throw new Error(`Khong tim thay cau hinh Sheet nguon ${row.sheetName}.`);
   return target;
 }
 
-async function assertSourceIdAssignmentsStillCurrent(
+async function assertSourceIdRowsStillCurrent(
   accessToken: string,
   spreadsheetId: string,
-  assignments: MinhHongSourceIdAssignment[],
+  rowChecks: MinhHongSourceIdRowCheck[],
   fetchImpl: typeof fetch
 ) {
-  const url = new URL(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet`);
-  url.searchParams.set("majorDimension", "ROWS");
-  url.searchParams.set("valueRenderOption", "UNFORMATTED_VALUE");
-  url.searchParams.set("dateTimeRenderOption", "SERIAL_NUMBER");
-  for (const assignment of assignments) {
-    url.searchParams.append("ranges", sourceIdRowRange(sourceIdAssignmentTarget(assignment), assignment.rowNumber));
-  }
+  const ranges = rowChecks.map((rowCheck) => (
+    sourceIdRowRange(sourceIdRowTarget(rowCheck), rowCheck.rowNumber)
+  ));
 
-  const response = await fetchImpl(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const response = await fetchImpl(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGetByDataFilter`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        dataFilters: ranges.map((a1Range) => ({ a1Range })),
+        dateTimeRenderOption: "SERIAL_NUMBER",
+        majorDimension: "ROWS",
+        valueRenderOption: "FORMULA",
+      }),
+    }
+  );
   const data = await response.json() as {
     error?: { message?: string };
-    valueRanges?: Array<{ values?: CellValue[][] }>;
+    valueRanges?: Array<{ valueRange?: { range?: string; values?: CellValue[][] } }>;
   };
   if (!response.ok) {
     throw new Error(data.error?.message || "Không đọc lại được các ô source_id ngay trước khi ghi.");
   }
 
   const valueRanges = data.valueRanges || [];
-  if (valueRanges.length !== assignments.length) {
+  if (valueRanges.length !== rowChecks.length) {
     throw new MinhHongSourceIdPlanChangedError();
   }
 
-  for (const [index, assignment] of assignments.entries()) {
-    const target = sourceIdAssignmentTarget(assignment);
-    const rows = valueRanges[index].values || [];
+  const valuesByRange = new Map<string, CellValue[][]>();
+  for (const matchedRange of valueRanges) {
+    const range = matchedRange.valueRange?.range;
+    if (!range || valuesByRange.has(range)) {
+      throw new MinhHongSourceIdPlanChangedError();
+    }
+    valuesByRange.set(range, matchedRange.valueRange?.values || []);
+  }
+
+  for (const rowCheck of rowChecks) {
+    const target = sourceIdRowTarget(rowCheck);
+    const rows = valuesByRange.get(sourceIdRowRange(target, rowCheck.rowNumber));
+    if (!rows) throw new MinhHongSourceIdPlanChangedError();
     if (rows.length > 1) throw new MinhHongSourceIdPlanChangedError();
     const values = rows[0] || [];
     const currentFingerprint = sourceIdValuesFingerprint(values, target.sourceIdColumn - 1);
     if (
-      clean(values[target.sourceIdColumn - 1])
-      || currentFingerprint !== assignment.rowFingerprint
+      clean(values[target.sourceIdColumn - 1]) !== rowCheck.sourceId
+      || currentFingerprint !== rowCheck.rowFingerprint
     ) {
       throw new MinhHongSourceIdPlanChangedError();
     }
@@ -1382,12 +1448,17 @@ async function assertSourceIdAssignmentsStillCurrent(
 
 export async function applyMinhHongSourceIdPlan(
   plan: MinhHongSourceIdPlan,
+  reviewedFingerprint: string,
   currentExports: SourceExport[],
   fetchImpl: typeof fetch = fetch,
   scope: MinhHongImportScope = "all"
 ) {
   if (!plan.canApply) {
     throw new Error("Sheet nguồn có source_id sai hoặc trùng; chưa ghi bất kỳ ô nào.");
+  }
+
+  if (plan.fingerprint !== reviewedFingerprint) {
+    throw new MinhHongSourceIdPlanChangedError();
   }
 
   const currentPlan = await buildMinhHongSourceIdPlanFromExports(currentExports, scope);
@@ -1401,8 +1472,6 @@ export async function applyMinhHongSourceIdPlan(
   ) {
     throw new MinhHongSourceIdPlanChangedError();
   }
-  if (currentPlan.assignments.length === 0) return { updatedCells: 0 };
-
   const accessToken = await getGoogleAccessToken(fetchImpl);
   const assignmentsBySpreadsheet = new Map<string, MinhHongSourceIdAssignment[]>();
   for (const assignment of currentPlan.assignments) {
@@ -1411,21 +1480,21 @@ export async function applyMinhHongSourceIdPlan(
       assignment,
     ]);
   }
+  const rowChecksBySpreadsheet = new Map<string, MinhHongSourceIdRowCheck[]>();
+  for (const rowCheck of currentPlan.rowChecks) {
+    rowChecksBySpreadsheet.set(rowCheck.spreadsheetId, [
+      ...(rowChecksBySpreadsheet.get(rowCheck.spreadsheetId) || []),
+      rowCheck,
+    ]);
+  }
+
+  for (const [spreadsheetId, rowChecks] of rowChecksBySpreadsheet.entries()) {
+    await assertSourceIdRowsStillCurrent(accessToken, spreadsheetId, rowChecks, fetchImpl);
+  }
+  if (currentPlan.assignments.length === 0) return { updatedCells: 0 };
 
   let updatedCells = 0;
   for (const [spreadsheetId, assignments] of assignmentsBySpreadsheet.entries()) {
-    try {
-      await assertSourceIdAssignmentsStillCurrent(accessToken, spreadsheetId, assignments, fetchImpl);
-    } catch (error) {
-      if (updatedCells > 0) {
-        throw new MinhHongSourceIdPartialWriteError(
-          updatedCells,
-          error instanceof Error ? error.message : "Khong the xac minh Sheet nguon truoc khi ghi."
-        );
-      }
-      throw error;
-    }
-
     const response = await fetchImpl(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
       method: "POST",
       headers: {
@@ -1523,9 +1592,7 @@ export async function buildMinhHongSourceImportWorkbook(
     throw new Error("Thiếu raw source Sheet đối tác để tạo preview import.");
   }
 
-  const outputWorkbook = new ExcelJS.Workbook();
-  const issues: SourceIssue[] = [];
-  const sourceIdPlan = inspectMinhHongSourceIds(
+  const result = await buildMinhHongSourceImportPreview(
     legacyWorkbook,
     manualWorkbook,
     {
@@ -1533,6 +1600,25 @@ export async function buildMinhHongSourceImportWorkbook(
       manual: getSourceSheetExportByKind("manual").spreadsheetId,
     },
     false,
+    scope
+  );
+  return result.buffer;
+}
+
+async function buildMinhHongSourceImportPreview(
+  legacyWorkbook: ExcelJS.Workbook,
+  manualWorkbook: ExcelJS.Workbook,
+  spreadsheetIds: Record<SourceExportKind, string>,
+  generateAssignments: boolean,
+  scope: MinhHongImportScope
+) {
+  const outputWorkbook = new ExcelJS.Workbook();
+  const issues: SourceIssue[] = [];
+  const sourceIdPlan = inspectMinhHongSourceIds(
+    legacyWorkbook,
+    manualWorkbook,
+    spreadsheetIds,
+    generateAssignments,
     scope
   );
   pushSourceIdImportIssues(sourceIdPlan, issues);
@@ -1550,7 +1636,10 @@ export async function buildMinhHongSourceImportWorkbook(
   appendRows(outputWorkbook.addWorksheet("Đơn khách"), MINHHONG_CUSTOMER_ORDER_COLUMNS, customerRows);
   appendRows(outputWorkbook.addWorksheet("Đối soát"), ["Khoá", "Nhãn", "Giá trị kỳ vọng", "Ghi chú"], reconciliationRows);
 
-  return Buffer.from(await outputWorkbook.xlsx.writeBuffer());
+  return {
+    buffer: Buffer.from(await outputWorkbook.xlsx.writeBuffer()),
+    sourceIdPlan,
+  };
 }
 
 export async function buildMinhHongSourceImportWorkbookFromExports(
@@ -1566,4 +1655,18 @@ export async function buildMinhHongSourceImportWorkbookFromExports(
     legacyWorkbookBuffer: legacy.buffer,
     manualWorkbookBuffer: manual?.buffer,
   }, scope);
+}
+
+export async function buildMinhHongSourceImportPreviewFromExports(
+  exports: SourceExport[],
+  scope: MinhHongImportScope = "all"
+) {
+  const { legacyWorkbook, manualWorkbook, spreadsheetIds } = await loadMinhHongSourceIdWorkbooks(exports, scope);
+  return buildMinhHongSourceImportPreview(
+    legacyWorkbook,
+    manualWorkbook,
+    spreadsheetIds,
+    true,
+    scope
+  );
 }

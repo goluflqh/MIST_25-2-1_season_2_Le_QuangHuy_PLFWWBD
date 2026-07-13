@@ -5,6 +5,7 @@ const ADMIN_PHONE = process.env.PLAYWRIGHT_ADMIN_PHONE ?? "0987443258";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD ?? "admin123";
 const AUTH_REDIRECT_TIMEOUT = 30_000;
 const ADMIN_IMPORT_WORKBOOK = resolve("operations/minhhong-admin-import-template-2026-05-26.xlsx");
+const APP_ORIGIN = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`;
 
 function vietnamDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -288,6 +289,11 @@ test.describe("Admin phase 2 workflows", () => {
 
   test("source Sheet import panel previews live raw Sheet data without writing DB", async ({ page }) => {
     await login(page);
+    let setupRequests = 0;
+    await page.route("**/api/admin/minhhong-source-sheet-ids*", async (route) => {
+      setupRequests += 1;
+      await route.fulfill({ status: 500 });
+    });
     await page.goto("/dashboard/orders");
     await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
 
@@ -297,16 +303,24 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(summary).toContainText("Đơn khách trong Sheet", { timeout: 20_000 });
     await expect(summary).not.toContainText("Ledger đối tác");
     await expect(summary).not.toContainText("Long cần trả");
-    await expect(summary).toContainText("Sẵn sàng áp dụng");
     await expect(page.getByTestId("minhhong-workbook-blocking-issues")).toHaveCount(0);
-    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toBeEnabled();
     await expect(page.getByTestId("minhhong-workbook-confirm")).toHaveCount(0);
+    const setupCard = page.getByTestId("minhhong-source-sheet-setup-card");
+    if (await setupCard.count()) {
+      await expect(summary).toContainText("Cần hoàn tất thiết lập");
+      await expect(page.getByTestId("minhhong-source-sheet-setup")).toBeEnabled();
+      await expect(page.getByTestId("minhhong-source-sheet-confirm")).toHaveCount(0);
+    } else {
+      await expect(summary).toContainText("Sẵn sàng áp dụng");
+      await expect(page.getByTestId("minhhong-source-sheet-confirm")).toBeEnabled();
+    }
+    expect(setupRequests).toBe(0);
   });
 
   test("source Sheet preview is read-only and hides technical controls", async ({ page }) => {
     await login(page);
     let sourceIdentityRequests = 0;
-    await page.route("**/api/admin/minhhong-source-sheet-ids?mode=*", async (route) => {
+    await page.route("**/api/admin/minhhong-source-sheet-ids*", async (route) => {
       sourceIdentityRequests += 1;
       await route.fulfill({ status: 500 });
     });
@@ -341,6 +355,159 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("minhhong-workbook-import-panel")).not.toContainText("HEX");
     await expect(page.getByTestId("minhhong-source-sheet-preparation-note")).toContainText("Kiểm tra chỉ đọc");
     expect(sourceIdentityRequests).toBe(0);
+  });
+
+  test("first-time Google Sheet setup stays simple and checks the data again automatically", async ({ page }) => {
+    await login(page);
+    let previewRequests = 0;
+    let setupRequests = 0;
+    let finishSetup: (() => void) | undefined;
+    const setupGate = new Promise<void>((resolve) => {
+      finishSetup = resolve;
+    });
+    let finishRecheck: (() => void) | undefined;
+    const recheckGate = new Promise<void>((resolve) => {
+      finishRecheck = resolve;
+    });
+
+    await page.route("**/api/admin/minhhong-import?mode=preview&source=raw-sheet*", async (route) => {
+      previewRequests += 1;
+      if (previewRequests === 2) await recheckGate;
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          mode: "preview",
+          previewFingerprint: "c".repeat(64),
+          sourceSetup: {
+            required: previewRequests === 1,
+            ...(previewRequests === 1 ? { fingerprint: "e".repeat(64) } : {}),
+          },
+          reconciliation: { ok: true, blockingIssues: [], warnings: [] },
+          counts: { partners: 0, partnerEntries: 0, customerOrders: 1, skippedRows: 0, errors: 0 },
+          changes: {
+            partners: { created: 0, updated: 0, unchanged: 0 },
+            partnerEntries: { created: 0, updated: 0, unchanged: 0 },
+            serviceOrders: { created: 1, updated: 0, unchanged: 0 },
+            conflicts: [],
+            records: { partnerEntries: [], serviceOrders: [] },
+          },
+        }),
+      });
+    });
+    await page.route("**/api/admin/minhhong-source-sheet-ids?scope=*", async (route) => {
+      setupRequests += 1;
+      expect(route.request().method()).toBe("POST");
+      expect(new URL(route.request().url()).searchParams.get("scope")).toBe("service-orders");
+      expect(route.request().postDataJSON()).toEqual({ setupFingerprint: "e".repeat(64) });
+      if (setupRequests === 1) {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 409,
+          body: JSON.stringify({
+            success: false,
+            message: "Google Sheet chưa có source_id cho lần cập nhật đầu tiên.",
+          }),
+        });
+        return;
+      }
+      await setupGate;
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({ success: true, message: "Google Sheet đã sẵn sàng." }),
+      });
+    });
+
+    await page.goto("/dashboard/orders");
+    await page.getByTestId("minhhong-source-sheet-preview").click();
+
+    const setupButton = page.getByTestId("minhhong-source-sheet-setup");
+    const previewSummary = page.getByTestId("minhhong-workbook-preview-summary");
+    const setupCard = page.getByTestId("minhhong-source-sheet-setup-card");
+    await expect(setupCard).toContainText("Cần hoàn tất thiết lập lần đầu");
+    await expect(setupCard).toHaveAttribute("role", "status");
+    await expect(setupCard).toHaveAttribute("aria-live", "polite");
+    await expect(previewSummary).toContainText("Cần hoàn tất thiết lập");
+    await expect(previewSummary).not.toContainText("Sẵn sàng áp dụng");
+    await expect(previewSummary.getByText("Cần hoàn tất thiết lập", { exact: true }).locator("..")).toHaveClass(/bg-amber-50/);
+    await expect(setupButton).toHaveText("Hoàn tất thiết lập");
+    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toHaveCount(0);
+    await expect(page.getByTestId("minhhong-workbook-import-panel")).not.toContainText("source_id");
+    await expect(page.getByTestId("minhhong-workbook-import-panel")).not.toContainText("fingerprint");
+
+    await setupButton.click();
+    await expect(page.getByText(/Google Sheet chưa sẵn sàng.*quyền chỉnh sửa.*thử lại/i)).toBeVisible();
+    await expect(page.getByText(/source_id/i)).toHaveCount(0);
+    await expect(page.getByText(/người quản trị hệ thống/i)).toHaveCount(0);
+    await expect(setupButton).toBeEnabled();
+
+    await setupButton.click();
+    await expect(setupButton).toHaveText("Đang hoàn tất…");
+    finishSetup?.();
+    await expect(setupButton).toHaveText("Đang kiểm tra lại…");
+    await expect(setupCard).toBeVisible();
+    finishRecheck?.();
+
+    await expect(setupCard).toHaveCount(0);
+    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toBeVisible();
+    await expect(page.getByTestId("minhhong-workbook-preview-summary").getByText("Sẵn sàng áp dụng", { exact: true }).locator("..")).toHaveClass(/bg-green-50/);
+    expect(previewRequests).toBe(2);
+    expect(setupRequests).toBe(2);
+  });
+
+  test("a Sheet change before update automatically returns to the setup step", async ({ page }) => {
+    await login(page);
+    let previewRequests = 0;
+
+    await page.route("**/api/admin/minhhong-import*", async (route) => {
+      const url = new URL(route.request().url());
+      expect(url.searchParams.get("scope")).toBe("service-orders");
+      if (url.searchParams.get("mode") === "confirm") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 409,
+          body: JSON.stringify({
+            success: false,
+            mode: "confirm",
+            message: "Hãy hoàn tất thiết lập Google Sheet trước khi cập nhật dữ liệu lên web.",
+            sourceSetup: { required: true },
+          }),
+        });
+        return;
+      }
+
+      previewRequests += 1;
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          mode: "preview",
+          previewFingerprint: "d".repeat(64),
+          sourceSetup: { required: previewRequests > 1 },
+          reconciliation: { ok: true, blockingIssues: [], warnings: [] },
+          counts: { partners: 0, partnerEntries: 0, customerOrders: 1, skippedRows: 0, errors: 0 },
+          changes: {
+            partners: { created: 0, updated: 0, unchanged: 0 },
+            partnerEntries: { created: 0, updated: 0, unchanged: 0 },
+            serviceOrders: { created: 1, updated: 0, unchanged: 0 },
+            conflicts: [],
+            records: { partnerEntries: [], serviceOrders: [] },
+          },
+        }),
+      });
+    });
+
+    await page.goto("/dashboard/orders");
+    await page.getByTestId("minhhong-source-sheet-preview").click();
+    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toBeVisible();
+    await page.getByTestId("minhhong-source-sheet-confirm").click();
+
+    await expect(page.getByTestId("minhhong-source-sheet-setup-card")).toBeVisible();
+    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toHaveCount(0);
+    expect(previewRequests).toBe(2);
   });
 
   test("a failed preview clears the previous source result and confirmation action", async ({ page }) => {
@@ -425,6 +592,7 @@ test.describe("Admin phase 2 workflows", () => {
     await page.getByTestId("minhhong-source-sheet-preview").click();
 
     await expect(page.getByTestId("minhhong-workbook-preview-toggle")).toContainText("Thu gọn kết quả", { timeout: 15_000 });
+    await expectMinTouchHeight(page.getByTestId("minhhong-workbook-preview-toggle"));
     await expect(page.getByTestId("minhhong-workbook-preview-body")).toBeVisible();
     await expect(page.getByTestId("minhhong-workbook-preview-summary")).toContainText("Đơn khách trong Sheet");
     await expect(page.getByTestId("minhhong-workbook-preview-summary")).not.toContainText("Ledger đối tác");
@@ -441,6 +609,7 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Dòng Excel 19");
     await expect(page.getByTestId("minhhong-workbook-warnings")).toContainText("Dòng Excel 58");
     await expect(page.getByTestId("minhhong-workbook-warnings")).not.toContainText("Đối soát");
+    await expectMinTouchHeight(page.getByTestId("minhhong-workbook-preview-collapse-bottom"));
     await page.getByTestId("minhhong-workbook-preview-collapse-bottom").click();
     await expect(page.getByTestId("minhhong-workbook-preview-body")).toBeHidden();
     await expect(page.getByTestId("minhhong-workbook-preview-toggle")).toContainText("Mở kết quả");
@@ -491,10 +660,13 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(conflicts).not.toContainText("source_id");
     await expect(page.getByTestId("minhhong-source-sheet-confirm")).toBeDisabled();
     await expect(page.getByTestId("minhhong-workbook-identity-relink-note")).toContainText("1 đơn");
+    await expect(page.getByTestId("minhhong-workbook-preview-summary").getByText("Có xung đột", { exact: true }).locator("..")).toHaveClass(/bg-red-50/);
 
     const details = page.getByTestId("minhhong-workbook-change-details");
     await details.locator("summary").click();
     await expect(page.getByTestId("minhhong-workbook-change-pagination")).toContainText("Trang 1/2");
+    await expectMinTouchHeight(page.getByTestId("minhhong-workbook-change-page-previous"));
+    await expectMinTouchHeight(page.getByTestId("minhhong-workbook-change-page-next"));
     await expect(details).toContainText("Đơn trang 1");
     await expect(details).not.toContainText("Đơn trang 11");
 
@@ -518,6 +690,7 @@ test.describe("Admin phase 2 workflows", () => {
             enabled: false,
             message: "Dữ liệu công nợ đối tác đang chờ duyệt.",
           },
+          sourceSetup: { required: true },
           reconciliation: { ok: true, blockingIssues: [], warnings: [] },
           counts: { partners: 1, partnerEntries: 1, customerOrders: 0, skippedRows: 0, errors: 0 },
           totals: { longPayable: 100000, longHistoricalPaid: 0, customerOrderTotal: 0, customerOrderPaid: 0 },
@@ -541,7 +714,8 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("minhhong-workbook-import-panel")).toBeVisible();
     await page.getByTestId("minhhong-source-sheet-preview").click();
     await expect(page.getByTestId("minhhong-workbook-confirmation-gate")).toContainText("chờ duyệt");
-    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toBeDisabled();
+    await expect(page.getByTestId("minhhong-source-sheet-setup-card")).toHaveCount(0);
+    await expect(page.getByTestId("minhhong-source-sheet-confirm")).toHaveCount(0);
   });
 
   test("server rejects combined raw imports before reading a source Sheet", async ({ request }) => {
@@ -556,21 +730,51 @@ test.describe("Admin phase 2 workflows", () => {
     });
   });
 
-  test("mobile workbook import is collapsed until explicitly opened", async ({ page }) => {
+  test("server rejects Google Sheet setup requests without a same-origin browser request", async ({ request }) => {
+    await loginAdminRequest(request);
+
+    const response = await request.post(
+      "/api/admin/minhhong-source-sheet-ids?scope=service-orders"
+    );
+
+    expect(response.status()).toBe(403);
+    expect(await response.json()).toEqual({
+      success: false,
+      message: "Yêu cầu không hợp lệ. Hãy thao tác lại từ trang quản trị.",
+    });
+  });
+
+  test("server rejects Google Sheet setup when the reviewed preview is missing", async ({ request }) => {
+    await loginAdminRequest(request);
+
+    const response = await request.post(
+      "/api/admin/minhhong-source-sheet-ids?scope=service-orders",
+      {
+        data: {},
+        headers: { Origin: APP_ORIGIN },
+      }
+    );
+
+    expect(response.status()).toBe(400);
+    expect(await response.json()).toEqual({
+      success: false,
+      message: "Dữ liệu kiểm tra đã cũ. Hãy bấm Kiểm tra dữ liệu rồi thử lại.",
+    });
+  });
+
+  test("mobile keeps the main Sheet actions visible and the Excel fallback collapsed", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await login(page);
     await page.goto("/dashboard/orders");
     await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
 
-    await expect(page.getByTestId("minhhong-workbook-mobile-toggle")).toBeVisible();
-    await expect(page.getByTestId("minhhong-workbook-mobile-toggle")).toContainText("Mở công cụ");
+    await expect(page.getByTestId("minhhong-workbook-mobile-toggle")).toHaveCount(0);
+    await expect(page.getByTestId("minhhong-source-sheet-preview")).toBeVisible();
+    await expect(page.getByTestId("minhhong-source-sheet-open")).toBeVisible();
     await expect(page.getByTestId("minhhong-workbook-file")).toBeHidden();
 
-    await page.getByTestId("minhhong-workbook-mobile-toggle").click();
-    await expect(page.getByTestId("minhhong-workbook-mobile-toggle")).toContainText("Ẩn công cụ");
-    await expect(page.getByTestId("minhhong-workbook-file")).toBeHidden();
     await page.getByTestId("minhhong-workbook-fallback").getByText("Nhập từ file Excel dự phòng").click();
-    await expect(page.getByTestId("minhhong-workbook-file")).toBeVisible();
+    await expect(page.getByLabel("Chọn file Excel dự phòng")).toBeVisible();
     await expect(page.getByTestId("minhhong-workbook-file-help")).toContainText("tối đa 10 MB");
     await expectMinTouchHeight(page.getByTestId("minhhong-source-sheet-preview"));
     await expectMinTouchHeight(page.getByTestId("minhhong-workbook-preview"));
@@ -611,8 +815,6 @@ test.describe("Admin phase 2 workflows", () => {
     });
     await page.goto("/dashboard/orders");
     await expect(page.getByTestId("dashboard-service-orders")).toBeVisible();
-    await page.getByTestId("minhhong-workbook-mobile-toggle").click();
-
     await page.getByTestId("minhhong-source-sheet-preview").click();
 
     const toast = page.getByText(/Google Sheet đã kiểm tra/);

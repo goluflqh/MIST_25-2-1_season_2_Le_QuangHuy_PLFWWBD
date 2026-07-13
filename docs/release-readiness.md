@@ -34,17 +34,19 @@ Nếu cần một lớp fallback chung cho provider đang test nội bộ, có t
 
 Không nên để đồng thời nhiều provider production mà không chốt rõ `AI_PROVIDER`, vì route `/api/chat` sẽ chọn nhánh runtime theo biến này.
 
-## 3. Rollout migration `ChatbotEvent`
+## 3. Rollout toàn bộ Prisma migrations
 
-Repo đã có migration:
+Không chọn chạy riêng một migration. Mỗi release phải kiểm tra và apply toàn bộ migration còn thiếu theo thứ tự đã lưu trong repo. Các migration quan trọng hiện có gồm:
 
 - `prisma/migrations/20260420161054_add_chatbot_event_metrics/migration.sql`
+- `prisma/migrations/20260710150000_add_service_order_source_code/migration.sql`
+- `prisma/migrations/20260712093000_add_service_order_paid_at/migration.sql`
 
-Model tương ứng:
+Schema tương ứng:
 
 - `prisma/schema.prisma`
 
-Khi bảng này chưa được apply, dashboard vẫn build được nhưng sẽ log fail-soft và phần chatbot metrics không có dữ liệu thật.
+Thiếu migration có thể khiến dashboard thiếu metrics hoặc luồng import đơn bán lỗi vì database chưa có các cột mà code đang dùng.
 
 ### Trình tự an toàn khuyến nghị
 
@@ -61,14 +63,8 @@ npm run db:status
 npm run db:migrate:deploy
 ```
 
-4. Kiểm tra bảng đã tồn tại:
-
-```sql
-SELECT COUNT(*)
-FROM "ChatbotEvent";
-```
-
-5. Truy cập dashboard và xác nhận khối chatbot metrics không còn log thiếu bảng.
+4. Chạy lại `npm run db:status` và xác nhận không còn migration pending.
+5. Truy cập dashboard, xác nhận metrics và preview import đơn bán không còn lỗi thiếu bảng/cột.
 
 ### Gợi ý backup
 
@@ -78,7 +74,7 @@ FROM "ChatbotEvent";
 Ví dụ:
 
 ```bash
-pg_dump --format=custom --file=minhhong-pre-chatbot-event.dump "$DATABASE_URL"
+pg_dump --format=custom --file=minhhong-pre-release.dump "$DATABASE_URL"
 ```
 
 Điều chỉnh lệnh theo runner hoặc secret management thực tế của môi trường deploy.
@@ -88,6 +84,7 @@ pg_dump --format=custom --file=minhhong-pre-chatbot-event.dump "$DATABASE_URL"
 Trước khi gộp sang deploy track hoặc cắt release:
 
 ```bash
+npm run test:unit
 npm run lint
 npm run build
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001 npm run test:e2e
@@ -100,9 +97,11 @@ Trên GitHub, nhánh nâng cấp cũng cần chờ workflow CI xanh cho pull req
 ## 5. Rollout Google Sheet theo đơn bán trước
 
 - Đặt `GOOGLE_SERVICE_ACCOUNT_EMAIL` và `GOOGLE_PRIVATE_KEY` trong secret/runtime của VPS; `.env` ở worktree khác không tự đi theo deploy.
+- Trong đúng runtime đã có secret, chạy `npm run minhhong:audit:raw:orders`; chỉ rollout luồng đơn bán khi kết quả cuối là `OK`.
 - Dashboard đối tác luôn cho phép **Kiểm tra dữ liệu** theo phạm vi công nợ đối tác, nhưng production phải giữ `MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED=false` trong đợt đầu để chưa thể xác nhận cập nhật.
-- Mở `/dashboard/orders`, bấm **Kiểm tra dữ liệu**, kiểm tra báo cáo và chỉ xác nhận import khi không có lỗi chặn. Luồng này chỉ tải Sheet đơn khách, tạo định danh nội bộ từ nội dung dòng và không ghi, ẩn cột, hay sửa Sheet gốc.
-- Sau khi dữ liệu công nợ đã được đối soát riêng, đặt `MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED=true` rồi restart app để mở thao tác xác nhận import đối tác trên production.
+- Mở `/dashboard/orders`, bấm **Kiểm tra dữ liệu**. Đây là smoke test chỉ đọc. Nếu giao diện yêu cầu thiết lập lần đầu, chỉ bấm **Hoàn tất thiết lập** sau khi được phê duyệt ngay tại thời điểm thao tác; hệ thống sẽ thêm mã liên kết vào cột kỹ thuật được ẩn rồi tự kiểm tra lại. Tương tự, chỉ xác nhận import sau khi báo cáo sạch và đã được phê duyệt cho lần ghi database đó.
+- Trước khi mở cập nhật đối tác, chạy `npm run minhhong:audit:raw:partners` trong cùng runtime và xử lý hết mọi dòng `ERROR`; các thay đổi tổng tiền dạng `WARN` phải được người quản trị xác nhận là dữ liệu mới hợp lệ.
+- Sau khi dữ liệu công nợ đã được đối soát riêng và audit không còn `ERROR`, đặt `MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED=true` rồi restart app để mở thao tác xác nhận import đối tác trên production.
 
 ## 6. Docker foundation
 
@@ -121,11 +120,13 @@ Checklist trước khi chạy production:
 - Đặt `NEXT_PUBLIC_SITE_URL` về domain thật trước khi `docker build` để sitemap, robots và canonical không dùng localhost.
 - Đổi `AUTH_SECRET` khỏi placeholder.
 - Kiểm tra `DATABASE_URL` / `DIRECT_URL` theo môi trường thật. Compose mặc định dùng service `postgres`; nếu dùng managed DB thì chỉnh secret/runtime tương ứng.
+- Xác nhận container app nhận được `GOOGLE_SERVICE_ACCOUNT_EMAIL` và `GOOGLE_PRIVATE_KEY`; không in giá trị private key ra log.
+- Giữ `MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED=false` cho đợt rollout đơn bán đầu tiên.
 - Backup DB trước khi chạy migrate.
 - Xác nhận app health sau khi container lên, rồi mới trỏ domain/SSL/Nginx.
 
 ## 7. Ghi chú merge phase cuối
 
 - Không merge mù sang worktree deploy/Docker đang có WIP.
-- Chỉ merge sau khi branch app-upgrades đã sạch verify.
+- Chỉ merge sau khi nhánh chuẩn bị release đã verify sạch.
 - Sau merge, kiểm tra lại README, `.env.example`, migration state và tài liệu provider AI một lần nữa để tránh lệch giữa code và ops docs.

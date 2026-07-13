@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { buildMinhHongImportResponse, countMinhHongScopedSkippedRows, type MinhHongImportMode } from "@/lib/minhhong-import/api-response";
 import { importMinhHongParsedWorkbook, MinhHongWorkbookImportError, previewMinhHongParsedWorkbook, type ImportRunner } from "@/lib/minhhong-import/workbook-importer";
 import {
-  buildMinhHongSourceImportWorkbookFromExports,
+  buildMinhHongSourceImportPreviewFromExports,
   fetchMinhHongSourceSheetExports,
 } from "@/lib/minhhong-import/source-sheet";
 import { normalizeMinhHongImportScope, type MinhHongImportScope } from "@/lib/minhhong-import/import-scope";
@@ -35,6 +35,11 @@ interface WorkbookUpload {
   buffer: Buffer;
   fileName: string;
   size: number;
+}
+
+interface SourceSetupStatus {
+  required: boolean;
+  fingerprint?: string;
 }
 
 type MinhHongImportSource = "workbook" | "raw-sheet";
@@ -183,17 +188,27 @@ async function readWorkbookUpload(request: Request): Promise<{ formData?: FormDa
   };
 }
 
-async function readSourceSheetWorkbook(scope: MinhHongImportScope): Promise<WorkbookUpload> {
+async function readSourceSheetWorkbook(scope: MinhHongImportScope): Promise<{
+  sourceSetup: SourceSetupStatus;
+  upload: WorkbookUpload;
+}> {
   const sourceExports = await fetchMinhHongSourceSheetExports(createMinhHongSourceSheetFetchGuard(), scope);
-  const buffer = await buildMinhHongSourceImportWorkbookFromExports(sourceExports, scope);
+  const { buffer, sourceIdPlan } = await buildMinhHongSourceImportPreviewFromExports(sourceExports, scope);
   if (buffer.byteLength > MINHHONG_SOURCE_WORKBOOK_MAX_BYTES) {
     throw sourceWorkbookTooLargeError();
   }
 
+  const setupRequired = sourceIdPlan.requiresSetup;
   return {
-    buffer,
-    fileName: "minhhong-raw-source-sheets.xlsx",
-    size: buffer.byteLength,
+    sourceSetup: {
+      required: setupRequired,
+      ...(setupRequired ? { fingerprint: sourceIdPlan.fingerprint } : {}),
+    },
+    upload: {
+      buffer,
+      fileName: "minhhong-raw-source-sheets.xlsx",
+      size: buffer.byteLength,
+    },
   };
 }
 
@@ -226,9 +241,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const { formData, upload } = sourceFromUrl === "raw-sheet"
-      ? { formData: undefined, upload: await readSourceSheetWorkbook(scopeFromUrl) }
-      : await readWorkbookUpload(request);
+    const sourceRead = sourceFromUrl === "raw-sheet"
+      ? { formData: undefined, ...await readSourceSheetWorkbook(scopeFromUrl) }
+      : { ...await readWorkbookUpload(request), sourceSetup: undefined };
+    const { formData, sourceSetup, upload } = sourceRead;
     const mode = parseMode(request, formData);
     const source = parseSource(request, formData);
     if (!mode) {
@@ -273,7 +289,20 @@ export async function POST(request: Request) {
           enabled: confirmationEnabled,
           ...(confirmationEnabled ? {} : { message: minhHongImportConfirmationDisabledMessage(scope) }),
         },
+        sourceSetup,
       });
+    }
+
+    if (sourceSetup?.required) {
+      return NextResponse.json(
+        {
+          success: false,
+          mode,
+          message: "Hãy hoàn tất thiết lập Google Sheet trước khi cập nhật dữ liệu lên web.",
+          sourceSetup,
+        },
+        { status: 409 }
+      );
     }
 
     if (parsePreviewFingerprint(request, formData) !== previewFingerprint) {
