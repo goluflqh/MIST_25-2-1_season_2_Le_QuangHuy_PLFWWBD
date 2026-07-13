@@ -46,6 +46,40 @@ Repository conventions for the Matt Pocock engineering skills live in
 domain-modeling workflows, read the relevant document there. GitHub writes
 always require explicit authorization for the current task.
 
+### Matt Pocock workflow routing
+
+Use the globally installed Matt Pocock skills as the default engineering
+workflow for this repository. Keep the workflow proportional to the task:
+small, clear edits should remain direct and lightweight.
+
+- Before non-trivial engineering work, choose the appropriate Matt workflow.
+  Use `ask-matt` when the route is not already clear.
+- Use `grill-with-docs` for ambiguous or high-impact features that need shared
+  terminology or decisions before implementation.
+- Use `domain-modeling` when domain language is unclear or a hard-to-reverse
+  decision should be captured in `CONTEXT.md` or `docs/adr/`.
+- Use `diagnosing-bugs` for difficult bugs, regressions, race conditions,
+  intermittent failures, and performance problems before proposing a fix.
+- Use `tdd` for behavior changes when an automated test is practical and
+  valuable.
+- Use `to-spec`, then `to-tickets`, for approved multi-session work that needs
+  persistent decomposition. Do not publish tracker changes without current-task
+  authorization.
+- Use `wayfinder` for initiatives too large or uncertain to plan in one
+  session.
+- Use `code-review` for explicit review requests and before declaring
+  substantial implementation work complete.
+- Use `handoff` when transferring work to another session or agent.
+
+Invoking a skill never grants permission to create or modify GitHub issues,
+stage, commit, push, open or merge pull requests, run production migrations,
+deploy, import real data, or write to a real Google Sheet. Each action still
+requires explicit authorization in the current thread.
+
+For non-trivial changes, verify behavior with checks proportional to risk,
+follow the GitNexus freshness and impact rules below, and save a compact mem0
+checkpoint after important completed phases or handoffs.
+
 <!-- gitnexus:start -->
 # GitNexus - Code Intelligence
 
