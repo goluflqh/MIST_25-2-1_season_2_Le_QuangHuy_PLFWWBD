@@ -223,11 +223,13 @@ model ServiceOrder {
   status             String    @default("PENDING")
   source             String    @default("MANUAL")
   sourceName         String?
+  sourceCode         String?   @unique
   sourceRow          Int?
   orderDate          DateTime  @default(now())
   quotedPrice        Int?
   priceStatus        String    @default("PENDING_QUOTE")
   paidAmount         Int       @default(0)
+  paidAt             DateTime?
   warrantyMonths     Int?
   warrantyEndDate    DateTime?
   customerVisible    Boolean   @default(false)

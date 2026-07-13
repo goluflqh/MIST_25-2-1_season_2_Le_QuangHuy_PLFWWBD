@@ -11,7 +11,11 @@ interface ImportResponse {
   success: boolean;
   message?: string;
   mode?: "preview" | "confirm";
-  sourceSheetDateRepairs?: number;
+  previewFingerprint?: string;
+  confirmation?: {
+    enabled: boolean;
+    message?: string;
+  };
   reconciliation?: {
     ok: boolean;
     blockingIssues: string[];
@@ -34,7 +38,6 @@ interface ImportResponse {
     partnersUpserted: number;
     partnerEntriesUpserted: number;
     serviceOrdersUpserted: number;
-    sourceSheetDateRepairs?: number;
     changes: ImportChanges;
   };
   changes?: ImportChanges;
@@ -80,6 +83,9 @@ interface MinhHongWorkbookImportPanelProps {
 
 type ImportSource = "workbook" | "raw-sheet";
 type ImportScope = NonNullable<MinhHongWorkbookImportPanelProps["scope"]>;
+type ChangedRecord = ChangeRecord & { group: string };
+
+const CHANGE_RECORDS_PER_PAGE = 10;
 
 function formatMoney(value: number | undefined) {
   return `${Number(value || 0).toLocaleString("vi-VN")}đ`;
@@ -148,6 +154,27 @@ function sourceSheetLinkHref(scope: ImportScope, target?: string) {
   return "/api/admin/minhhong-source-sheet-link?" + params.toString();
 }
 
+function friendlyImportMessage(message: string | undefined, fallback: string) {
+  if (!message) return fallback;
+  if (/source_id|fingerprint|dấu vân tay|32 ký tự|HEX/i.test(message)) {
+    if (/chưa có source_id/i.test(message)) {
+      return "Google Sheet chưa sẵn sàng cho lần cập nhật đầu tiên. Hãy liên hệ người quản trị hệ thống.";
+    }
+    if (/trùng/i.test(message)) return "Google Sheet có dòng bị trùng. Hãy kiểm tra các dòng được báo trước khi cập nhật.";
+    if (/thay đổi/i.test(message)) return "Google Sheet vừa được chỉnh sửa. Hãy kiểm tra lại dữ liệu.";
+    return "Có liên kết dữ liệu không khớp giữa Google Sheet và web. Hãy kiểm tra lại trước khi cập nhật.";
+  }
+  return message;
+}
+
+function groupMessages(messages: string[]) {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    counts.set(message, (counts.get(message) || 0) + 1);
+  }
+  return [...counts.entries()].map(([message, count]) => ({ message, count }));
+}
+
 export default function MinhHongWorkbookImportPanel({ compact = false, onImported, scope = "all" }: MinhHongWorkbookImportPanelProps) {
   const { showToast } = useNotify();
   const serviceOrderScope = scope === "service-orders";
@@ -160,10 +187,19 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [previewSource, setPreviewSource] = useState<ImportSource | null>(null);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(true);
+  const [changedRecordsPage, setChangedRecordsPage] = useState(1);
 
   const submitImport = async (mode: "preview" | "confirm", source: ImportSource) => {
     if (source === "workbook" && !file) {
-      showToast("Chọn workbook .xlsx trước khi import.", "error");
+      showToast("Chọn file Excel .xlsx trước khi kiểm tra.", "error");
+      return;
+    }
+    if (mode === "confirm" && (!preview?.previewFingerprint || previewSource !== source)) {
+      showToast("Hãy kiểm tra dữ liệu lại trước khi cập nhật.", "error");
+      return;
+    }
+    if (mode === "confirm" && preview?.confirmation?.enabled === false) {
+      showToast(preview.confirmation.message || "Chưa thể xác nhận cập nhật lúc này.", "error");
       return;
     }
     if (source === "workbook" && file && file.size > MINHHONG_MANUAL_WORKBOOK_MAX_BYTES) {
@@ -173,7 +209,11 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       return;
     }
 
-    if (mode === "preview") setIsPreviewing(true);
+    if (mode === "preview") {
+      setIsPreviewing(true);
+      setPreview(null);
+      setChangedRecordsPage(1);
+    }
     if (mode === "confirm") setIsConfirming(true);
     setPreviewSource(source);
     if (mode === "preview") setIsPreviewExpanded(true);
@@ -181,6 +221,9 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
     try {
       const params = new URLSearchParams({ mode, source });
       if (scope !== "all") params.set("scope", scope);
+      if (mode === "confirm" && preview?.previewFingerprint) {
+        params.set("previewFingerprint", preview.previewFingerprint);
+      }
       const response = await fetch(
         "/api/admin/minhhong-import?" + params.toString(),
         source === "workbook" && file
@@ -195,12 +238,15 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
           : { method: "POST" }
       );
       const data = await response.json() as ImportResponse;
-      const sourceLabel = source === "raw-sheet" ? "Sheet gốc" : "Workbook";
+      const sourceLabel = source === "raw-sheet" ? "Google Sheet" : "File Excel";
 
       if (!response.ok || !data.success) {
-        showToast(data.message || sourceLabel + " chưa xử lý được.", "error");
-        setPreview(data);
-        setPreviewSource(source);
+        const message = friendlyImportMessage(data.message, sourceLabel + " chưa xử lý được.");
+        showToast(message, "error");
+        if (mode === "preview") {
+          setPreview(null);
+          setPreviewSource(null);
+        }
         return;
       }
 
@@ -214,33 +260,60 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       } else {
         showToast(sourceLabel + " còn điểm cần đối soát trước khi import.", "error");
       }
-    } catch {
-      showToast("Kết nối bị gián đoạn khi xử lý dữ liệu Minh Hồng.", "error");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Kết nối bị gián đoạn khi xử lý dữ liệu Minh Hồng.", "error");
+      if (mode === "preview") {
+        setPreview(null);
+        setPreviewSource(null);
+      }
     } finally {
       setIsPreviewing(false);
       setIsConfirming(false);
     }
   };
 
+  const changeTotals = totalChanges(preview?.changes, scope);
+  const hasPendingChanges = changeTotals.created + changeTotals.updated > 0;
   const canConfirmPreview = Boolean(
     preview?.reconciliation?.ok
     && preview.changes
     && preview.changes.conflicts.length === 0
+    && preview.previewFingerprint
+    && preview.confirmation?.enabled !== false
+    && hasPendingChanges
     && !isConfirming
     && !isPreviewing
   );
   const canConfirmWorkbook = Boolean(canConfirmPreview && previewSource === "workbook" && file);
   const canConfirmRawSheet = Boolean(canConfirmPreview && previewSource === "raw-sheet");
-  const changedRecords = preview?.changes
+  const changedRecords: ChangedRecord[] = preview?.changes
     ? [
         ...(serviceOrderScope ? [] : (preview.changes.records.partners || []).map((record) => ({ ...record, group: "Đối tác" }))),
         ...(partnerScope ? [] : preview.changes.records.serviceOrders.map((record) => ({ ...record, group: "Đơn khách" }))),
         ...(serviceOrderScope ? [] : preview.changes.records.partnerEntries.map((record) => ({ ...record, group: "Giao dịch đối tác" }))),
       ]
     : [];
-  const changeTotals = totalChanges(preview?.changes, scope);
-  const visibleBlockingIssues = filterMessagesForScope(preview?.reconciliation?.blockingIssues, scope);
-  const visibleWarnings = filterMessagesForScope(preview?.reconciliation?.warnings, scope);
+  const identityRelinkedRecords = changedRecords.filter((record) => record.action === "updated" && record.changes?.length === 0);
+  const detailRecords = changedRecords.filter((record) => !identityRelinkedRecords.includes(record));
+  const changedRecordsPageCount = Math.max(1, Math.ceil(detailRecords.length / CHANGE_RECORDS_PER_PAGE));
+  const currentChangedRecordsPage = Math.min(changedRecordsPage, changedRecordsPageCount);
+  const pagedChangedRecords = detailRecords.slice(
+    (currentChangedRecordsPage - 1) * CHANGE_RECORDS_PER_PAGE,
+    currentChangedRecordsPage * CHANGE_RECORDS_PER_PAGE
+  );
+  const visibleConflicts = groupMessages((preview?.changes?.conflicts || [])
+    .map((message) => friendlyImportMessage(message, message)));
+  const visibleBlockingIssues = groupMessages(filterMessagesForScope(preview?.reconciliation?.blockingIssues, scope)
+    .map((message) => friendlyImportMessage(message, message)));
+  const visibleWarnings = groupMessages(filterMessagesForScope(preview?.reconciliation?.warnings, scope)
+    .map((message) => friendlyImportMessage(message, message)));
+  const previewStatus = visibleConflicts.length > 0
+    ? "Có xung đột"
+    : preview?.reconciliation?.ok && preview.confirmation?.enabled !== false
+      ? "Sẵn sàng áp dụng"
+      : preview?.reconciliation?.ok
+        ? "Chờ duyệt số liệu"
+        : "Cần kiểm tra";
   const importResultCreated = preview?.importResult
     ? serviceOrderScope
       ? preview.importResult.changes.serviceOrders.created
@@ -255,12 +328,11 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
         ? preview.importResult.changes.partners.updated + preview.importResult.changes.partnerEntries.updated
         : preview.importResult.changes.partnerEntries.updated + preview.importResult.changes.serviceOrders.updated
     : 0;
-  const pendingSourceSheetDateRepairs = previewSource === "raw-sheet" && !partnerScope ? preview?.sourceSheetDateRepairs || 0 : 0;
-  const rawSheetConfirmLabel = partnerScope
-    ? "Áp dụng đối tác vào web"
-    : pendingSourceSheetDateRepairs
-      ? "Áp dụng vào web & sửa ngày Sheet"
-      : "Áp dụng vào web & chuẩn hóa ngày Sheet";
+  const rawSheetConfirmLabel = serviceOrderScope
+    ? `Cập nhật ${changeTotals.created + changeTotals.updated} đơn lên web`
+    : partnerScope
+      ? `Cập nhật ${changeTotals.created + changeTotals.updated} mục lên web`
+      : `Cập nhật ${changeTotals.created + changeTotals.updated} bản ghi lên web`;
   const changedRecordNoun = serviceOrderScope ? "đơn" : partnerScope ? "giao dịch/đối tác" : "bản ghi";
 
   return (
@@ -268,23 +340,16 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)] lg:items-start lg:gap-4 xl:grid-cols-[minmax(240px,300px)_minmax(0,1fr)]">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between lg:block">
           <div className="min-w-0">
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Dữ liệu Minh Hồng</p>
-          <h3 className="font-heading text-lg font-extrabold text-slate-900 text-pretty">
-            {serviceOrderScope ? "Nhập Sheet đơn bán → web" : partnerScope ? "Nhập Sheet đối tác → web" : "Nhập Excel/Sheet → web"}
-          </h3>
-            <p className="mt-1 font-body text-sm text-slate-600 sm:hidden">
+            <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Dữ liệu Minh Hồng</p>
+            <h3 className="text-pretty font-heading text-lg font-extrabold text-slate-900">
+              {serviceOrderScope ? "Cập nhật đơn bán" : partnerScope ? "Cập nhật công nợ đối tác" : "Cập nhật dữ liệu lên web"}
+            </h3>
+            <p className="mt-1 font-body text-sm leading-5 text-slate-600">
               {serviceOrderScope
-                ? "Chỉ kiểm tra và cập nhật đơn khách/đơn bán."
+                ? "Kiểm tra thay đổi từ Google Sheet trước khi cập nhật đơn lên web."
                 : partnerScope
-                  ? "Chỉ kiểm tra và cập nhật công nợ đối tác."
-                  : "Sheet/Excel → web. Luôn kiểm tra preview trước khi áp dụng."}
-            </p>
-            <p className="mt-1 hidden font-body text-sm text-slate-600 sm:block lg:hidden">
-              {serviceOrderScope
-                ? "Đọc Sheet gốc hoặc workbook chuẩn .xlsx, chỉ xem và áp dụng phần Đơn khách/đơn bán vào trang Đơn dịch vụ. Phần đối tác sẽ xử lý riêng ở trang Đối tác."
-                : partnerScope
-                  ? "Đọc Sheet gốc hoặc workbook chuẩn .xlsx, chỉ xem và áp dụng phần Đối tác/Nhập hàng/Thanh toán/Trả hàng vào trang Đối tác. Phần Đơn khách không bị ghi từ màn này."
-                  : "Đọc Sheet gốc hoặc workbook chuẩn .xlsx, xem preview/đối soát, rồi mới áp dụng vào web. Nút “Xuất web → Sheet” là chiều ngược lại."}
+                  ? "Kiểm tra thay đổi từ Google Sheet trước khi cập nhật công nợ lên web."
+                  : "Luôn kiểm tra thay đổi trước khi cập nhật dữ liệu lên web."}
             </p>
           </div>
           <button
@@ -294,110 +359,125 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
             aria-expanded={isMobileOpen}
             className="min-h-11 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-50 sm:hidden"
           >
-            {isMobileOpen ? "Ẩn khu nhập ▲" : "Mở khu nhập ▼"}
+            {isMobileOpen ? "Ẩn công cụ" : "Mở công cụ"}
           </button>
         </div>
-        <div className={`${isMobileOpen ? "flex" : "hidden"} flex-col gap-2 sm:flex sm:flex-row sm:flex-wrap sm:items-center sm:justify-start lg:justify-end`}>
-          <a
-            data-testid="minhhong-source-sheet-open"
-            href={sourceSheetLinkHref(scope, partnerScope ? "partners-current" : serviceOrderScope ? "service-orders" : undefined)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 font-body text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            {serviceOrderScope ? "Mở Sheet đơn khách" : partnerScope ? "Mở Sheet đối tác" : "Mở Sheet gốc"}
-          </a>
-          {partnerScope ? (
+        <div className={`${isMobileOpen ? "flex" : "hidden"} min-w-0 flex-col gap-3 sm:flex`}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+            <button
+              type="button"
+              data-testid="minhhong-source-sheet-preview"
+              onClick={() => submitImport("preview", "raw-sheet")}
+              disabled={isPreviewing || isConfirming}
+              className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
+            >
+              {isPreviewing && previewSource === "raw-sheet" ? "Đang kiểm tra…" : "Kiểm tra dữ liệu"}
+            </button>
+            {previewSource === "raw-sheet" && preview?.mode === "preview" && hasPendingChanges ? (
+              <button
+                type="button"
+                data-testid="minhhong-source-sheet-confirm"
+                onClick={() => submitImport("confirm", "raw-sheet")}
+                disabled={!canConfirmRawSheet}
+                className="min-h-11 rounded-lg bg-red-600 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:bg-slate-300"
+              >
+                {isConfirming ? "Đang cập nhật…" : rawSheetConfirmLabel}
+              </button>
+            ) : null}
             <a
-              data-testid="minhhong-source-sheet-open-legacy"
-              href={sourceSheetLinkHref(scope, "partners-legacy-purchases")}
+              data-testid="minhhong-source-sheet-open"
+              href={sourceSheetLinkHref(scope, partnerScope ? "partners-current" : serviceOrderScope ? "service-orders" : undefined)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 font-body text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
             >
-              Sheet nhập cũ
+              Mở Google Sheet
             </a>
-          ) : null}
-          <div className="min-w-0 lg:w-[280px]">
-            <input
-              data-testid="minhhong-workbook-file"
-              type="file"
-              accept=".xlsx"
-              aria-describedby={fileError ? "minhhong-workbook-file-help minhhong-workbook-file-error" : "minhhong-workbook-file-help"}
-              aria-invalid={Boolean(fileError)}
-              onChange={(event) => {
-                const selectedFile = event.target.files?.[0] || null;
-                let error: string | null = null;
-                if (selectedFile && !selectedFile.name.toLowerCase().endsWith(".xlsx")) {
-                  error = "Chỉ nhận file Excel có đuôi .xlsx.";
-                } else if (selectedFile && selectedFile.size > MINHHONG_MANUAL_WORKBOOK_MAX_BYTES) {
-                  error = `File đã chọn ${formatFileSize(selectedFile.size)}, vượt mức tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`;
-                }
-
-                if (error) {
-                  event.currentTarget.value = "";
-                  setFile(null);
-                  setFileError(error);
-                  showToast(error, "error");
-                } else {
-                  setFile(selectedFile);
-                  setFileError(null);
-                }
-                setPreview(null);
-                setPreviewSource(null);
-              }}
-              className="min-h-11 w-full max-w-full rounded-lg border border-slate-200 px-3 py-2 font-body text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:font-body file:text-xs file:font-bold file:text-slate-700"
-            />
-            <p id="minhhong-workbook-file-help" data-testid="minhhong-workbook-file-help" className="mt-1 font-body text-xs text-slate-500">
-              {file
-                ? `Đã chọn ${file.name} · ${formatFileSize(file.size)} / tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`
-                : `File .xlsx dự phòng, tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`}
-            </p>
-            {fileError ? (
-              <p id="minhhong-workbook-file-error" data-testid="minhhong-workbook-file-error" role="alert" className="mt-1 font-body text-xs font-bold text-red-600">
-                {fileError}
-              </p>
+            {partnerScope ? (
+              <a
+                data-testid="minhhong-source-sheet-open-legacy"
+                href={sourceSheetLinkHref(scope, "partners-legacy-purchases")}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-2 font-body text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+              >
+                Mở dữ liệu nhập cũ
+              </a>
             ) : null}
           </div>
-          <button
-            type="button"
-            data-testid="minhhong-source-sheet-preview"
-            onClick={() => submitImport("preview", "raw-sheet")}
-            disabled={isPreviewing || isConfirming}
-            className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 font-body text-sm font-bold text-white disabled:bg-slate-300"
-          >
-            {isPreviewing && previewSource === "raw-sheet" ? "Đang đọc Sheet…" : "Kiểm tra từ Sheet gốc"}
-          </button>
-          <button
-            type="button"
-            data-testid="minhhong-source-sheet-confirm"
-            onClick={() => submitImport("confirm", "raw-sheet")}
-            disabled={!canConfirmRawSheet}
-            className="min-h-11 rounded-lg bg-red-600 px-4 py-2 font-body text-sm font-bold text-white disabled:bg-slate-300"
-          >
-            {isConfirming && previewSource === "raw-sheet" ? "Đang áp dụng…" : rawSheetConfirmLabel}
-          </button>
-          <button
-            type="button"
-            data-testid="minhhong-workbook-preview"
-            onClick={() => submitImport("preview", "workbook")}
-            disabled={!file || isPreviewing || isConfirming}
-            className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 font-body text-sm font-bold text-white disabled:bg-slate-300"
-          >
-            {isPreviewing && previewSource === "workbook" ? "Đang kiểm tra…" : "Kiểm tra file Excel đã chọn"}
-          </button>
-          <button
-            type="button"
-            data-testid="minhhong-workbook-confirm"
-            onClick={() => submitImport("confirm", "workbook")}
-            disabled={!canConfirmWorkbook}
-            className="min-h-11 rounded-lg bg-red-600 px-4 py-2 font-body text-sm font-bold text-white disabled:bg-slate-300"
-          >
-            {isConfirming && previewSource === "workbook" ? "Đang cập nhật…" : "Áp dụng file Excel vào web"}
-          </button>
-          <p className="font-body text-xs text-slate-500 sm:basis-full sm:text-right">
-            Hai nút Excel chỉ là đường dự phòng khi Google Sheet lỗi hoặc bạn muốn kiểm tra file .xlsx đã tải về; bình thường dùng Sheet gốc.
+          <p className="font-body text-xs leading-5 text-slate-500" data-testid="minhhong-source-sheet-preparation-note">
+            Kiểm tra chỉ đọc Google Sheet gốc; không sửa thông tin khách, sản phẩm, số tiền, ngày hoặc cấu trúc dữ liệu.
           </p>
+          <details className="rounded-lg border border-slate-200 bg-slate-50/70" data-testid="minhhong-workbook-fallback">
+            <summary className="cursor-pointer rounded-lg px-3 py-2.5 font-body text-sm font-bold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200">
+              Nhập từ file Excel dự phòng
+            </summary>
+            <div className="grid gap-2 border-t border-slate-200 p-3 sm:grid-cols-[minmax(220px,1fr)_auto] sm:items-start">
+              <div className="min-w-0">
+                <input
+                  data-testid="minhhong-workbook-file"
+                  type="file"
+                  accept=".xlsx"
+                  aria-describedby={fileError ? "minhhong-workbook-file-help minhhong-workbook-file-error" : "minhhong-workbook-file-help"}
+                  aria-invalid={Boolean(fileError)}
+                  onChange={(event) => {
+                    const selectedFile = event.target.files?.[0] || null;
+                    let error: string | null = null;
+                    if (selectedFile && !selectedFile.name.toLowerCase().endsWith(".xlsx")) {
+                      error = "Chỉ nhận file Excel có đuôi .xlsx.";
+                    } else if (selectedFile && selectedFile.size > MINHHONG_MANUAL_WORKBOOK_MAX_BYTES) {
+                      error = `File đã chọn ${formatFileSize(selectedFile.size)}, vượt mức tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`;
+                    }
+
+                    if (error) {
+                      event.currentTarget.value = "";
+                      setFile(null);
+                      setFileError(error);
+                      showToast(error, "error");
+                    } else {
+                      setFile(selectedFile);
+                      setFileError(null);
+                    }
+                    setPreview(null);
+                    setPreviewSource(null);
+                  }}
+                  className="min-h-11 w-full max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:font-body file:text-xs file:font-bold file:text-slate-700"
+                />
+                <p id="minhhong-workbook-file-help" data-testid="minhhong-workbook-file-help" className="mt-1 font-body text-xs text-slate-500">
+                  {file
+                    ? `Đã chọn ${file.name} · ${formatFileSize(file.size)} / tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`
+                    : `Chỉ dùng khi Google Sheet không truy cập được · tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`}
+                </p>
+                {fileError ? (
+                  <p id="minhhong-workbook-file-error" data-testid="minhhong-workbook-file-error" role="alert" className="mt-1 font-body text-xs font-bold text-red-600">
+                    {fileError}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  data-testid="minhhong-workbook-preview"
+                  onClick={() => submitImport("preview", "workbook")}
+                  disabled={!file || isPreviewing || isConfirming}
+                  className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
+                >
+                  {isPreviewing && previewSource === "workbook" ? "Đang kiểm tra…" : "Kiểm tra file"}
+                </button>
+                {previewSource === "workbook" && preview?.mode === "preview" && hasPendingChanges ? (
+                  <button
+                    type="button"
+                    data-testid="minhhong-workbook-confirm"
+                    onClick={() => submitImport("confirm", "workbook")}
+                    disabled={!canConfirmWorkbook}
+                    className="min-h-11 rounded-lg bg-red-600 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:bg-slate-300"
+                  >
+                    {isConfirming ? "Đang cập nhật…" : "Cập nhật file lên web"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -446,7 +526,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                     </div>
                     <div className="rounded-lg bg-red-50 p-3">
                       <p className="font-body text-xs font-bold text-red-700">Trạng thái</p>
-                      <p className="mt-1 font-heading text-lg font-extrabold text-red-700">{preview.reconciliation?.ok ? "Sẵn sàng áp dụng" : "Cần kiểm tra"}</p>
+                      <p className="mt-1 font-heading text-lg font-extrabold text-red-700">{previewStatus}</p>
                     </div>
                   </>
                 ) : partnerScope ? (
@@ -456,7 +536,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                       <p className="mt-1 font-heading text-lg font-extrabold text-red-700">{formatMoney(preview.totals?.longPayable)}</p>
                     </div>
                     <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="font-body text-xs font-bold text-slate-600">Ledger đối tác</p>
+                      <p className="font-body text-xs font-bold text-slate-600">Giao dịch đối tác</p>
                       <p className="mt-1 font-heading text-lg font-extrabold text-slate-900">{preview.counts?.partnerEntries || 0} dòng</p>
                     </div>
                     <div className="rounded-lg bg-green-50 p-3">
@@ -464,8 +544,8 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                       <p className="mt-1 font-heading text-lg font-extrabold text-green-700">{preview.counts?.partners || 0} đối tác</p>
                     </div>
                     <div className="rounded-lg bg-amber-50 p-3">
-                      <p className="font-body text-xs font-bold text-amber-700">Đối soát</p>
-                      <p className="mt-1 font-heading text-lg font-extrabold text-amber-700">{preview.reconciliation?.ok ? "Sẵn sàng áp dụng" : "Cần kiểm tra"}</p>
+                      <p className="font-body text-xs font-bold text-amber-700">Trạng thái</p>
+                      <p className="mt-1 font-heading text-lg font-extrabold text-amber-700">{previewStatus}</p>
                     </div>
                   </>
                 ) : (
@@ -475,7 +555,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                       <p className="mt-1 font-heading text-lg font-extrabold text-red-700">{formatMoney(preview.totals?.longPayable)}</p>
                     </div>
                     <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="font-body text-xs font-bold text-slate-600">Ledger đối tác</p>
+                      <p className="font-body text-xs font-bold text-slate-600">Giao dịch đối tác</p>
                       <p className="mt-1 font-heading text-lg font-extrabold text-slate-900">{preview.counts?.partnerEntries || 0} dòng</p>
                     </div>
                     <div className="rounded-lg bg-green-50 p-3">
@@ -483,8 +563,8 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                       <p className="mt-1 font-heading text-lg font-extrabold text-green-700">{preview.counts?.customerOrders || 0} dòng</p>
                     </div>
                     <div className="rounded-lg bg-amber-50 p-3">
-                      <p className="font-body text-xs font-bold text-amber-700">Đối soát</p>
-                      <p className="mt-1 font-heading text-lg font-extrabold text-amber-700">{preview.reconciliation?.ok ? "Đã khớp" : "Cần kiểm tra"}</p>
+                      <p className="font-body text-xs font-bold text-amber-700">Trạng thái</p>
+                      <p className="mt-1 font-heading text-lg font-extrabold text-amber-700">{previewStatus}</p>
                     </div>
                   </>
                 )}
@@ -519,6 +599,15 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                         {" · "}{changeTotals.unchanged} bản ghi không đổi
                       </>
                     )}
+                  </p>
+                </div>
+              ) : null}
+
+              {preview?.confirmation?.enabled === false ? (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3" data-testid="minhhong-workbook-confirmation-gate">
+                  <p className="font-body text-sm font-bold text-amber-900">Chưa thể xác nhận cập nhật</p>
+                  <p className="mt-1 font-body text-sm text-amber-800">
+                    {preview.confirmation.message || "Hãy chờ số liệu được duyệt trước khi xác nhận cập nhật."}
                   </p>
                 </div>
               ) : null}
@@ -558,25 +647,32 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                 </div>
               ) : null}
 
-              {previewSource === "raw-sheet" && !partnerScope ? (
-                <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50 p-3" data-testid="minhhong-source-sheet-date-repair-note">
-                  <p className="font-body text-sm font-semibold text-sky-900">
-                    Nút kiểm tra chỉ xem trước, chưa ghi lên Sheet gốc. Khi bấm “{rawSheetConfirmLabel}”, hệ thống sẽ cập nhật dữ liệu web xong rồi
-                    {pendingSourceSheetDateRepairs
-                      ? ` sửa ${pendingSourceSheetDateRepairs} ô ngày nhập sai trên Sheet gốc`
-                      : " chuẩn hóa định dạng cột ngày trên Sheet gốc"}
-                    {" "}về dạng dd/mm/yyyy.
-                  </p>
+              {visibleConflicts.length ? (
+                <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3" data-testid="minhhong-workbook-conflicts">
+                  <p className="font-body text-sm font-extrabold text-red-800">Có xung đột — chưa thể xác nhận cập nhật</p>
+                  <div className="mt-2 space-y-1">
+                    {visibleConflicts.map((conflict) => (
+                      <p key={conflict.message} className="font-body text-sm font-semibold text-red-700">
+                        {conflict.message}{conflict.count > 1 ? ` (${conflict.count} dòng)` : ""}
+                      </p>
+                    ))}
+                  </div>
                 </div>
               ) : null}
 
-              {changedRecords.length > 0 ? (
+              {identityRelinkedRecords.length ? (
+                <p className="mt-3 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 font-body text-sm text-sky-900" data-testid="minhhong-workbook-identity-relink-note">
+                  Đã liên kết lại định danh nguồn cho {identityRelinkedRecords.length} {changedRecordNoun}; không thay đổi số liệu nghiệp vụ.
+                </p>
+              ) : null}
+
+              {detailRecords.length > 0 ? (
                 <details className="mt-3 border-t border-slate-100 pt-3" data-testid="minhhong-workbook-change-details">
                   <summary className="cursor-pointer font-body text-sm font-bold text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-100">
-                    Xem {changedRecords.length} {changedRecordNoun} mới hoặc đã sửa
+                    Xem {detailRecords.length} {changedRecordNoun} mới hoặc đã sửa
                   </summary>
                   <div className="mt-3 divide-y divide-slate-100">
-                    {changedRecords.slice(0, 20).map((record) => (
+                    {pagedChangedRecords.map((record) => (
                       <div key={`${record.group}-${record.key}`} className="flex items-start justify-between gap-3 py-2.5">
                         <div className="min-w-0 flex-1">
                           <p className="font-body text-xs font-bold text-slate-500">{record.group}</p>
@@ -596,10 +692,6 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                                 </li>
                               ) : null}
                             </ul>
-                          ) : record.action === "updated" ? (
-                            <p className="mt-1 font-body text-xs text-slate-500">
-                              Đã đánh dấu cập nhật vì khóa dòng khớp nhưng dữ liệu nguồn cần ghi lại.
-                            </p>
                           ) : null}
                         </div>
                         <span className={`shrink-0 rounded-full px-2.5 py-1 font-body text-xs font-bold ${record.action === "created" ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
@@ -608,24 +700,41 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                       </div>
                     ))}
                   </div>
-                  {changedRecords.length > 20 ? (
-                    <p className="mt-2 font-body text-xs text-slate-500">Còn {changedRecords.length - 20} {changedRecordNoun}; tổng số vẫn hiển thị ở phía trên.</p>
+                  {changedRecordsPageCount > 1 ? (
+                    <div className="mt-3 flex items-center justify-between gap-3" data-testid="minhhong-workbook-change-pagination">
+                      <button
+                        type="button"
+                        data-testid="minhhong-workbook-change-page-previous"
+                        disabled={currentChangedRecordsPage === 1}
+                        onClick={() => setChangedRecordsPage((page) => Math.max(1, page - 1))}
+                        className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-body text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                      >
+                        Trước
+                      </button>
+                      <p className="font-body text-xs font-semibold text-slate-600" aria-live="polite">
+                        Trang {currentChangedRecordsPage}/{changedRecordsPageCount}
+                      </p>
+                      <button
+                        type="button"
+                        data-testid="minhhong-workbook-change-page-next"
+                        disabled={currentChangedRecordsPage === changedRecordsPageCount}
+                        onClick={() => setChangedRecordsPage((page) => Math.min(changedRecordsPageCount, page + 1))}
+                        className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-body text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                      >
+                        Sau
+                      </button>
+                    </div>
                   ) : null}
                 </details>
               ) : null}
 
-              {preview?.changes?.conflicts.length ? (
-                <div className="mt-3 rounded-lg border border-red-100 bg-red-50 p-3" data-testid="minhhong-workbook-conflicts">
-                  {preview.changes.conflicts.map((conflict) => (
-                    <p key={conflict} className="font-body text-sm font-semibold text-red-700">{conflict}</p>
-                  ))}
-                </div>
-              ) : null}
-
               {visibleBlockingIssues.length ? (
                 <div className="mt-3 rounded-lg border border-red-100 bg-red-50 p-3" data-testid="minhhong-workbook-blocking-issues">
+                  <p className="mb-1 font-body text-sm font-bold text-red-800">Cần xử lý trước khi xác nhận</p>
                   {visibleBlockingIssues.map((issue) => (
-                    <p key={issue} className="font-body text-sm font-semibold text-red-700">{issue}</p>
+                    <p key={issue.message} className="font-body text-sm font-semibold text-red-700">
+                      {issue.message}{issue.count > 1 ? ` (${issue.count} dòng)` : ""}
+                    </p>
                   ))}
                 </div>
               ) : null}
@@ -636,7 +745,9 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                     {serviceOrderScope ? "Dòng cần kiểm tra trong Sheet" : partnerScope ? "Cảnh báo công nợ đối tác" : "Cảnh báo dữ liệu nguồn"}
                   </p>
                   {visibleWarnings.slice(0, 8).map((warning) => (
-                    <p key={warning} className="font-body text-sm font-semibold text-amber-800">{warning}</p>
+                    <p key={warning.message} className="font-body text-sm font-semibold text-amber-800">
+                      {warning.message}{warning.count > 1 ? ` (${warning.count} dòng)` : ""}
+                    </p>
                   ))}
                   {visibleWarnings.length > 8 ? (
                     <p className="mt-1 font-body text-xs text-amber-700">Còn {visibleWarnings.length - 8} cảnh báo khác.</p>
@@ -662,7 +773,6 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       {preview?.importResult ? (
         <p className="mt-3 rounded-lg bg-green-50 px-3 py-2 font-body text-sm font-bold text-green-700" data-testid="minhhong-workbook-import-result">
           Hoàn tất: {importResultCreated} {changedRecordNoun} mới, {importResultUpdated} {changedRecordNoun} đã sửa; dữ liệu không đổi đã được bỏ qua.
-          {preview.importResult.sourceSheetDateRepairs ? ` Đã chuẩn hóa ${preview.importResult.sourceSheetDateRepairs} ô ngày trên Sheet gốc.` : ""}
         </p>
       ) : null}
     </section>

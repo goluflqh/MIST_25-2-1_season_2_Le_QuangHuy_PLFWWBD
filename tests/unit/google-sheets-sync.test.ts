@@ -29,8 +29,6 @@ test("allows exporting WEB tabs into raw source spreadsheets without touching ra
   for (const sourceSheetId of MINHHONG_RAW_SOURCE_SHEET_IDS) {
     assert.equal(assertSafeMinhHongSheetSyncTarget(sourceSheetId), sourceSheetId);
   }
-
-  assert.ok(buildGoogleSheetsBatchClearPayload().ranges.every((range) => /^'WEB_/.test(range)));
 });
 
 test("trims and returns an explicit custom export target", () => {
@@ -46,6 +44,7 @@ test("exports only protected WEB-prefixed report tabs", () => {
     "WEB_Đối soát",
   ]);
   assert.ok(MINHHONG_WEB_EXPORT_TAB_TITLES.every((title) => title.startsWith("WEB_")));
+  assert.ok(buildGoogleSheetsBatchClearPayload().ranges.every((range) => /^'WEB_/.test(range)));
 });
 
 test("prepares WEB tabs without deleting or renaming raw source tabs", () => {
@@ -124,10 +123,10 @@ test("writes formulas with USER_ENTERED so exported sheets recalculate", () => {
   assert.equal(updatePayload.valueInputOption, "USER_ENTERED");
   assert.equal(orderTab?.rows[1][2], "'=HYPERLINK(\"https://example.test\")");
   assert.equal(orderTab?.rows[1][4], "'+SUM(1;1)");
-  assert.equal(orderTab?.rows[1][8], "'@private-note");
-  assert.equal(orderTab?.rows[1][10], "'=UNTRUSTED_SOURCE:A5:K5");
+  assert.equal(orderTab?.rows[1][9], "'@private-note");
+  assert.equal(orderTab?.rows[1][11], "'=UNTRUSTED_SOURCE:A5:K5");
   assert.equal(partnerDebtTab?.rows[1][1], "'-10+20");
-  assert.equal(orderTab?.rows[1][7], "=MAX(F2-G2;0)");
+  assert.equal(orderTab?.rows[1][8], "=MAX(F2-G2;0)");
   assert.equal(partnerDebtTab?.rows[1][5], "=MAX(G2+J2+K2-H2-I2;0)");
   assert.match(String(reconciliationTab?.rows[2][1]), /^=COUNTA\(/);
 });
@@ -169,6 +168,7 @@ test("exports imported missing dates as a clear label and adds order total rows"
         orderCode: "MH-DATED",
         orderDate: "2026-07-08T00:00:00.000Z",
         paidAmount: 800000,
+        paidAt: "2026-07-09T00:00:00.000Z",
         priceStatus: "CONFIRMED",
         productName: "Đèn test",
         quotedPrice: 2000000,
@@ -189,10 +189,13 @@ test("exports imported missing dates as a clear label and adds order total rows"
 
   assert.equal(orderTab.rows[1][1], "Chưa có ngày");
   assert.equal(orderTab.rows[2][1], "08/07/2026");
+  assert.equal(orderTab.rows[0][7], "Ngày thu gần nhất");
+  assert.equal(orderTab.rows[1][7], "");
+  assert.equal(orderTab.rows[2][7], "09/07/2026");
   assert.deepEqual(orderTab.rows.slice(-3).map((row) => [row[4], row[5]]), [
     ["Tổng tiền", "=SUM(F2:INDEX(F:F;ROW()-1))"],
     ["Tổng đã thu", "=SUM(G2:INDEX(G:G;ROW()-1))"],
-    ["Còn nợ", "=SUM(H2:INDEX(H:H;ROW()-1))"],
+    ["Còn nợ", "=SUM(I2:INDEX(I:I;ROW()-1))"],
   ]);
 });
 
@@ -275,6 +278,7 @@ test("adds hidden technical columns for future conflict detection", () => {
         service: "PIN_LUU_TRU",
         solution: "",
         source: "LEGACY",
+        sourceCode: "DON_KHACH:DH-MH_STABLE_SOURCE",
         sourceName: "Đơn hàng đã bán",
         sourceRow: 5,
         status: "COMPLETED",
@@ -329,6 +333,8 @@ test("adds hidden technical columns for future conflict detection", () => {
     assert.equal(typeof tab?.rows[1].at(-1), "string");
     assert.ok(String(tab?.rows[1].at(-1)).length >= 12);
   }
+  const orderTab = tabs.find((candidate) => candidate.title === "WEB_Đơn hàng");
+  assert.equal(orderTab?.rows[1].at(-4), "DON_KHACH:DH-MH_STABLE_SOURCE");
 
   const formatRequests = buildGoogleSheetsFormatRequests([{ sheetId: 10, title: "WEB_Đơn hàng" }]);
   assert.ok(formatRequests.some((request) =>
@@ -364,7 +370,14 @@ test("formats money columns in WEB sheets without converting numbers to text", (
     "repeatCell" in request
     && request.repeatCell.range.sheetId === 10
     && request.repeatCell.range.startColumnIndex === 5
-    && request.repeatCell.range.endColumnIndex === 8
+    && request.repeatCell.range.endColumnIndex === 7
+    && request.repeatCell.cell.userEnteredFormat?.numberFormat?.pattern === "#,##0"
+  ));
+  assert.ok(formatRequests.some((request) =>
+    "repeatCell" in request
+    && request.repeatCell.range.sheetId === 10
+    && request.repeatCell.range.startColumnIndex === 8
+    && request.repeatCell.range.endColumnIndex === 9
     && request.repeatCell.cell.userEnteredFormat?.numberFormat?.pattern === "#,##0"
   ));
 });
@@ -448,5 +461,32 @@ test("can scope web-to-sheet sync to service orders or partner ledger tabs", () 
   const serviceOrderTab = tabs.find((tab) => tab.title === "WEB_Đơn hàng");
   assert.deepEqual(buildGoogleSheetsTailClearPayload(tabs, "service-orders").ranges, [
     `'WEB_Đơn hàng'!A${(serviceOrderTab?.rows.length ?? 0) + 1}:Z`,
+  ]);
+});
+
+test("keeps the three order summary colors fixed after every WEB export", () => {
+  const formatRequests = buildGoogleSheetsFormatRequests(
+    [{ sheetId: 10, title: "WEB_Đơn hàng" }],
+    "service-orders",
+    { "WEB_Đơn hàng": 10 }
+  );
+  const summaryFormats = formatRequests.filter((request) => (
+    "repeatCell" in request
+    && request.repeatCell.range.sheetId === 10
+    && request.repeatCell.range.startColumnIndex === 5
+    && request.repeatCell.range.endColumnIndex === 6
+    && Number(request.repeatCell.range.startRowIndex) >= 7
+  ));
+
+  assert.equal(summaryFormats.length, 3);
+  assert.deepEqual(summaryFormats.map((request) => (
+    "repeatCell" in request ? request.repeatCell.range.startRowIndex : null
+  )), [7, 8, 9]);
+  assert.deepEqual(summaryFormats.map((request) => (
+    "repeatCell" in request ? request.repeatCell.cell.userEnteredFormat.backgroundColor : null
+  )), [
+    { red: 0.35, green: 0.95, blue: 0.35 },
+    { red: 0.45, green: 0.85, blue: 1 },
+    { red: 1, green: 0.2, blue: 0.2 },
   ]);
 });

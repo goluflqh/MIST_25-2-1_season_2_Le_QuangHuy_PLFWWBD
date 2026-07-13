@@ -37,6 +37,7 @@ interface ServiceOrderData {
   quotedPrice: number | null;
   priceStatus: string;
   paidAmount: number;
+  paidAt: string | null;
   contactRequestId: string | null;
   couponRedemptionId: string | null;
   couponCode: string | null;
@@ -1787,7 +1788,10 @@ export default function AdminServiceOrdersClient({
                     <div className="mt-3 grid grid-cols-2 gap-2 font-body text-sm md:hidden">
                       <span className="rounded-xl bg-slate-50 px-3 py-2 text-slate-600">Ngày: <strong>{formatOrderDate(order)}</strong></span>
                       <span className="rounded-xl bg-slate-50 px-3 py-2 text-slate-600">Phải thu: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(payable) : priceStatus.label}</strong></span>
-                      <span className="rounded-xl bg-green-50 px-3 py-2 text-green-700">Đã thu: <strong>{formatMoney(order.paidAmount)}</strong></span>
+                      <span className="rounded-xl bg-green-50 px-3 py-2 text-green-700">
+                        Đã thu: <strong>{formatMoney(order.paidAmount)}</strong>
+                        {order.paidAt ? <small className="mt-0.5 block font-semibold text-green-600">Ngày thu {formatDate(order.paidAt)}</small> : null}
+                      </span>
                       <span className="rounded-xl bg-red-50 px-3 py-2 text-red-700">Còn lại: <strong>{formatMoney(debt)}</strong></span>
                     </div>
                     <div className="mt-2 hidden gap-x-4 gap-y-1 font-body text-[12px] leading-5 text-slate-500 md:grid md:grid-cols-3 xl:grid-cols-4">
@@ -1796,7 +1800,10 @@ export default function AdminServiceOrdersClient({
                       <span>Giá gốc: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(order.quotedPrice) : priceStatus.label}</strong></span>
                       <span>Giảm giá: <strong className="text-emerald-700">{formatMoney(order.discountAmount)}</strong></span>
                       <span>Phải thu: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(payable) : priceStatus.label}</strong></span>
-                      <span>Đã thu: <strong>{formatMoney(order.paidAmount)}</strong></span>
+                      <span>
+                        Đã thu: <strong>{formatMoney(order.paidAmount)}</strong>
+                        {order.paidAt ? ` · ${formatDate(order.paidAt)}` : ""}
+                      </span>
                       <span>Còn lại: <strong className={debt > 0 ? "text-red-600" : "text-green-700"}>{formatMoney(debt)}</strong></span>
                     </div>
                     {order.couponCode ? (

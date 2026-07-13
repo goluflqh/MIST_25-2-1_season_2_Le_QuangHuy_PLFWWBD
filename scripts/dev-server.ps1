@@ -14,6 +14,54 @@ $stdoutLog = Join-Path $logRoot "dev-$Port.out.log"
 $stderrLog = Join-Path $logRoot "dev-$Port.err.log"
 $stateFile = Join-Path $logRoot "dev-$Port.state.json"
 
+function Import-DotEnvFile([string]$Path) {
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
+    return
+  }
+
+  foreach ($line in Get-Content -LiteralPath $Path) {
+    if ($line -notmatch '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$') {
+      continue
+    }
+
+    $name = $matches[1]
+    $value = $matches[2].Trim()
+    if (
+      ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+      ($value.StartsWith("'") -and $value.EndsWith("'"))
+    ) {
+      $value = $value.Substring(1, $value.Length - 2)
+    }
+
+    [Environment]::SetEnvironmentVariable($name, $value, "Process")
+  }
+}
+
+function Get-MainWorktreeEnvFile {
+  $worktreePath = $null
+  foreach ($line in git -C $projectRoot worktree list --porcelain) {
+    if ($line.StartsWith("worktree ")) {
+      $worktreePath = $line.Substring("worktree ".Length)
+      continue
+    }
+
+    if ($line -eq "branch refs/heads/main" -and $worktreePath) {
+      $candidate = Join-Path $worktreePath ".env"
+      if (Test-Path -LiteralPath $candidate) {
+        return $candidate
+      }
+    }
+  }
+
+  return $null
+}
+
+function Import-DevelopmentEnvironment {
+  Import-DotEnvFile (Get-MainWorktreeEnvFile)
+  Import-DotEnvFile (Join-Path $projectRoot ".env")
+  Import-DotEnvFile (Join-Path $projectRoot ".env.local")
+}
+
 function Get-PortProcessId {
   $connection = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
     Where-Object { $_.State -eq "Listen" } |
@@ -92,7 +140,10 @@ function Start-Server {
   if (Test-Path $stderrLog) { Remove-Item -LiteralPath $stderrLog -Force }
   if (Test-Path $stateFile) { Remove-Item -LiteralPath $stateFile -Force }
 
-  $nodeExe = (Get-Command node).Source
+  Import-DevelopmentEnvironment
+
+  $systemNode = Join-Path $env:ProgramFiles "nodejs\node.exe"
+  $nodeExe = if (Test-Path -LiteralPath $systemNode) { $systemNode } else { (Get-Command node).Source }
   $nextCli = Join-Path $projectRoot "node_modules\next\dist\bin\next"
   $argumentList = @($nextCli, "dev")
   $argumentList += if ($Bundler -eq "webpack") { "--webpack" } else { "--turbopack" }

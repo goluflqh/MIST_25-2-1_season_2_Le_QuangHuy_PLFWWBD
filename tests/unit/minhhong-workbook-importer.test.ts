@@ -20,7 +20,10 @@ function createFakeImportRunner() {
     transactionOptions: [] as Array<{ maxWait?: number; timeout?: number } | undefined>,
   };
 
-  const findServiceOrder = (where: { id?: string; orderCode?: string }) => {
+  const findServiceOrder = (where: { id?: string; orderCode?: string; sourceCode?: string }) => {
+    if (where.sourceCode) {
+      return [...state.serviceOrders.values()].find((order) => order.sourceCode === where.sourceCode) || null;
+    }
     if (where.orderCode) return state.serviceOrders.get(where.orderCode) || null;
     if (where.id) {
       return [...state.serviceOrders.values()].find((order) => order.id === where.id) || null;
@@ -70,7 +73,10 @@ function createFakeImportRunner() {
       upsert: async ({ where, create, update }: { where: { sourceCode: string }; create: Record<string, unknown>; update: Record<string, unknown> }) => {
         const existing = state.partnerLedgerEntries.get(where.sourceCode);
         const value = { ...(existing || { id: `entry-${where.sourceCode}` }), ...(existing ? update : create) };
-        state.partnerLedgerEntries.set(where.sourceCode, value);
+        if (existing && where.sourceCode !== value.sourceCode) {
+          state.partnerLedgerEntries.delete(where.sourceCode);
+        }
+        state.partnerLedgerEntries.set(String(value.sourceCode || where.sourceCode), value);
         return value;
       },
     },
@@ -83,12 +89,17 @@ function createFakeImportRunner() {
       },
     },
     serviceOrder: {
-      findMany: async ({ where, include }: { where: { orderCode: { in: string[] } }; include?: Record<string, unknown> }) => (
-        where.orderCode.in
-          .map((orderCode) => withServiceOrderRelations(findServiceOrder({ orderCode }), include))
-          .filter(Boolean) as Array<Record<string, unknown>>
-      ),
-      findUnique: async ({ where, include }: { where: { id?: string; orderCode?: string }; include?: Record<string, unknown> }) => (
+      findMany: async ({ where, include }: { where: Record<string, unknown>; include?: Record<string, unknown> }) => {
+        const conditions = Array.isArray(where.OR)
+          ? where.OR as Array<Record<string, { in?: string[] }>>
+          : [where as Record<string, { in?: string[] }>];
+        const matches = [...state.serviceOrders.values()].filter((order) => conditions.some((condition) => (
+          condition.orderCode?.in?.includes(String(order.orderCode))
+          || condition.sourceCode?.in?.includes(String(order.sourceCode))
+        )));
+        return matches.map((order) => withServiceOrderRelations(order, include) as Record<string, unknown>);
+      },
+      findUnique: async ({ where, include }: { where: { id?: string; orderCode?: string; sourceCode?: string }; include?: Record<string, unknown> }) => (
         withServiceOrderRelations(findServiceOrder(where), include)
       ),
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -96,14 +107,20 @@ function createFakeImportRunner() {
         state.serviceOrders.set(String(data.orderCode), value);
         return value;
       },
-      update: async ({ where, data }: { where: { id?: string; orderCode?: string }; data: Record<string, unknown> }) => {
-        const existing = findServiceOrder(where) || { id: `order-${where.orderCode || where.id}`, orderCode: where.orderCode || where.id };
-        const orderCode = String(existing.orderCode || data.orderCode || where.orderCode || where.id);
+      update: async ({ where, data }: { where: { id?: string; orderCode?: string; sourceCode?: string }; data: Record<string, unknown> }) => {
+        const existing = findServiceOrder(where) || {
+          id: `order-${where.orderCode || where.sourceCode || where.id}`,
+          orderCode: where.orderCode || where.sourceCode || where.id,
+        };
+        const orderCode = String(existing.orderCode || data.orderCode || where.orderCode || where.sourceCode || where.id);
         const value: Record<string, unknown> = {
           ...existing,
           ...data,
           id: String(existing.id || `order-${orderCode}`),
         };
+        if (existing.orderCode && existing.orderCode !== value.orderCode) {
+          state.serviceOrders.delete(String(existing.orderCode));
+        }
         state.serviceOrders.set(String(value.orderCode), value);
         return value;
       },
@@ -145,7 +162,7 @@ test("imports the parsed workbook into idempotent partner and order records", as
   const parsed = await parsedWorkbook();
   const { runner, state } = createFakeImportRunner();
 
-  const summary = await importMinhHongParsedWorkbook(parsed, runner, { userId: "admin-test" });
+  const summary = await importMinhHongParsedWorkbook(parsed, runner, { scope: "all", userId: "admin-test" });
 
   assert.equal(summary.partnersUpserted, parsed.partners.length);
   assert.equal(summary.partnerEntriesUpserted, 80);
@@ -158,9 +175,24 @@ test("imports the parsed workbook into idempotent partner and order records", as
   assert.equal(completedOrders.every((order) => order.warrantyMonths === 6 && order.warrantyEndDate instanceof Date), true);
   assert.equal([...state.partnerLedgerEntries.keys()].some((key) => key.startsWith("DON_KHACH")), false);
   assert.equal([...state.serviceOrders.values()].every((order) => order.source === "IMPORT" && order.sourceName === "Đơn khách"), true);
+  assert.equal([...state.serviceOrders.values()].every((order) => typeof order.sourceCode === "string" && order.sourceCode.length > 0), true);
   assert.equal([...state.serviceOrders.values()].every((order) => String(order.customerPhone || "").length >= 10), true);
   assert.equal(state.auditLogs.length, 1);
   assert.deepEqual(state.transactionOptions, [{ maxWait: 10_000, timeout: 120_000 }]);
+});
+
+test("defaults direct imports to service orders only", async () => {
+  const parsed = await parsedWorkbook();
+  const { runner, state } = createFakeImportRunner();
+
+  const summary = await importMinhHongParsedWorkbook(parsed, runner, { userId: "admin-test" });
+
+  assert.equal(summary.partnersUpserted, 0);
+  assert.equal(summary.partnerEntriesUpserted, 0);
+  assert.equal(summary.serviceOrdersUpserted, parsed.customerOrders.length);
+  assert.equal(state.partners.size, 0);
+  assert.equal(state.partnerLedgerEntries.size, 0);
+  assert.equal(state.serviceOrders.size, parsed.customerOrders.length);
 });
 
 test("service-order scoped import leaves partner ledger records untouched", async () => {
@@ -322,8 +354,8 @@ test("running the same parsed workbook twice does not create duplicate records",
   const parsed = await parsedWorkbook();
   const { runner, state } = createFakeImportRunner();
 
-  await importMinhHongParsedWorkbook(parsed, runner, { userId: "admin-test" });
-  const second = await importMinhHongParsedWorkbook(parsed, runner, { userId: "admin-test" });
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "all", userId: "admin-test" });
+  const second = await importMinhHongParsedWorkbook(parsed, runner, { scope: "all", userId: "admin-test" });
 
   assert.equal(state.partners.size, parsed.partners.length);
   assert.equal(state.partnerLedgerEntries.size, 80);
@@ -334,6 +366,685 @@ test("running the same parsed workbook twice does not create duplicate records",
   assert.deepEqual(second.changes.serviceOrders, { created: 0, updated: 0, unchanged: 41 });
   assert.equal(second.partnerEntriesUpserted, 0);
   assert.equal(second.serviceOrdersUpserted, 0);
+  assert.equal([...state.partnerLedgerEntries.keys()].every((sourceCode) => !sourceCode.includes(":MH_")), true);
+  assert.equal([...state.serviceOrders.values()].every((order) => !String(order.sourceCode).includes(":MH_")), true);
+});
+
+test("matches imported service orders by sourceCode without changing the visible order code", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceOrder = baseline.customerOrders[0];
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [sourceOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+  const changedOrderCode = `${sourceOrder.orderCode}-RENAMED`;
+  const changed = {
+    ...parsed,
+    customerOrders: [{ ...sourceOrder, orderCode: changedOrderCode }],
+  };
+
+  const preview = await previewMinhHongParsedWorkbook(changed, runner, { scope: "service-orders" });
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 0, unchanged: 1 });
+  assert.deepEqual(preview.conflicts, []);
+
+  await importMinhHongParsedWorkbook(changed, runner, { scope: "service-orders", userId: "admin-test" });
+
+  assert.equal(state.serviceOrders.size, 1);
+  assert.equal(state.serviceOrders.has(sourceOrder.orderCode), true);
+  assert.equal(state.serviceOrders.has(changedOrderCode), false);
+  assert.equal(state.serviceOrders.get(sourceOrder.orderCode)?.sourceCode, sourceOrder.sourceCode);
+});
+
+test("stable sourceCode stays authoritative when two rows exchange row-derived order codes", async () => {
+  const baseline = await parsedWorkbook();
+  const firstOrder = {
+    ...baseline.customerOrders[0],
+    legacyOrderCode: "DH-ROW-1",
+    orderCode: "DH-ROW-1",
+    orderDate: "2026-07-01",
+    sourceCode: `DON_KHACH:MH_${"G".repeat(32)}`,
+    sourceRow: 810,
+  };
+  const secondOrder = {
+    ...baseline.customerOrders[1],
+    legacyOrderCode: "DH-ROW-2",
+    orderCode: "DH-ROW-2",
+    orderDate: "2026-07-02",
+    sourceCode: `DON_KHACH:MH_${"H".repeat(32)}`,
+    sourceRow: 811,
+  };
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [firstOrder, secondOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const reordered = {
+    ...parsed,
+    customerOrders: [
+      {
+        ...firstOrder,
+        legacyOrderCode: secondOrder.orderCode,
+        orderCode: secondOrder.orderCode,
+        sourceRow: secondOrder.sourceRow,
+      },
+      {
+        ...secondOrder,
+        legacyOrderCode: firstOrder.orderCode,
+        orderCode: firstOrder.orderCode,
+        sourceRow: firstOrder.sourceRow,
+      },
+    ],
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+  const preview = await previewMinhHongParsedWorkbook(reordered, runner, { scope: "service-orders" });
+
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 2, unchanged: 0 });
+  assert.deepEqual(preview.conflicts, []);
+  await importMinhHongParsedWorkbook(reordered, runner, { scope: "service-orders", userId: "admin-test" });
+
+  assert.equal(state.serviceOrders.size, 2);
+  assert.equal(state.serviceOrders.get(firstOrder.orderCode)?.sourceCode, firstOrder.sourceCode);
+  assert.equal(state.serviceOrders.get(secondOrder.orderCode)?.sourceCode, secondOrder.sourceCode);
+  assert.equal(state.serviceOrders.get(firstOrder.orderCode)?.sourceRow, secondOrder.sourceRow);
+  assert.equal(state.serviceOrders.get(secondOrder.orderCode)?.sourceRow, firstOrder.sourceRow);
+});
+
+test("backfills sourceCode when a legacy imported order only matches by orderCode", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceOrder = baseline.customerOrders[0];
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [sourceOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+  const legacyOrder = state.serviceOrders.get(sourceOrder.orderCode);
+  assert.ok(legacyOrder);
+  delete legacyOrder.sourceCode;
+
+  const preview = await previewMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders" });
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 1, unchanged: 0 });
+
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+
+  assert.equal(state.serviceOrders.size, 1);
+  assert.equal(state.serviceOrders.get(sourceOrder.orderCode)?.sourceCode, sourceOrder.sourceCode);
+});
+
+test("first stable source_id rollout rekeys a matching legacy order without duplication", async () => {
+  const baseline = await parsedWorkbook();
+  const legacyOrder = { ...baseline.customerOrders[0], orderDate: "2026-07-01" };
+  const stableId = `MH_${"A".repeat(32)}`;
+  const stableOrder = {
+    ...legacyOrder,
+    legacyOrderCode: legacyOrder.orderCode,
+    orderCode: legacyOrder.orderCode,
+    sourceCode: `DON_KHACH:${stableId}`,
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook({
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [legacyOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  }, runner, { scope: "service-orders", userId: "admin-test" });
+  const existing = state.serviceOrders.get(legacyOrder.orderCode);
+  assert.ok(existing);
+  assert.equal(existing.sourceCode, legacyOrder.sourceCode);
+
+  const rollout = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [stableOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const preview = await previewMinhHongParsedWorkbook(rollout, runner, { scope: "service-orders" });
+  assert.deepEqual(preview.conflicts, []);
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 1, unchanged: 0 });
+  assert.equal(preview.records.serviceOrders[0]?.changes?.some((change) => change.field === "orderDate") ?? false, false);
+  assert.equal(
+    preview.records.serviceOrders[0]?.changes?.some((change) => change.field === "sourceCode"),
+    false,
+    "stable source_id must remain internal to the import workflow"
+  );
+
+  await importMinhHongParsedWorkbook(rollout, runner, { scope: "service-orders", userId: "admin-test" });
+
+  assert.equal(state.serviceOrders.size, 1);
+  assert.equal(state.serviceOrders.has(legacyOrder.orderCode), true);
+  assert.equal(state.serviceOrders.get(legacyOrder.orderCode)?.sourceCode, stableOrder.sourceCode);
+});
+
+test("first stable source_id rollout treats a stored fallback date as the same missing source date", async () => {
+  const baseline = await parsedWorkbook();
+  const legacyOrder = {
+    ...baseline.customerOrders[0],
+    orderDate: "",
+  };
+  const stableOrder = {
+    ...legacyOrder,
+    legacyOrderCode: legacyOrder.orderCode,
+    sourceCode: `DON_KHACH:MH_${"A".repeat(32)}`,
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook({
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [legacyOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  }, runner, { scope: "service-orders", userId: "admin-test" });
+
+  const rollout = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [stableOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const preview = await previewMinhHongParsedWorkbook(rollout, runner, { scope: "service-orders" });
+
+  assert.deepEqual(preview.conflicts, []);
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 1, unchanged: 0 });
+  assert.equal(preview.records.serviceOrders[0]?.changes?.some((change) => change.field === "orderDate") ?? false, false);
+
+  await importMinhHongParsedWorkbook(rollout, runner, { scope: "service-orders", userId: "admin-test" });
+
+  assert.equal(state.serviceOrders.size, 1);
+  assert.equal(state.serviceOrders.get(legacyOrder.orderCode)?.sourceCode, stableOrder.sourceCode);
+});
+
+test("updates a corrected source row when its stable business anchor still matches", async () => {
+  const baseline = await parsedWorkbook();
+  const initialOrder = {
+    ...baseline.customerOrders[0],
+    legacyOrderCode: baseline.customerOrders[0].orderCode,
+    sourceCode: `DON_KHACH:MH_${"A".repeat(32)}`,
+    sourceRow: 4,
+  };
+  const correctedOrder = {
+    ...initialOrder,
+    paidAmount: initialOrder.paidAmount + 100_000,
+    sourceCode: `DON_KHACH:MH_${"B".repeat(32)}`,
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook({
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [initialOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  }, runner, { scope: "service-orders", userId: "admin-test" });
+
+  const corrected = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [correctedOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const preview = await previewMinhHongParsedWorkbook(corrected, runner, { scope: "service-orders" });
+
+  assert.deepEqual(preview.conflicts, []);
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 1, unchanged: 0 });
+  assert.equal(preview.records.serviceOrders[0]?.changes?.some((change) => change.field === "sourceCode"), false);
+
+  await importMinhHongParsedWorkbook(corrected, runner, { scope: "service-orders", userId: "admin-test" });
+
+  const saved = state.serviceOrders.get(initialOrder.orderCode);
+  assert.equal(saved?.sourceCode, correctedOrder.sourceCode);
+  assert.equal(saved?.paidAmount, correctedOrder.paidAmount);
+});
+
+test("blocks a changed source row after it moves because the match is no longer safe", async () => {
+  const baseline = await parsedWorkbook();
+  const initialOrder = {
+    ...baseline.customerOrders[0],
+    legacyOrderCode: baseline.customerOrders[0].orderCode,
+    sourceCode: `DON_KHACH:MH_${"C".repeat(32)}`,
+    sourceRow: 4,
+  };
+  const movedAndChangedOrder = {
+    ...initialOrder,
+    paidAmount: initialOrder.paidAmount + 100_000,
+    sourceCode: `DON_KHACH:MH_${"D".repeat(32)}`,
+    sourceRow: 5,
+  };
+  const { runner } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook({
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [initialOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  }, runner, { scope: "service-orders", userId: "admin-test" });
+
+  const preview = await previewMinhHongParsedWorkbook({
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [movedAndChangedOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  }, runner, { scope: "service-orders" });
+
+  assert.equal(preview.conflicts.length, 1);
+});
+
+test("first stable source_id rollout rekeys a legacy partner entry without duplication", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceEntry = baseline.partnerEntries.find((entry) => entry.sourceCode === "NHAP_HANG:NH-0003");
+  assert.ok(sourceEntry);
+  const legacyEntry = { ...sourceEntry, entryDate: "2026-07-01" };
+  assert.ok(legacyEntry);
+  const stableEntry = {
+    ...legacyEntry,
+    legacySourceCode: legacyEntry.sourceCode,
+    sourceCode: `NHAP_HANG:MH_${"B".repeat(32)}`,
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  const legacy = {
+    ...baseline,
+    partners: baseline.partners.filter((partner) => partner.partnerCode === legacyEntry.partnerCode),
+    partnerEntries: [legacyEntry],
+    customerOrders: [],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  await importMinhHongParsedWorkbook(legacy, runner, { scope: "partners", userId: "admin-test" });
+  assert.equal(state.partnerLedgerEntries.get(legacyEntry.sourceCode)?.sourceCode, legacyEntry.sourceCode);
+
+  const rollout = { ...legacy, partnerEntries: [stableEntry] };
+  const preview = await previewMinhHongParsedWorkbook(rollout, runner, { scope: "partners" });
+  assert.deepEqual(preview.partnerEntries, { created: 0, updated: 1, unchanged: 0 });
+  assert.deepEqual(preview.conflicts, []);
+
+  await importMinhHongParsedWorkbook(rollout, runner, { scope: "partners", userId: "admin-test" });
+
+  assert.equal(state.partnerLedgerEntries.size, 1);
+  assert.equal(state.partnerLedgerEntries.has(legacyEntry.sourceCode), false);
+  assert.equal(state.partnerLedgerEntries.get(stableEntry.sourceCode)?.sourceCode, stableEntry.sourceCode);
+});
+
+test("first stable source_id rollout accepts a legacy placeholder date when the source date is still missing", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceEntry = baseline.partnerEntries.find((entry) => entry.sourceCode === "NHAP_HANG:NH-0003");
+  assert.ok(sourceEntry);
+  const legacyEntry = { ...sourceEntry, entryDate: "" };
+  const stableEntry = {
+    ...legacyEntry,
+    legacySourceCode: legacyEntry.sourceCode,
+    sourceCode: `NHAP_HANG:MH_${"C".repeat(32)}`,
+  };
+  const { runner, state } = createFakeImportRunner();
+  const legacy = {
+    ...baseline,
+    partners: baseline.partners.filter((partner) => partner.partnerCode === legacyEntry.partnerCode),
+    partnerEntries: [legacyEntry],
+    customerOrders: [],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+
+  await importMinhHongParsedWorkbook(legacy, runner, { scope: "partners", userId: "admin-test" });
+  const storedLegacyEntry = state.partnerLedgerEntries.get(legacyEntry.sourceCode);
+  assert.ok(storedLegacyEntry);
+  storedLegacyEntry.entryDate = new Date("2001-01-01T00:00:00.000Z");
+
+  const rollout = { ...legacy, partnerEntries: [stableEntry] };
+  const preview = await previewMinhHongParsedWorkbook(rollout, runner, { scope: "partners" });
+
+  assert.deepEqual(preview.conflicts, []);
+  assert.deepEqual(preview.partnerEntries, { created: 0, updated: 1, unchanged: 0 });
+  assert.equal(preview.records.partnerEntries[0]?.changes?.some((change) => change.field === "entryDate") ?? false, false);
+
+  await importMinhHongParsedWorkbook(rollout, runner, { scope: "partners", userId: "admin-test" });
+
+  assert.equal(state.partnerLedgerEntries.size, 1);
+  assert.equal(state.partnerLedgerEntries.has(legacyEntry.sourceCode), false);
+  assert.equal(state.partnerLedgerEntries.get(stableEntry.sourceCode)?.sourceCode, stableEntry.sourceCode);
+});
+
+test("first stable source_id rollout accepts a unique date-only correction for a partner entry", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceEntry = baseline.partnerEntries.find((entry) => entry.sourceCode === "NHAP_HANG:NH-0003");
+  assert.ok(sourceEntry);
+  const correctedEntry = { ...sourceEntry, entryDate: "2026-01-28" };
+  const stableEntry = {
+    ...correctedEntry,
+    legacySourceCode: correctedEntry.sourceCode,
+    sourceCode: `NHAP_HANG:MH_${"D".repeat(32)}`,
+  };
+  const { runner, state } = createFakeImportRunner();
+  const legacy = {
+    ...baseline,
+    partners: baseline.partners.filter((partner) => partner.partnerCode === correctedEntry.partnerCode),
+    partnerEntries: [{ ...correctedEntry, entryDate: "2029-01-28" }],
+    customerOrders: [],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+
+  await importMinhHongParsedWorkbook(legacy, runner, { scope: "partners", userId: "admin-test" });
+
+  const rollout = { ...legacy, partnerEntries: [stableEntry] };
+  const preview = await previewMinhHongParsedWorkbook(rollout, runner, { scope: "partners" });
+
+  assert.deepEqual(preview.conflicts, []);
+  assert.deepEqual(preview.partnerEntries, { created: 0, updated: 1, unchanged: 0 });
+  assert.equal(preview.records.partnerEntries[0]?.changes?.some((change) => change.field === "entryDate") ?? false, true);
+
+  await importMinhHongParsedWorkbook(rollout, runner, { scope: "partners", userId: "admin-test" });
+
+  const saved = state.partnerLedgerEntries.get(stableEntry.sourceCode);
+  assert.equal(state.partnerLedgerEntries.size, 1);
+  assert.equal(saved?.sourceCode, stableEntry.sourceCode);
+  const savedEntryDate = saved?.entryDate;
+  assert.ok(typeof savedEntryDate === "string" || savedEntryDate instanceof Date);
+  assert.equal(getVietnamDateKey(savedEntryDate), "2026-01-28");
+});
+
+test("rejects a pre-stamp customer row swap instead of rekeying the legacy order", async () => {
+  const baseline = await parsedWorkbook();
+  const legacyOrder = { ...baseline.customerOrders[0], orderDate: "2026-07-01" };
+  const swappedCustomer = { ...baseline.customerOrders[1], orderDate: "2026-07-02" };
+  const stableOrder = {
+    ...swappedCustomer,
+    legacyOrderCode: legacyOrder.orderCode,
+    orderCode: legacyOrder.orderCode,
+    sourceCode: `DON_KHACH:MH_${"C".repeat(32)}`,
+  };
+  const { runner, state } = createFakeImportRunner();
+  const legacy = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [legacyOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+
+  await importMinhHongParsedWorkbook(legacy, runner, { scope: "service-orders", userId: "admin-test" });
+  const preview = await previewMinhHongParsedWorkbook(
+    { ...legacy, customerOrders: [stableOrder] },
+    runner,
+    { scope: "service-orders" }
+  );
+
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 0, unchanged: 0 });
+  assert.equal(preview.conflicts.length, 1);
+  assert.match(preview.conflicts[0], /không khớp dữ liệu nghiệp vụ/i);
+  await assert.rejects(
+    () => importMinhHongParsedWorkbook(
+      { ...legacy, customerOrders: [stableOrder] },
+      runner,
+      { scope: "service-orders", userId: "admin-test" }
+    ),
+    /không khớp dữ liệu nghiệp vụ/i
+  );
+  assert.equal(state.serviceOrders.size, 1);
+  assert.equal(state.serviceOrders.get(legacyOrder.orderCode)?.sourceCode, legacyOrder.sourceCode);
+  assert.equal(state.serviceOrders.get(legacyOrder.orderCode)?.customerName, legacyOrder.customerName || "Khách chưa rõ tên");
+});
+
+test("rejects a mismatched first purchase source_id rekey without writing", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceEntry = baseline.partnerEntries.find((entry) => entry.sourceCode === "NHAP_HANG:NH-0003");
+  assert.ok(sourceEntry);
+  const legacyEntry = { ...sourceEntry, entryDate: "2026-07-01" };
+  const legacy = {
+    ...baseline,
+    partners: baseline.partners.filter((partner) => partner.partnerCode === legacyEntry.partnerCode),
+    partnerEntries: [legacyEntry],
+    customerOrders: [],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const stableEntry = {
+    ...legacyEntry,
+    amount: legacyEntry.amount + 10_000,
+    legacySourceCode: legacyEntry.sourceCode,
+    sourceCode: `NHAP_HANG:MH_${"D".repeat(32)}`,
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook(legacy, runner, { scope: "partners", userId: "admin-test" });
+  const preview = await previewMinhHongParsedWorkbook(
+    { ...legacy, partnerEntries: [stableEntry] },
+    runner,
+    { scope: "partners" }
+  );
+
+  assert.deepEqual(preview.partnerEntries, { created: 0, updated: 0, unchanged: 0 });
+  assert.equal(preview.conflicts.length, 1);
+  assert.match(preview.conflicts[0], /không khớp dữ liệu nghiệp vụ/i);
+  await assert.rejects(
+    () => importMinhHongParsedWorkbook(
+      { ...legacy, partnerEntries: [stableEntry] },
+      runner,
+      { scope: "partners", userId: "admin-test" }
+    ),
+    /không khớp dữ liệu nghiệp vụ/i
+  );
+  assert.equal(state.partnerLedgerEntries.size, 1);
+  assert.equal(state.partnerLedgerEntries.get(legacyEntry.sourceCode)?.sourceCode, legacyEntry.sourceCode);
+  assert.equal(state.partnerLedgerEntries.get(legacyEntry.sourceCode)?.amount, legacyEntry.amount);
+});
+
+test("rejects duplicate first-rollout order signatures without rekeying either legacy order", async () => {
+  const baseline = await parsedWorkbook();
+  const sharedOrder = {
+    ...baseline.customerOrders[0],
+    customerName: "Duplicate customer",
+    customerPhone: "",
+    notes: "same business order",
+    orderDate: "2026-07-01",
+    paidAmount: 50_000,
+    priceStatus: "CONFIRMED" as const,
+    productName: "Duplicate product",
+    quotedPrice: 150_000,
+  };
+  const firstLegacyOrder = {
+    ...sharedOrder,
+    legacyOrderCode: null,
+    orderCode: "DH-LEGACY-DUP-1",
+    sourceCode: "DON_KHACH:DH-LEGACY-DUP-1",
+    sourceRow: 700,
+  };
+  const secondLegacyOrder = {
+    ...sharedOrder,
+    legacyOrderCode: null,
+    orderCode: "DH-LEGACY-DUP-2",
+    sourceCode: "DON_KHACH:DH-LEGACY-DUP-2",
+    sourceRow: 701,
+  };
+  const legacy = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [firstLegacyOrder, secondLegacyOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const rollout = {
+    ...legacy,
+    customerOrders: [
+      {
+        ...firstLegacyOrder,
+        legacyOrderCode: firstLegacyOrder.orderCode,
+        sourceCode: `DON_KHACH:MH_${"E".repeat(32)}`,
+      },
+      {
+        ...secondLegacyOrder,
+        legacyOrderCode: secondLegacyOrder.orderCode,
+        sourceCode: `DON_KHACH:MH_${"F".repeat(32)}`,
+      },
+    ],
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook(legacy, runner, { scope: "service-orders", userId: "admin-test" });
+  const preview = await previewMinhHongParsedWorkbook(rollout, runner, { scope: "service-orders" });
+
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 0, unchanged: 0 });
+  assert.equal(preview.conflicts.length, 2);
+  assert.equal(preview.conflicts.every((conflict) => /trùng dữ liệu nghiệp vụ/i.test(conflict)), true);
+  await assert.rejects(
+    () => importMinhHongParsedWorkbook(rollout, runner, { scope: "service-orders", userId: "admin-test" }),
+    /trùng dữ liệu nghiệp vụ/i
+  );
+  assert.equal(state.serviceOrders.size, 2);
+  assert.equal(state.serviceOrders.get(firstLegacyOrder.orderCode)?.sourceCode, firstLegacyOrder.sourceCode);
+  assert.equal(state.serviceOrders.get(secondLegacyOrder.orderCode)?.sourceCode, secondLegacyOrder.sourceCode);
+});
+
+test("blocks an order-code fallback that already owns another stable sourceCode", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceOrder = baseline.customerOrders[0];
+  const { runner, state } = createFakeImportRunner();
+  state.serviceOrders.set(sourceOrder.orderCode, {
+    id: "order-existing-source",
+    orderCode: sourceOrder.orderCode,
+    sourceCode: "DON_KHACH:DH-ANOTHER-STABLE-ID",
+    source: "IMPORT",
+    deletedAt: null,
+  });
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [{ ...sourceOrder, sourceCode: "DON_KHACH:DH-NEW-STABLE-ID" }],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+
+  const preview = await previewMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders" });
+  assert.equal(preview.conflicts.length, 1);
+  assert.match(preview.conflicts[0], /source_id khác/i);
+  await assert.rejects(
+    () => importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" }),
+    /source_id khác/i
+  );
+});
+
+test("uses the stable sourceCode owner when a row-derived orderCode points to another import", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceOrder = baseline.customerOrders[0];
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [sourceOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const { runner, state } = createFakeImportRunner();
+  state.serviceOrders.set("DH-SOURCE-OWNER", {
+    id: "order-source-owner",
+    orderCode: "DH-SOURCE-OWNER",
+    sourceCode: sourceOrder.sourceCode,
+    source: "IMPORT",
+    deletedAt: null,
+  });
+  state.serviceOrders.set(sourceOrder.orderCode, {
+    id: "order-code-owner",
+    orderCode: sourceOrder.orderCode,
+    sourceCode: "DON_KHACH:DIFFERENT-SOURCE",
+    source: "IMPORT",
+    deletedAt: null,
+  });
+
+  const preview = await previewMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders" });
+
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 1, unchanged: 0 });
+  assert.deepEqual(preview.conflicts, []);
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+  assert.equal(state.serviceOrders.size, 2);
+  assert.equal(state.serviceOrders.get("DH-SOURCE-OWNER")?.sourceCode, sourceOrder.sourceCode);
+  assert.equal(state.serviceOrders.get(sourceOrder.orderCode)?.sourceCode, "DON_KHACH:DIFFERENT-SOURCE");
+});
+
+test("blocks a manual order matched through sourceCode even when orderCode differs", async () => {
+  const baseline = await parsedWorkbook();
+  const sourceOrder = baseline.customerOrders[0];
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [sourceOrder],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const { runner, state } = createFakeImportRunner();
+  state.serviceOrders.set("WEB-MANUAL-ORDER", {
+    id: "manual-source-owner",
+    orderCode: "WEB-MANUAL-ORDER",
+    sourceCode: sourceOrder.sourceCode,
+    source: "MANUAL",
+    deletedAt: null,
+  });
+
+  const preview = await previewMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders" });
+
+  assert.equal(preview.conflicts.length, 1);
+  assert.match(preview.conflicts[0], /không ghi đè đơn thủ công/i);
+  await assert.rejects(
+    () => importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" }),
+    /không ghi đè đơn thủ công/i
+  );
+  assert.equal(state.serviceOrders.size, 1);
+  assert.equal(state.serviceOrders.has(sourceOrder.orderCode), false);
 });
 
 test("service-order import preserves web-only customer addresses that are not present in the Sheet", async () => {
@@ -355,7 +1066,7 @@ test("service-order import preserves web-only customer addresses that are not pr
 test("previews new, changed, and unchanged rows before writing", async () => {
   const parsed = await parsedWorkbook();
   const { runner, state } = createFakeImportRunner();
-  await importMinhHongParsedWorkbook(parsed, runner, { userId: "admin-test" });
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "all", userId: "admin-test" });
 
   const changed = {
     ...parsed,
@@ -370,7 +1081,7 @@ test("previews new, changed, and unchanged rows before writing", async () => {
     orders: state.serviceOrders.size,
   };
 
-  const preview = await previewMinhHongParsedWorkbook(changed, runner);
+  const preview = await previewMinhHongParsedWorkbook(changed, runner, { scope: "all" });
 
   assert.deepEqual(preview.partnerEntries, { created: 1, updated: 1, unchanged: 79 });
   assert.deepEqual(preview.serviceOrders, { created: 0, updated: 1, unchanged: 40 });

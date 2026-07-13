@@ -12,6 +12,7 @@ import { prisma } from "../lib/prisma";
 
 const DEFAULT_WORKBOOK = "operations/minhhong-admin-import-template-2026-05-26.xlsx";
 const CONFIRM_DB_VALUES = new Set(["clean", "staging"]);
+const IMPORT_SCOPE = "service-orders" as const;
 
 function argValue(name: string) {
   const index = process.argv.indexOf(name);
@@ -53,7 +54,7 @@ async function main() {
   const baselinePolicy = readBaselinePolicy();
   const workbookPath = resolve(argValue("--workbook") || DEFAULT_WORKBOOK);
   const parsed = await parseMinhHongAdminWorkbook(readFileSync(workbookPath));
-  const reconciliation = reconcileMinhHongWorkbook(parsed);
+  const reconciliation = reconcileMinhHongWorkbook(parsed, { scope: IMPORT_SCOPE });
   let report = buildMinhHongRehearsalReport(parsed, reconciliation, mode, undefined, { baselinePolicy });
 
   console.log(JSON.stringify(report, null, 2));
@@ -76,7 +77,9 @@ async function main() {
   }
 
   await assertCleanRehearsalDatabase();
-  const importResult = await importMinhHongParsedWorkbook(parsed, prisma as unknown as ImportRunner);
+  const importResult = await importMinhHongParsedWorkbook(parsed, prisma as unknown as ImportRunner, {
+    scope: IMPORT_SCOPE,
+  });
   report = buildMinhHongRehearsalReport(parsed, reconciliation, mode, importResult, { baselinePolicy });
   console.log(JSON.stringify(report, null, 2));
 }

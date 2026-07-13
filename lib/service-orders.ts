@@ -334,6 +334,7 @@ export function normalizeServiceOrderPayload(
   const couponRedemptionId = sanitizeText(String(payload.couponRedemptionId || "")) || null;
   const productName = sanitizeText(String(payload.productName || payload.product || ""));
   const orderDate = parseAdminDateInput(payload.orderDate) || new Date();
+  const paidAt = parseAdminDateInput(payload.paidAt);
   const status = normalizeServiceOrderStatus(payload.status);
   const source = normalizeSource(payload.source, fallbackSource);
   const explicitPriceStatus = sanitizeText(String(payload.priceStatus || "")).length > 0;
@@ -384,6 +385,7 @@ export function normalizeServiceOrderPayload(
     notes: sanitizeText(String(payload.notes || "")) || null,
     orderDate,
     paidAmount: parseOptionalMoney(payload.paidAmount) || 0,
+    paidAt,
     priceStatus,
     productName,
     quotedPrice,
@@ -509,6 +511,7 @@ export async function createServiceOrder(
         discountAmount,
         orderCode,
         paidAmount,
+        paidAt: paidAmount > 0 ? normalized.paidAt || new Date() : null,
         status: normalized.status,
         userId: effectiveUserId,
       },
@@ -545,6 +548,7 @@ export function serializeServiceOrder(
     ...order,
     createdAt: order.createdAt.toISOString(),
     orderDate: order.orderDate.toISOString(),
+    paidAt: order.paidAt?.toISOString() || null,
     priceStatus,
     status,
     updatedAt: order.updatedAt.toISOString(),

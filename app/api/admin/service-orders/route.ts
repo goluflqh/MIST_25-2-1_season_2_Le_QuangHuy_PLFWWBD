@@ -158,6 +158,7 @@ export async function PATCH(request: Request) {
       notes: previousOrder.notes || "",
       orderDate: previousOrder.orderDate,
       paidAmount: previousOrder.paidAmount,
+      paidAt: previousOrder.paidAt || "",
       priceStatus: previousOrder.priceStatus,
       productName: previousOrder.productName,
       quotedPrice: previousOrder.quotedPrice ?? "",
@@ -180,6 +181,12 @@ export async function PATCH(request: Request) {
         ? 0
         : normalized.paidAmount;
     const phoneChanged = normalized.customerPhone !== previousOrder.customerPhone;
+    const paymentChanged = paidAmount !== previousOrder.paidAmount;
+    const paidAt = paidAmount <= 0
+      ? null
+      : paymentChanged
+        ? (body.paidAt === undefined ? new Date() : normalized.paidAt || new Date())
+        : normalized.paidAt || previousOrder.paidAt;
 
     const updateData: Prisma.ServiceOrderUpdateInput = {
       customerAddress: normalized.customerAddress,
@@ -191,6 +198,7 @@ export async function PATCH(request: Request) {
       notes: normalized.notes,
       orderDate: normalized.orderDate,
       paidAmount,
+      paidAt,
       priceStatus: normalized.priceStatus,
       productName: normalized.productName,
       quotedPrice: normalized.quotedPrice,

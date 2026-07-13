@@ -160,7 +160,13 @@ function getPartnerStats(partner: PartnerData) {
   };
 }
 
-export default function AdminPartnerLedgerClient({ initialPartners }: { initialPartners: PartnerData[] }) {
+export default function AdminPartnerLedgerClient({
+  initialPartners,
+  partnerImportEnabled = false,
+}: {
+  initialPartners: PartnerData[];
+  partnerImportEnabled?: boolean;
+}) {
   const { showToast, showConfirm } = useNotify();
   const partnerFormRef = useRef<HTMLFormElement | null>(null);
   const partnerFirstFieldRef = useRef<HTMLInputElement | null>(null);
@@ -602,7 +608,9 @@ export default function AdminPartnerLedgerClient({ initialPartners }: { initialP
         </div>
       </div>
 
-      <MinhHongWorkbookImportPanel scope="partners" onImported={() => window.location.reload()} />
+      {partnerImportEnabled ? (
+        <MinhHongWorkbookImportPanel scope="partners" onImported={() => window.location.reload()} />
+      ) : null}
 
       {showPartnerForm ? (
         <form ref={partnerFormRef} onSubmit={savePartner} className="scroll-mt-24 rounded-lg border border-slate-100 bg-white p-4 shadow-sm sm:p-5">

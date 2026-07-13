@@ -1,0 +1,1 @@
+ALTER TABLE "ServiceOrder" ADD COLUMN "paidAt" TIMESTAMP(3);

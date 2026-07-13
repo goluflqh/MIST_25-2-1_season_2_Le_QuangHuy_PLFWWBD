@@ -55,12 +55,14 @@ interface SheetOrderForExport {
   createdAt?: Date | string;
   orderDate: Date | string;
   paidAmount: number;
+  paidAt?: Date | string | null;
   priceStatus: string;
   productName: string;
   quotedPrice?: number | null;
   service: string;
   solution?: string | null;
   source: string;
+  sourceCode?: string | null;
   sourceName?: string | null;
   sourceRow?: number | null;
   status: string;
@@ -306,7 +308,7 @@ export function buildPrepareSpreadsheetRequests(
 }
 
 const technicalColumnStartIndexes: Partial<Record<MinhHongWebExportTabTitle, number>> = {
-  "WEB_Đơn hàng": 21,
+  "WEB_Đơn hàng": 22,
   "WEB_Công nợ đối tác": 15,
   "WEB_Giao dịch đối tác": 20,
   "WEB_Đối tác": 8,
@@ -314,8 +316,9 @@ const technicalColumnStartIndexes: Partial<Record<MinhHongWebExportTabTitle, num
 
 const moneyColumnRanges: Partial<Record<MinhHongWebExportTabTitle, Array<{ end: number; start: number }>>> = {
   "WEB_Đơn hàng": [
-    { start: 5, end: 8 },
-    { start: 15, end: 17 },
+    { start: 5, end: 7 },
+    { start: 8, end: 9 },
+    { start: 16, end: 18 },
   ],
   "WEB_Công nợ đối tác": [
     { start: 5, end: 12 },
@@ -382,9 +385,42 @@ function buildTextFormatRequests(
   }));
 }
 
+function buildOrderSummaryFormatRequests(
+  sheet: SpreadsheetSheetProperties,
+  rowCount: number | undefined
+): GoogleSheetsFormatRequest[] {
+  if (!rowCount || rowCount < 4) return [];
+  const summaryStartRowIndex = rowCount - 3;
+  const summaryCells = [
+    { backgroundColor: { red: 0.35, green: 0.95, blue: 0.35 }, columnIndex: 5, rowIndex: summaryStartRowIndex },
+    { backgroundColor: { red: 0.45, green: 0.85, blue: 1 }, columnIndex: 5, rowIndex: summaryStartRowIndex + 1 },
+    { backgroundColor: { red: 1, green: 0.2, blue: 0.2 }, columnIndex: 5, rowIndex: summaryStartRowIndex + 2 },
+  ];
+
+  return summaryCells.map((summary) => ({
+    repeatCell: {
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: summary.backgroundColor,
+          textFormat: { bold: true },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+      range: {
+        endColumnIndex: summary.columnIndex + 1,
+        endRowIndex: summary.rowIndex + 1,
+        sheetId: sheet.sheetId,
+        startColumnIndex: summary.columnIndex,
+        startRowIndex: summary.rowIndex,
+      },
+    },
+  }));
+}
+
 export function buildGoogleSheetsFormatRequests(
   sheets: SpreadsheetSheetProperties[],
-  scope: MinhHongSheetSyncScope = "all"
+  scope: MinhHongSheetSyncScope = "all",
+  tabRowCounts: Partial<Record<MinhHongWebExportTabTitle, number>> = {}
 ): GoogleSheetsFormatRequest[] {
   const scopedTabs = new Set(getMinhHongWebExportTabTitlesForScope(scope));
 
@@ -419,6 +455,7 @@ export function buildGoogleSheetsFormatRequests(
         },
         ...buildMoneyFormatRequests(sheet, title),
         ...buildTextFormatRequests(sheet, title),
+        ...(title === "WEB_Đơn hàng" ? buildOrderSummaryFormatRequests(sheet, tabRowCounts[title]) : []),
       ];
 
       if (technicalStartIndex === undefined) return baseRequests;
@@ -454,7 +491,12 @@ export function buildGoogleSheetsFormatRequests(
     });
 }
 
-async function prepareSpreadsheet(accessToken: string, spreadsheetId: string, scope: MinhHongSheetSyncScope = "all") {
+async function prepareSpreadsheet(
+  accessToken: string,
+  spreadsheetId: string,
+  scope: MinhHongSheetSyncScope = "all",
+  tabs: SheetTab[] = []
+) {
   const metadata = await googleSheetsFetch<SpreadsheetMetadata>(accessToken, spreadsheetId, "?fields=sheets.properties");
   const existing = metadata.sheets.map((sheet) => sheet.properties);
   const requests = buildPrepareSpreadsheetRequests(existing, scope);
@@ -467,7 +509,12 @@ async function prepareSpreadsheet(accessToken: string, spreadsheetId: string, sc
   }
 
   const refreshed = await googleSheetsFetch<SpreadsheetMetadata>(accessToken, spreadsheetId, "?fields=sheets.properties");
-  const formatRequests = buildGoogleSheetsFormatRequests(refreshed.sheets.map((sheet) => sheet.properties), scope);
+  const tabRowCounts = Object.fromEntries(tabs.map((tab) => [tab.title, tab.rows.length]));
+  const formatRequests = buildGoogleSheetsFormatRequests(
+    refreshed.sheets.map((sheet) => sheet.properties),
+    scope,
+    tabRowCounts
+  );
 
   if (formatRequests.length > 0) {
     await googleSheetsFetch(accessToken, spreadsheetId, ":batchUpdate", {
@@ -569,7 +616,7 @@ function buildOrderSummaryRows(orderCount: number): SheetCellValue[][] {
   return [
     ["", "", "", "", "Tổng tiền", `=SUM(F${firstDataRow}:INDEX(F:F;ROW()-1))`],
     ["", "", "", "", "Tổng đã thu", `=SUM(G${firstDataRow}:INDEX(G:G;ROW()-1))`],
-    ["", "", "", "", "Còn nợ", `=SUM(H${firstDataRow}:INDEX(H:H;ROW()-1))`],
+    ["", "", "", "", "Còn nợ", `=SUM(I${firstDataRow}:INDEX(I:I;ROW()-1))`],
   ];
 }
 
@@ -616,6 +663,7 @@ export function buildMinhHongSheetTabsFromData(
       order.productName,
       priceStatus === "CONFIRMED" || priceStatus === "FREE" ? quotedPrice ?? 0 : "",
       order.paidAmount,
+      order.paidAt ? formatVietnamDate(order.paidAt) : "",
       "",
       order.notes || "",
       formatPriceStatus(priceStatus),
@@ -633,10 +681,10 @@ export function buildMinhHongSheetTabsFromData(
     ];
 
     const safeRow = escapeGoogleSheetsUserRow(row);
-    safeRow[7] = `=MAX(F${index + 2}-G${index + 2};0)`;
+    safeRow[8] = `=MAX(F${index + 2}-G${index + 2};0)`;
 
     return appendTechnicalColumns(safeRow, {
-      sourceCode: order.sourceName || order.source,
+      sourceCode: order.sourceCode || order.sourceName || order.source,
       sourceRow: order.sourceRow,
       updatedAt: order.updatedAt,
       webId: order.id || order.orderCode,
@@ -712,7 +760,7 @@ export function buildMinhHongSheetTabsFromData(
         ["Thời điểm xuất", formatVietnamDateTime(exportedAt), "Web ghi một chiều sang tab WEB_*, không ghi đè Sheet gốc"],
         ["Tổng đơn hàng", "=COUNTA('WEB_Đơn hàng'!A2:A)", "Đếm mã đơn trên tab WEB_Đơn hàng"],
         ["Tổng đã thu", "=SUM('WEB_Đơn hàng'!G2:G)", "Tự tính từ cột Đã thu"],
-        ["Tổng còn phải thu khách", "=SUM('WEB_Đơn hàng'!H2:H)", "Tự tính từ cột Còn nợ"],
+        ["Tổng còn phải thu khách", "=SUM('WEB_Đơn hàng'!I2:I)", "Tự tính từ cột Còn nợ"],
         ["Tổng Minh Hồng phải trả đối tác", "=SUM('WEB_Công nợ đối tác'!F2:F)", "Tự tính từ cột Minh Hồng phải trả"],
       ],
     },
@@ -727,6 +775,7 @@ export function buildMinhHongSheetTabsFromData(
           "Sản phẩm",
           "Tổng tiền",
           "Đã thu",
+          "Ngày thu gần nhất",
           "Còn nợ",
           "Ghi chú",
           "Trạng thái dữ liệu",
@@ -821,7 +870,7 @@ export async function syncMinhHongGoogleSheet(scope: MinhHongSheetSyncScope = "a
   const accessToken = await getGoogleAccessToken();
   const tabs = filterTabsForScope(await buildMinhHongSheetTabs(), scope);
 
-  await prepareSpreadsheet(accessToken, spreadsheetId, scope);
+  await prepareSpreadsheet(accessToken, spreadsheetId, scope, tabs);
 
   const updateResult = await googleSheetsFetch<{ totalUpdatedCells?: number }>(accessToken, spreadsheetId, "/values:batchUpdate", {
     method: "POST",
