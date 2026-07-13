@@ -32,6 +32,11 @@ local search, tests, and runtime evidence instead.
 
 ## Agent skills
 
+Use the canonical Matt Pocock workflow routing in `AGENTS.md` for every
+engineering task. Small, clear edits stay lightweight; non-trivial work must be
+routed through the appropriate Matt skill, using `ask-matt` when the route is
+unclear. The authorization gates in `AGENTS.md` remain mandatory.
+
 ### Issue tracker
 
 GitHub Issues is the primary tracker for work shared across branches and worktrees. Reading is allowed when relevant; creating or changing GitHub issues requires explicit authorization for the current task. See `docs/agents/issue-tracker.md`.
