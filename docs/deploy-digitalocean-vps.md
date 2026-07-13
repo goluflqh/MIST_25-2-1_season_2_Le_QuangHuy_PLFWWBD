@@ -115,6 +115,10 @@ POSTGRES_PASSWORD="replace-with-long-random-password"
 
 AUTH_SECRET="replace-with-output-from-openssl"
 
+GOOGLE_SERVICE_ACCOUNT_EMAIL="service-account@project.iam.gserviceaccount.com"
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nreplace-with-production-private-key\n-----END PRIVATE KEY-----\n"
+MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED="false"
+
 AI_PROVIDER="9router"
 NINE_ROUTER_BASE_URL="http://host.docker.internal:20128/v1"
 NINE_ROUTER_MODEL="cx/gpt-5.5"
@@ -125,6 +129,8 @@ Luu y:
 
 - Trong Docker Compose, app ket noi PostgreSQL bang service name `postgres`, khong phai `localhost`.
 - `NEXT_PUBLIC_SITE_URL` duoc truyen vao luc build image, nen phai dat dung domain truoc khi `docker compose build`.
+- Share Sheet nguon cho dung `GOOGLE_SERVICE_ACCOUNT_EMAIL` voi quyen Editor. Giu private key trong `.env`/secret production, khong in no ra log.
+- Giu `MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED=false` trong dot rollout don ban dau tien.
 - Khong commit `.env` len Git.
 
 ## Chay PostgreSQL, migrate, app
@@ -161,7 +167,7 @@ docker compose --profile migrate run --rm migrate npx prisma migrate status
 docker compose --profile migrate run --rm migrate
 ```
 
-Lenh migrate deploy se apply tat ca migration con thieu, gom cac migration quan trong nhu `ChatbotEvent`, rate limit buckets, dashboard indexes va coupon redemptions.
+Lenh migrate deploy se apply tat ca migration con thieu theo thu tu trong repo; khong chay tung migration rieng. Release hien tai phai gom ca cac migration `ChatbotEvent`, `ServiceOrder.sourceCode` va `ServiceOrder.paidAt` neu database dich chua co.
 
 ## Backup PostgreSQL truoc khi migrate
 
@@ -346,6 +352,8 @@ Smoke test sau deploy:
 - Trang chu load duoc.
 - Dang ky/dang nhap duoc.
 - Dashboard admin vao duoc.
+- Tai `/dashboard/orders`, bam **Kiem tra du lieu** va xac nhan preview don ban tai duoc. Day la buoc chi doc; khong bam **Hoan tat thiet lap** hoac **Cap nhat ... len web** neu chua duoc phe duyet ngay tai thoi diem thao tac.
+- Tai dashboard doi tac, xac nhan van co the kiem tra preview nhung khong co thao tac xac nhan cap nhat khi `MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED=false`.
 - Chatbot tra loi duoc bang 9router tren VPS.
 - Form lien he tao record trong DB.
 - Coupon redemption khong loi.

@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useNotify } from "@/components/NotifyProvider";
 import PaginationControls from "@/components/PaginationControls";
 import { formatVietnamDate } from "@/lib/vietnam-time";
+
+interface HistoryCounts {
+  customerProfiles: number;
+  contactRequests: number;
+  serviceOrders: number;
+  warranties: number;
+  total: number;
+}
 
 interface UserData {
   id: string;
@@ -20,7 +29,13 @@ interface UserData {
   serviceOrderCount: number;
   totalDebt: number;
   warrantyCount: number;
+  unlinkedHistory: HistoryCounts;
   _count: { contactRequests: number; reviews: number };
+}
+
+interface HistoryLinkNotice {
+  tone: "success" | "warning" | "error";
+  message: string;
 }
 
 type TierKey = "diamond" | "gold" | "silver" | "bronze";
@@ -35,10 +50,10 @@ type WarrantyFilter = "all" | "hasWarranty" | "noWarranty";
 const USER_PAGE_SIZE = 8;
 
 const getTier = (points: number) => {
-  if (points >= 500) return { key: "diamond" as const, label: "💎 Kim Cương", color: "bg-yellow-100 text-yellow-700" };
-  if (points >= 200) return { key: "gold" as const, label: "🥇 Vàng", color: "bg-slate-200 text-slate-700" };
-  if (points >= 50) return { key: "silver" as const, label: "🥈 Bạc", color: "bg-orange-100 text-orange-700" };
-  return { key: "bronze" as const, label: "🥉 Đồng", color: "bg-slate-100 text-slate-500" };
+  if (points >= 500) return { key: "diamond" as const, label: "Kim cương", color: "bg-yellow-100 text-yellow-700" };
+  if (points >= 200) return { key: "gold" as const, label: "Vàng", color: "bg-slate-200 text-slate-700" };
+  if (points >= 50) return { key: "silver" as const, label: "Bạc", color: "bg-orange-100 text-orange-700" };
+  return { key: "bronze" as const, label: "Đồng", color: "bg-slate-100 text-slate-500" };
 };
 
 function getEngagementScore(user: UserData) {
@@ -58,11 +73,20 @@ function getOriginLabel(origin: UserData["customerOrigin"]) {
   return origin === "LINKED_OLD_CUSTOMER" ? "Khách cũ nối tài khoản" : "Đăng ký web";
 }
 
-function generateTempPassword() {
-  const chars = "abcdefghkmnpqrstuvwxyz23456789";
-  let code = "";
-  for (let index = 0; index < 6; index += 1) code += chars[Math.floor(Math.random() * chars.length)];
-  return code;
+function formatHistoryBreakdown(counts: HistoryCounts) {
+  return [
+    [counts.customerProfiles, "hồ sơ khách hàng"],
+    [counts.contactRequests, "yêu cầu tư vấn"],
+    [counts.serviceOrders, "đơn dịch vụ"],
+    [counts.warranties, "phiếu bảo hành"],
+  ]
+    .filter(([count]) => Number(count) > 0)
+    .map(([count, label]) => `${count} ${label}`)
+    .join(" · ");
+}
+
+function linkHistoryActionLabel(total: number) {
+  return `Nối ${total} mục lịch sử cũ vào tài khoản`;
 }
 
 function sanitizeSignedIntegerText(value: string) {
@@ -71,6 +95,7 @@ function sanitizeSignedIntegerText(value: string) {
 }
 
 export default function AdminUsersClient({ initialUsers }: { initialUsers: UserData[] }) {
+  const router = useRouter();
   const { showToast, showConfirm } = useNotify();
   const [users, setUsers] = useState<UserData[]>(initialUsers);
   const [editingPoints, setEditingPoints] = useState<string | null>(null);
@@ -81,6 +106,8 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
   const [resettingPointsId, setResettingPointsId] = useState<string | null>(null);
   const [resettingPasswordId, setResettingPasswordId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [linkingHistoryUserId, setLinkingHistoryUserId] = useState<string | null>(null);
+  const [historyLinkNotices, setHistoryLinkNotices] = useState<Record<string, HistoryLinkNotice>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
@@ -168,6 +195,10 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
   };
 
   useEffect(() => {
+    setUsers(initialUsers);
+  }, [initialUsers]);
+
+  useEffect(() => {
     setPage(1);
     setExpandedUserIds(new Set());
   }, [debtFilter, originFilter, recentOrderFilter, roleFilter, searchQuery, sortMode, tierFilter, warrantyFilter]);
@@ -220,7 +251,7 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
   };
 
   const resetPoints = (userId: string, name: string) => {
-    showConfirm(`Reset điểm thưởng của ${name} về 0?`, async () => {
+    showConfirm(`Đặt toàn bộ điểm thưởng của "${name}" về 0?`, async () => {
       setResettingPointsId(userId);
 
       try {
@@ -232,33 +263,35 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
         const data = await response.json();
 
         if (!response.ok || !data.success) {
-          showToast(data.message || "Chưa reset được điểm.", "error");
+          showToast(data.message || "Chưa đặt được điểm về 0.", "error");
           return;
         }
 
         setUsers((prev) => prev.map((user) => (
           user.id === userId ? { ...user, loyaltyPoints: 0 } : user
         )));
-        showToast("Đã reset điểm về 0.", "success");
+        showToast("Đã đặt điểm thưởng về 0.", "success");
       } catch {
-        showToast("Không thể reset điểm lúc này.", "error");
+        showToast("Không thể đặt điểm về 0 lúc này.", "error");
       } finally {
         setResettingPointsId(null);
       }
+    }, {
+      title: "Đặt điểm thưởng về 0",
+      confirmLabel: "Đặt về 0",
+      tone: "warning",
     });
   };
 
-  const resetPassword = async (userId: string, name: string) => {
-    const code = generateTempPassword();
-
-    showConfirm(`Tạo mật khẩu tạm cho "${name}"?\nMật khẩu tạm sẽ hiện 1 lần, gửi cho khách qua Zalo.`, async () => {
+  const resetPassword = (userId: string, name: string) => {
+    showConfirm(`Cấp mật khẩu tạm mới cho "${name}"?\n\nKhách sẽ bị đăng xuất trên các thiết bị đang dùng. Mật khẩu tạm chỉ hiển thị một lần để bạn sao chép và gửi riêng cho khách.`, async () => {
       setResettingPasswordId(userId);
 
       try {
         const response = await fetch("/api/admin/users", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId, newPassword: code }),
+          body: JSON.stringify({ userId }),
         });
         const data = await response.json();
 
@@ -267,19 +300,28 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
           return;
         }
 
+        if (typeof data.temporaryPassword !== "string" || !data.temporaryPassword) {
+          showToast("Mật khẩu đã được đổi nhưng không thể hiển thị mã tạm. Vui lòng cấp lại một lần nữa.", "error");
+          return;
+        }
+
         setResetPwId(userId);
-        setTempCode(code);
-        showToast("Đã tạo mật khẩu tạm! Gửi cho khách.", "success");
+        setTempCode(data.temporaryPassword);
+        showToast("Đã cấp mật khẩu tạm. Hãy sao chép và gửi riêng cho khách.", "success");
       } catch {
-        showToast("Không thể tạo mật khẩu tạm lúc này.", "error");
+        showToast("Không thể cấp lại mật khẩu lúc này.", "error");
       } finally {
         setResettingPasswordId(null);
       }
+    }, {
+      title: "Cấp lại mật khẩu",
+      confirmLabel: "Cấp mật khẩu tạm",
+      tone: "warning",
     });
   };
 
   const deleteUser = (userId: string, name: string) => {
-    showConfirm(`Xoá tài khoản "${name}"?\nTất cả dữ liệu (yêu cầu, đánh giá, bảo hành) sẽ bị xoá vĩnh viễn.`, async () => {
+    showConfirm(`Xoá vĩnh viễn tài khoản "${name}"?\n\nTài khoản, yêu cầu tư vấn, đánh giá và phiếu bảo hành liên quan sẽ bị xoá và không thể khôi phục. Hồ sơ khách hàng và đơn dịch vụ vẫn được giữ lại trong hệ thống.`, async () => {
       setDeletingUserId(userId);
 
       try {
@@ -302,7 +344,76 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
       } finally {
         setDeletingUserId(null);
       }
+    }, {
+      title: "Xoá tài khoản khách hàng",
+      confirmLabel: "Xoá vĩnh viễn",
+      tone: "destructive",
     });
+  };
+
+  const linkCustomerHistory = (user: UserData) => {
+    const breakdown = formatHistoryBreakdown(user.unlinkedHistory);
+    showConfirm(
+      `Nối lịch sử cũ tìm thấy theo SĐT ${user.phone} vào tài khoản "${user.name}"?\n\n${breakdown}.\n\nChỉ tiếp tục sau khi đã xác nhận số điện thoại với khách. Những mục đã thuộc tài khoản khác sẽ được giữ nguyên.`,
+      async () => {
+        setLinkingHistoryUserId(user.id);
+        setHistoryLinkNotices((current) => {
+          const next = { ...current };
+          delete next[user.id];
+          return next;
+        });
+
+        try {
+          const response = await fetch("/api/admin/users/link-history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: user.id }),
+          });
+          const data = await response.json();
+          const conflictCount = typeof data.conflicts?.total === "number" ? data.conflicts.total : 0;
+          const remainingUnlinked = data.remainingUnlinked as HistoryCounts | undefined;
+
+          if (!response.ok || !data.success) {
+            const message = data.message || "Chưa ghép được lịch sử khách hàng.";
+            setHistoryLinkNotices((current) => ({
+              ...current,
+              [user.id]: { tone: "error", message },
+            }));
+            showToast(message, "error");
+            return;
+          }
+
+          const message = conflictCount > 0
+            ? `${data.message} ${conflictCount} mục đã thuộc tài khoản khác nên được giữ nguyên.`
+            : data.message;
+          setHistoryLinkNotices((current) => ({
+            ...current,
+            [user.id]: { tone: conflictCount > 0 ? "warning" : "success", message },
+          }));
+          setUsers((current) => current.map((item) => (
+            item.id === user.id && remainingUnlinked
+              ? { ...item, unlinkedHistory: remainingUnlinked }
+              : item
+          )));
+          showToast(message, conflictCount > 0 ? "warning" : "success");
+          router.refresh();
+        } catch {
+          const message = "Không thể ghép lịch sử khách hàng lúc này.";
+          setHistoryLinkNotices((current) => ({
+            ...current,
+            [user.id]: { tone: "error", message },
+          }));
+          showToast(message, "error");
+        } finally {
+          setLinkingHistoryUserId(null);
+        }
+      },
+      {
+        title: "Nối lịch sử cũ vào tài khoản",
+        confirmLabel: "Nối vào tài khoản",
+        tone: "warning",
+      },
+    );
   };
 
   if (users.length === 0) {
@@ -462,7 +573,8 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
             const isBusy = savingPointsId === user.id
               || resettingPointsId === user.id
               || resettingPasswordId === user.id
-              || deletingUserId === user.id;
+              || deletingUserId === user.id
+              || linkingHistoryUserId === user.id;
             const isExpanded = expandedUserIds.has(user.id);
 
             return (
@@ -597,57 +709,90 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
                 </div>
 
                 {user.role !== "ADMIN" ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {user.unlinkedHistory.total > 0 ? (
+                      <button
+                        type="button"
+                        data-testid="dashboard-link-history-mobile"
+                        onClick={() => linkCustomerHistory(user)}
+                        disabled={linkingHistoryUserId === user.id}
+                        className="col-span-2 min-h-11 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
+                      >
+                        {linkingHistoryUserId === user.id
+                          ? "Đang nối lịch sử..."
+                          : linkHistoryActionLabel(user.unlinkedHistory.total)}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => resetPassword(user.id, user.name)}
                       disabled={resettingPasswordId === user.id}
-                      className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600 disabled:bg-slate-100 disabled:text-slate-300"
+                      className="min-h-11 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition-colors hover:bg-blue-100 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
                     >
-                      {resettingPasswordId === user.id ? "..." : "Tạo mật khẩu tạm"}
+                      {resettingPasswordId === user.id ? "Đang cấp..." : "Cấp lại mật khẩu"}
                     </button>
                     <button
                       type="button"
                       onClick={() => resetPoints(user.id, user.name)}
                       disabled={resettingPointsId === user.id}
-                      className="rounded-lg bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-700 disabled:bg-slate-100 disabled:text-slate-300"
+                      className="min-h-11 rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-amber-800 transition-colors hover:bg-amber-50 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
                     >
-                      {resettingPointsId === user.id ? "..." : "Reset điểm"}
+                      {resettingPointsId === user.id ? "Đang đặt..." : "Đặt điểm về 0"}
                     </button>
                     <button
                       type="button"
                       onClick={() => deleteUser(user.id, user.name)}
                       disabled={deletingUserId === user.id}
-                      className="rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                      className="col-span-2 min-h-11 rounded-lg border border-red-100 bg-white px-3 py-2 text-xs font-bold text-red-700 transition-colors hover:bg-red-50 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
                     >
-                      {deletingUserId === user.id ? "..." : "Xoá tài khoản"}
+                      {deletingUserId === user.id ? "Đang xoá..." : "Xoá tài khoản"}
                     </button>
                   </div>
                 ) : null}
 
+                {historyLinkNotices[user.id] ? (
+                  <p
+                    role={historyLinkNotices[user.id].tone === "error" ? "alert" : "status"}
+                    className={`mt-3 rounded-lg border px-3 py-2 font-body text-xs ${
+                      historyLinkNotices[user.id].tone === "error"
+                        ? "border-red-200 bg-red-50 text-red-800"
+                        : historyLinkNotices[user.id].tone === "warning"
+                          ? "border-amber-200 bg-amber-50 text-amber-800"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    }`}
+                  >
+                    {historyLinkNotices[user.id].message}
+                  </p>
+                ) : null}
+
                 {resetPwId === user.id && tempCode ? (
-                  <div className="mt-3 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
-                    <code className="font-mono text-sm font-bold text-green-700">{tempCode}</code>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(tempCode);
-                        showToast("Đã sao chép!", "success");
-                      }}
-                      className="ml-auto text-xs font-bold text-green-700"
-                    >
-                      Sao chép
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setResetPwId(null);
-                        setTempCode("");
-                      }}
-                      className="text-xs font-bold text-slate-400"
-                    >
-                      Ẩn
-                    </button>
+                  <div className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5">
+                    <p className="mb-1 font-body text-[10px] font-bold uppercase tracking-wide text-green-800">
+                      Mật khẩu tạm · chỉ hiện lần này
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="font-mono text-sm font-bold text-green-800">{tempCode}</code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(tempCode);
+                          showToast("Đã sao chép!", "success");
+                        }}
+                        className="ml-auto rounded-md bg-green-700 px-2.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-green-800"
+                      >
+                        Sao chép
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setResetPwId(null);
+                          setTempCode("");
+                        }}
+                        className="rounded-md px-2 py-1.5 text-xs font-bold text-slate-500 transition-colors hover:bg-green-100 hover:text-slate-700"
+                      >
+                        Đóng
+                      </button>
+                    </div>
                   </div>
                 ) : null}
                   </>
@@ -660,90 +805,90 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
 
       <div className="hidden overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm lg:block">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="min-w-[920px] w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Tên</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">SĐT</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Hạng</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Điểm</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500" title="Tổng yêu cầu và đánh giá của khách">
-                  Tương tác
-                  <span className="block text-[10px] font-semibold normal-case text-slate-400">YC + review</span>
+                <th className="min-w-72 px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">
+                  Khách hàng
+                  <span className="block text-[10px] font-semibold normal-case text-slate-400">Liên hệ · hồ sơ</span>
                 </th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Tệp khách</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Công nợ</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Bảo hành</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Đơn gần đây</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Mã GT</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Ngày ĐK</th>
-                <th className="px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500"></th>
+                <th className="min-w-40 px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Điểm & hạng</th>
+                <th className="min-w-52 px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Lịch sử</th>
+                <th className="min-w-32 px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500">Công nợ</th>
+                <th className="sticky right-0 z-10 min-w-52 bg-slate-50 px-4 py-3 text-left font-body text-xs font-bold uppercase text-slate-500 shadow-[-12px_0_18px_-18px_rgba(15,23,42,0.45)]">
+                  Thao tác
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-10 text-center font-body text-sm text-slate-400">
+                  <td colSpan={5} className="px-4 py-10 text-center font-body text-sm text-slate-400">
                     Không có tài khoản nào khớp bộ lọc.
                   </td>
                 </tr>
               ) : (
-                visibleUsers.map((user) => {
+                visibleUsers.map((user, rowIndex) => {
                   const tier = getTier(user.loyaltyPoints);
                   const engagementScore = getEngagementScore(user);
                   const isBusy = savingPointsId === user.id
                     || resettingPointsId === user.id
                     || resettingPasswordId === user.id
-                    || deletingUserId === user.id;
+                    || deletingUserId === user.id
+                    || linkingHistoryUserId === user.id;
+                  const rowBackground = isBusy ? "bg-slate-100/70" : rowIndex % 2 === 1 ? "bg-slate-50/70" : "bg-white";
 
                   return (
                     <tr
                       key={user.id}
                       data-testid="dashboard-user-row"
-                      className={`transition-colors ${isBusy ? "bg-slate-50/70" : "hover:bg-slate-50/50"}`}
+                      className={`group transition-colors hover:bg-slate-100/70 ${rowBackground}`}
                     >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-600">
                             {user.name.charAt(0)}
                           </div>
-                          <div>
-                            <span className="block font-body font-semibold text-slate-800">{user.name}</span>
-                            <span className={`text-[10px] font-bold ${user.role === "ADMIN" ? "text-red-500" : "text-slate-400"}`}>
-                              {user.role === "ADMIN" ? "Admin" : "Khách"}
-                            </span>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="truncate font-body font-bold text-slate-900">{user.name}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${user.role === "ADMIN" ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-500"}`}>
+                                {user.role === "ADMIN" ? "Quản trị" : "Khách"}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 font-body text-xs text-slate-600">{user.phone}</p>
+                            <p className="mt-1 font-body text-[10px] text-slate-500">
+                              {getOriginLabel(user.customerOrigin)} · ĐK {formatDate(user.createdAt)}
+                              {user.referralCode ? ` · Mã GT ${user.referralCode}` : ""}
+                            </p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-body text-xs text-slate-600">{user.phone}</td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${tier.color}`}>{tier.label}</span>
-                      </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3.5">
                         {editingPoints === user.id ? (
-                          <div className="flex gap-1">
+                          <div className="flex min-w-40 items-center gap-1.5">
                             <input
                               type="text"
                               inputMode="numeric"
                               value={pointsAdd}
                               onChange={(event) => setPointsAdd(sanitizeSignedIntegerText(event.target.value))}
-                              className="min-h-9 w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none"
+                              className="min-h-9 w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
                               placeholder="+50"
                               autoFocus
                             />
                             <button
                               onClick={() => addPoints(user.id)}
                               disabled={savingPointsId === user.id}
-                              className="rounded-lg bg-green-100 px-2 py-1 text-[10px] font-bold text-green-700 disabled:bg-slate-100 disabled:text-slate-400"
+                              className="min-h-9 rounded-lg bg-green-700 px-2.5 py-1 text-[11px] font-bold text-white transition-colors hover:bg-green-800 disabled:bg-slate-100 disabled:text-slate-400"
                             >
-                              {savingPointsId === user.id ? "..." : "✓"}
+                              {savingPointsId === user.id ? "Đang lưu..." : "Lưu"}
                             </button>
                             <button
                               onClick={() => setEditingPoints(null)}
                               disabled={savingPointsId === user.id}
-                              className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500 disabled:text-slate-300"
+                              className="min-h-9 rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600 transition-colors hover:bg-slate-200 disabled:text-slate-300"
                             >
-                              ✕
+                              Huỷ
                             </button>
                           </div>
                         ) : (
@@ -752,86 +897,131 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
                               setEditingPoints(user.id);
                               setPointsAdd("");
                             }}
-                            className="font-body text-xs font-bold text-slate-800 transition-colors hover:text-red-600"
+                            className="rounded-lg px-2 py-1.5 text-left font-body transition-colors hover:bg-slate-100 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-100"
                           >
-                            {user.loyaltyPoints} <span className="text-[10px] text-slate-400">±</span>
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${tier.color}`}>{tier.label}</span>
+                            <span className="mt-1 block text-sm font-bold text-slate-900">{user.loyaltyPoints} điểm</span>
+                            <span className="text-[10px] font-semibold text-slate-500">Bấm để điều chỉnh</span>
                           </button>
                         )}
                       </td>
-                      <td className="px-4 py-3 font-body text-xs text-slate-600">
-                        {engagementScore} <span className="text-slate-300">({user._count.contactRequests} YC · {user._count.reviews} review)</span>
+                      <td className="px-4 py-3.5">
+                        <p className="font-body text-xs font-bold text-slate-800">
+                          {user.serviceOrderCount} đơn{user.recentOrderDate ? ` · ${formatDate(user.recentOrderDate)}` : " · Chưa có đơn"}
+                        </p>
+                        <p className="mt-1 font-body text-[11px] text-slate-600">
+                          {user.hasWarranty ? `${user.warrantyCount || 1} bảo hành` : "Chưa có bảo hành"} · {engagementScore} tương tác
+                        </p>
+                        <p className="mt-0.5 font-body text-[10px] text-slate-400">
+                          {user._count.contactRequests} yêu cầu · {user._count.reviews} đánh giá
+                        </p>
                       </td>
-                      <td className="px-4 py-3 font-body text-xs font-semibold text-slate-600">
-                        {getOriginLabel(user.customerOrigin)}
+                      <td className="px-4 py-3.5">
+                        <p className={`font-body text-sm font-bold ${user.totalDebt > 0 ? "text-red-700" : "text-green-700"}`}>
+                          {formatMoney(user.totalDebt)}
+                        </p>
+                        <p className="mt-0.5 font-body text-[10px] text-slate-500">
+                          {user.totalDebt > 0 ? "Cần theo dõi" : "Đã thanh toán"}
+                        </p>
                       </td>
-                      <td className={`px-4 py-3 font-body text-xs font-bold ${user.totalDebt > 0 ? "text-red-600" : "text-green-700"}`}>
-                        {formatMoney(user.totalDebt)}
-                      </td>
-                      <td className="px-4 py-3 font-body text-xs text-slate-600">
-                        {user.hasWarranty ? `${user.warrantyCount || 1} phiếu` : "Chưa có"}
-                      </td>
-                      <td className="px-4 py-3 font-body text-xs text-slate-600">
-                        {user.recentOrderDate ? formatDate(user.recentOrderDate) : "Chưa có"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <code className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
-                          {user.referralCode || "—"}
-                        </code>
-                      </td>
-                      <td className="px-4 py-3 font-body text-[10px] text-slate-400">{formatDate(user.createdAt)}</td>
-                      <td className="px-4 py-3">
-                        {user.role !== "ADMIN" && (
-                          <div className="space-y-1">
-                            <div className="flex gap-1">
+                      <td className={`sticky right-0 z-[1] px-4 py-3.5 shadow-[-12px_0_18px_-18px_rgba(15,23,42,0.45)] transition-colors group-hover:bg-slate-100/70 ${rowBackground}`}>
+                        {user.role !== "ADMIN" ? (
+                          <div className="min-w-48 space-y-2" data-testid="dashboard-user-actions-desktop">
+                            <div className="grid grid-cols-3 gap-1.5 rounded-xl border border-slate-200 bg-white/90 p-2 shadow-sm">
+                              {user.unlinkedHistory.total > 0 ? (
+                                <button
+                                  type="button"
+                                  data-testid="dashboard-link-history-desktop"
+                                  onClick={() => linkCustomerHistory(user)}
+                                  disabled={linkingHistoryUserId === user.id}
+                                  className="col-span-3 min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
+                                >
+                                  {linkingHistoryUserId === user.id
+                                    ? "Đang nối lịch sử..."
+                                    : linkHistoryActionLabel(user.unlinkedHistory.total)}
+                                </button>
+                              ) : null}
                               <button
+                                type="button"
+                                aria-label="Cấp lại mật khẩu"
+                                title="Cấp lại mật khẩu"
                                 onClick={() => resetPassword(user.id, user.name)}
                                 disabled={resettingPasswordId === user.id}
-                                title="Tạo mật khẩu tạm"
-                                className="rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-500 hover:bg-blue-100 disabled:bg-slate-100 disabled:text-slate-300"
+                                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5 text-[10px] font-bold text-blue-700 transition-colors hover:bg-blue-100 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
                               >
-                                {resettingPasswordId === user.id ? "..." : "Tạo mật khẩu"}
+                                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="8" cy="15" r="4" /><path d="m11 12 9-9m-4 4 3 3m-6 0 3 3" /></svg>
+                                {resettingPasswordId === user.id ? "Đang cấp" : "Mật khẩu"}
                               </button>
                               <button
+                                type="button"
+                                aria-label="Đặt điểm về 0"
+                                title="Đặt điểm về 0"
                                 onClick={() => resetPoints(user.id, user.name)}
                                 disabled={resettingPointsId === user.id}
-                                title="Reset điểm"
-                                className="rounded-lg bg-yellow-50 px-2 py-1 text-[10px] font-bold text-yellow-600 hover:bg-yellow-100 disabled:bg-slate-100 disabled:text-slate-300"
+                                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-amber-200 bg-amber-50/60 px-2 py-1.5 text-[10px] font-bold text-amber-800 transition-colors hover:bg-amber-100 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
                               >
-                                {resettingPointsId === user.id ? "..." : "🔄"}
+                                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 3v18M7 8h7.5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                                {resettingPointsId === user.id ? "Đang đặt" : "Điểm 0"}
                               </button>
                               <button
+                                type="button"
+                                aria-label="Xoá tài khoản"
+                                title="Xoá tài khoản"
                                 onClick={() => deleteUser(user.id, user.name)}
                                 disabled={deletingUserId === user.id}
-                                title="Xoá tài khoản"
-                                className="rounded-lg bg-red-50 px-2 py-1 text-[10px] font-bold text-red-500 hover:bg-red-100 disabled:bg-slate-100 disabled:text-slate-300"
+                                className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border border-red-100 bg-red-50/60 px-2 py-1.5 text-[10px] font-bold text-red-700 transition-colors hover:bg-red-100 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
                               >
-                                {deletingUserId === user.id ? "..." : "🗑️"}
+                                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6m4-6v6" /></svg>
+                                {deletingUserId === user.id ? "Đang xoá" : "Xoá"}
                               </button>
                             </div>
+                            {historyLinkNotices[user.id] ? (
+                              <p
+                                role={historyLinkNotices[user.id].tone === "error" ? "alert" : "status"}
+                                className={`rounded-lg border px-2.5 py-2 font-body text-[11px] ${
+                                  historyLinkNotices[user.id].tone === "error"
+                                    ? "border-red-200 bg-red-50 text-red-800"
+                                    : historyLinkNotices[user.id].tone === "warning"
+                                      ? "border-amber-200 bg-amber-50 text-amber-800"
+                                      : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                }`}
+                              >
+                                {historyLinkNotices[user.id].message}
+                              </p>
+                            ) : null}
                             {resetPwId === user.id && tempCode && (
-                              <div className="flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-2 py-1">
-                                <code className="font-mono text-xs font-bold text-green-700">{tempCode}</code>
-                                <button
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(tempCode);
-                                    showToast("Đã sao chép!", "success");
-                                  }}
-                                  className="ml-auto text-[9px] font-bold text-green-600 hover:text-green-800"
-                                >
-                                  📋
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setResetPwId(null);
-                                    setTempCode("");
-                                  }}
-                                  className="text-[9px] font-bold text-slate-400 hover:text-slate-600"
-                                >
-                                  ✕
-                                </button>
+                              <div className="rounded-lg border border-green-200 bg-green-50 px-2.5 py-2">
+                                <p className="mb-1 font-body text-[9px] font-bold uppercase tracking-wide text-green-800">
+                                  Mật khẩu tạm · chỉ hiện lần này
+                                </p>
+                                <div className="flex items-center gap-1.5">
+                                  <code className="font-mono text-xs font-bold text-green-800">{tempCode}</code>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(tempCode);
+                                      showToast("Đã sao chép!", "success");
+                                    }}
+                                    className="ml-auto rounded-md bg-green-700 px-2 py-1 text-[10px] font-bold text-white transition-colors hover:bg-green-800"
+                                  >
+                                    Sao chép
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setResetPwId(null);
+                                      setTempCode("");
+                                    }}
+                                    className="rounded-md px-1.5 py-1 text-[10px] font-bold text-slate-500 transition-colors hover:bg-green-100 hover:text-slate-700"
+                                  >
+                                    Đóng
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </div>
+                        ) : (
+                          <p className="font-body text-xs font-semibold text-slate-500">Tài khoản quản trị</p>
                         )}
                       </td>
                     </tr>

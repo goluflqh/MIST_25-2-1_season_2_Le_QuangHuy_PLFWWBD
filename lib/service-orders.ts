@@ -334,6 +334,7 @@ export function normalizeServiceOrderPayload(
   const couponRedemptionId = sanitizeText(String(payload.couponRedemptionId || "")) || null;
   const productName = sanitizeText(String(payload.productName || payload.product || ""));
   const orderDate = parseAdminDateInput(payload.orderDate) || new Date();
+  const paidAt = parseAdminDateInput(payload.paidAt);
   const status = normalizeServiceOrderStatus(payload.status);
   const source = normalizeSource(payload.source, fallbackSource);
   const explicitPriceStatus = sanitizeText(String(payload.priceStatus || "")).length > 0;
@@ -384,6 +385,7 @@ export function normalizeServiceOrderPayload(
     notes: sanitizeText(String(payload.notes || "")) || null,
     orderDate,
     paidAmount: parseOptionalMoney(payload.paidAmount) || 0,
+    paidAt,
     priceStatus,
     productName,
     quotedPrice,
@@ -400,11 +402,12 @@ export function normalizeServiceOrderPayload(
 
 export async function createServiceOrder(
   payload: Record<string, unknown>,
-  fallbackSource: ServiceOrderSource = "MANUAL"
+  fallbackSource: ServiceOrderSource = "MANUAL",
+  transaction?: Prisma.TransactionClient
 ) {
   const normalized = normalizeServiceOrderPayload(payload, fallbackSource);
 
-  return prisma.$transaction(async (tx) => {
+  const createWithinTransaction = async (tx: PrismaRunner) => {
     const contactRequest = normalized.contactRequestId
       ? await tx.contactRequest.findUnique({
           where: { id: normalized.contactRequestId },
@@ -430,17 +433,12 @@ export async function createServiceOrder(
       throw new ServiceOrderValidationError("Yêu cầu tư vấn này đã có đơn dịch vụ liên kết.");
     }
 
-    const linkedUser = await tx.user.findUnique({
-      where: { phone: normalized.customerPhone },
-      select: { id: true, role: true },
-    });
     const existingCustomer = await tx.customer.findUnique({
       where: { phone: normalized.customerPhone },
       select: { userId: true },
     });
     const contactUserId = contactRequest?.user?.role === "CUSTOMER" ? contactRequest.user.id : null;
-    const linkedCustomerUserId = linkedUser?.role === "CUSTOMER" ? linkedUser.id : null;
-    const effectiveUserId = linkedCustomerUserId || contactUserId || existingCustomer?.userId || null;
+    const effectiveUserId = contactUserId || existingCustomer?.userId || null;
     const requestedCouponRedemptionId = normalized.couponRedemptionId || contactRequest?.couponRedemptionId || null;
     const couponRedemption = contactRequest?.couponRedemption
       || (requestedCouponRedemptionId
@@ -513,6 +511,7 @@ export async function createServiceOrder(
         discountAmount,
         orderCode,
         paidAmount,
+        paidAt: paidAmount > 0 ? normalized.paidAt || new Date() : null,
         status: normalized.status,
         userId: effectiveUserId,
       },
@@ -527,7 +526,11 @@ export async function createServiceOrder(
     }
 
     return order;
-  });
+  };
+
+  return transaction
+    ? createWithinTransaction(transaction)
+    : prisma.$transaction(createWithinTransaction);
 }
 
 export function serializeServiceOrder(
@@ -545,6 +548,7 @@ export function serializeServiceOrder(
     ...order,
     createdAt: order.createdAt.toISOString(),
     orderDate: order.orderDate.toISOString(),
+    paidAt: order.paidAt?.toISOString() || null,
     priceStatus,
     status,
     updatedAt: order.updatedAt.toISOString(),

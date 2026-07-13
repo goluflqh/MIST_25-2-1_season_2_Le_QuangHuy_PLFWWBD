@@ -79,15 +79,32 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: "Thiếu mã phiếu bảo hành cần sửa." }, { status: 400 });
     }
 
-    const previousWarranty = await prisma.warranty.findUnique({ where: { id } });
-    if (!previousWarranty || previousWarranty.deletedAt) {
-      return NextResponse.json({ success: false, message: "Không tìm thấy phiếu bảo hành." }, { status: 404 });
-    }
+    const { previousWarranty, warranty } = await prisma.$transaction(async (tx) => {
+      const previous = await tx.warranty.findUnique({ where: { id } });
+      if (!previous || previous.deletedAt) {
+        throw new WarrantyValidationError("Không tìm thấy phiếu bảo hành.", 404);
+      }
 
-    const updateData = normalizeWarrantyUpdatePayload(body);
-    const warranty = await prisma.warranty.update({
-      where: { id },
-      data: updateData,
+      const updateData = normalizeWarrantyUpdatePayload(body);
+      if (
+        typeof updateData.customerPhone === "string"
+        && updateData.customerPhone !== previous.customerPhone
+      ) {
+        const customer = await tx.customer.findUnique({
+          where: { phone: updateData.customerPhone },
+          select: { userId: true },
+        });
+        updateData.user = customer?.userId
+          ? { connect: { id: customer.userId } }
+          : { disconnect: true };
+      }
+
+      const updated = await tx.warranty.update({
+        where: { id },
+        data: updateData,
+      });
+
+      return { previousWarranty: previous, warranty: updated };
     });
     await recordAuditLog({
       action: "WARRANTY_UPDATE",

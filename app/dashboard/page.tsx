@@ -165,10 +165,10 @@ export default async function DashboardPage() {
         status: true,
         orderDate: true,
         quotedPrice: true,
+        priceStatus: true,
         paidAmount: true,
         discountAmount: true,
       },
-      take: 500,
     }),
   ]);
 

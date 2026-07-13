@@ -33,7 +33,6 @@ export async function GET() {
       where: { deletedAt: null },
       include: serviceOrderInclude,
       orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
-      take: 500,
     });
 
     return NextResponse.json({
@@ -57,7 +56,27 @@ export async function POST(request: Request) {
     const body = await readJsonBody(request);
     if (!body) return createInvalidJsonResponse("Dữ liệu đơn gửi lên chưa đúng định dạng.");
 
-    let order = await createServiceOrder(body, "MANUAL");
+    const transactionResult = await prisma.$transaction(async (tx) => {
+      let transactionalOrder = await createServiceOrder(body, "MANUAL", tx);
+      let createdWarranty: Awaited<ReturnType<typeof createWarrantyForServiceOrder>>["warranty"] | null = null;
+
+      if (warrantyAutoStatuses.has(transactionalOrder.status) && transactionalOrder.warrantyMonths !== 0) {
+        const warrantyResult = await createWarrantyForServiceOrder(tx, transactionalOrder.id, {
+          warrantyMonths: transactionalOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
+        });
+        if (warrantyResult.created) createdWarranty = warrantyResult.warranty;
+
+        const refreshedOrder = await tx.serviceOrder.findUnique({
+          where: { id: transactionalOrder.id },
+          include: serviceOrderInclude,
+        });
+        if (refreshedOrder) transactionalOrder = refreshedOrder;
+      }
+
+      return { createdWarranty, order: transactionalOrder };
+    });
+    const order = transactionResult.order;
+
     await recordAuditLog({
       action: "SERVICE_ORDER_CREATE",
       actor: admin,
@@ -67,25 +86,15 @@ export async function POST(request: Request) {
       request,
     });
 
-    if (warrantyAutoStatuses.has(order.status) && order.warrantyMonths !== 0) {
-      const result = await createWarrantyForServiceOrder(prisma, order.id, {
-        warrantyMonths: order.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
+    if (transactionResult.createdWarranty) {
+      await recordAuditLog({
+        action: "WARRANTY_AUTO_CREATE_FROM_SERVICE_ORDER",
+        actor: admin,
+        entity: "Warranty",
+        entityId: transactionResult.createdWarranty.id,
+        newData: toAuditJson(transactionResult.createdWarranty),
+        request,
       });
-      if (result.created) {
-        await recordAuditLog({
-          action: "WARRANTY_AUTO_CREATE_FROM_SERVICE_ORDER",
-          actor: admin,
-          entity: "Warranty",
-          entityId: result.warranty.id,
-          newData: toAuditJson(result.warranty),
-          request,
-        });
-      }
-      const refreshedOrder = await prisma.serviceOrder.findUnique({
-        where: { id: order.id },
-        include: serviceOrderInclude,
-      });
-      if (refreshedOrder) order = refreshedOrder;
     }
 
     return NextResponse.json({ success: true, order: serializeServiceOrder(order) }, { status: 201 });
@@ -149,6 +158,7 @@ export async function PATCH(request: Request) {
       notes: previousOrder.notes || "",
       orderDate: previousOrder.orderDate,
       paidAmount: previousOrder.paidAmount,
+      paidAt: previousOrder.paidAt || "",
       priceStatus: previousOrder.priceStatus,
       productName: previousOrder.productName,
       quotedPrice: previousOrder.quotedPrice ?? "",
@@ -171,6 +181,12 @@ export async function PATCH(request: Request) {
         ? 0
         : normalized.paidAmount;
     const phoneChanged = normalized.customerPhone !== previousOrder.customerPhone;
+    const paymentChanged = paidAmount !== previousOrder.paidAmount;
+    const paidAt = paidAmount <= 0
+      ? null
+      : paymentChanged
+        ? (body.paidAt === undefined ? new Date() : normalized.paidAt || new Date())
+        : normalized.paidAt || previousOrder.paidAt;
 
     const updateData: Prisma.ServiceOrderUpdateInput = {
       customerAddress: normalized.customerAddress,
@@ -182,6 +198,7 @@ export async function PATCH(request: Request) {
       notes: normalized.notes,
       orderDate: normalized.orderDate,
       paidAmount,
+      paidAt,
       priceStatus: normalized.priceStatus,
       productName: normalized.productName,
       quotedPrice: normalized.quotedPrice,
@@ -195,11 +212,7 @@ export async function PATCH(request: Request) {
       warrantyMonths: normalized.warrantyMonths,
     };
 
-    let order = await prisma.$transaction(async (tx) => {
-      const linkedUser = await tx.user.findUnique({
-        where: { phone: normalized.customerPhone },
-        select: { id: true, role: true },
-      });
+    const transactionResult = await prisma.$transaction(async (tx) => {
       const existingCustomer = await tx.customer.findUnique({
         where: { phone: normalized.customerPhone },
         select: { id: true, phone: true, userId: true },
@@ -207,8 +220,7 @@ export async function PATCH(request: Request) {
       const contactUserId = !phoneChanged && previousOrder.contactRequest?.userId
         ? previousOrder.contactRequest.userId
         : null;
-      const linkedCustomerUserId = linkedUser?.role === "CUSTOMER" ? linkedUser.id : null;
-      const effectiveUserId = linkedCustomerUserId || existingCustomer?.userId || contactUserId || null;
+      const effectiveUserId = contactUserId || existingCustomer?.userId || null;
       const userCustomer = effectiveUserId
         ? await tx.customer.findUnique({
             where: { userId: effectiveUserId },
@@ -236,7 +248,7 @@ export async function PATCH(request: Request) {
         },
       });
 
-      return tx.serviceOrder.update({
+      let transactionalOrder = await tx.serviceOrder.update({
         where: { id },
         data: {
           ...updateData,
@@ -245,55 +257,83 @@ export async function PATCH(request: Request) {
         },
         include: serviceOrderInclude,
       });
+      let warrantyAudit: {
+        action: string;
+        entityId: string;
+        newData?: Prisma.InputJsonValue;
+        oldData?: Prisma.InputJsonValue;
+      } | null = null;
+
+      if (
+        typeof updateData.status === "string"
+        && warrantyAutoStatuses.has(updateData.status)
+        && transactionalOrder.warrantyMonths !== 0
+      ) {
+        const previousWarranty = transactionalOrder.warranty && !transactionalOrder.warranty.deletedAt
+          ? await tx.warranty.findUnique({ where: { id: transactionalOrder.warranty.id } })
+          : null;
+        const warrantyResult = await createWarrantyForServiceOrder(tx, transactionalOrder.id, {
+          notes: previousWarranty?.notes || undefined,
+          refreshExisting: true,
+          warrantyMonths: transactionalOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
+        });
+        if (warrantyResult.created) {
+          warrantyAudit = {
+            action: "WARRANTY_AUTO_CREATE_FROM_SERVICE_ORDER",
+            entityId: warrantyResult.warranty.id,
+            newData: toAuditJson(warrantyResult.warranty),
+          };
+        } else if (previousWarranty) {
+          warrantyAudit = {
+            action: "WARRANTY_AUTO_UPDATE_FROM_SERVICE_ORDER",
+            entityId: warrantyResult.warranty.id,
+            oldData: toAuditJson(previousWarranty),
+            newData: toAuditJson(warrantyResult.warranty),
+          };
+        }
+      } else if (
+        typeof updateData.status === "string"
+        && !warrantyAutoStatuses.has(updateData.status)
+        && transactionalOrder.warranty
+      ) {
+        const previousWarranty = transactionalOrder.warranty;
+        const archivedWarranty = await archiveWarrantyForServiceOrder(tx, transactionalOrder.id);
+        if (archivedWarranty) {
+          warrantyAudit = {
+            action: "WARRANTY_AUTO_ARCHIVE_FROM_SERVICE_ORDER",
+            entityId: archivedWarranty.id,
+            oldData: toAuditJson(previousWarranty),
+            newData: toAuditJson(archivedWarranty),
+          };
+        }
+      }
+
+      if (typeof updateData.status === "string" && transactionalOrder.contactRequestId) {
+        await tx.contactRequest.update({
+          where: { id: transactionalOrder.contactRequestId },
+          data: { status: mapOrderStatusToContactStatus(transactionalOrder.status) },
+        });
+      }
+
+      const refreshedOrder = await tx.serviceOrder.findUnique({
+        where: { id: transactionalOrder.id },
+        include: serviceOrderInclude,
+      });
+      if (refreshedOrder) transactionalOrder = refreshedOrder;
+
+      return { order: transactionalOrder, warrantyAudit };
     });
+    const order = transactionResult.order;
 
-    if (typeof updateData.status === "string" && warrantyAutoStatuses.has(updateData.status) && order.warrantyMonths !== 0) {
-      const result = await createWarrantyForServiceOrder(prisma, order.id, {
-        warrantyMonths: order.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
-      });
-      if (result.created) {
-        await recordAuditLog({
-          action: "WARRANTY_AUTO_CREATE_FROM_SERVICE_ORDER",
-          actor: admin,
-          entity: "Warranty",
-          entityId: result.warranty.id,
-          newData: toAuditJson(result.warranty),
-          request,
-        });
-      }
-      const refreshedOrder = await prisma.serviceOrder.findUnique({
-        where: { id: order.id },
-        include: serviceOrderInclude,
-      });
-      if (refreshedOrder) order = refreshedOrder;
-    } else if (
-      typeof updateData.status === "string"
-      && !warrantyAutoStatuses.has(updateData.status)
-      && order.warranty
-    ) {
-      const archivedWarranty = await archiveWarrantyForServiceOrder(prisma, order.id);
-      if (archivedWarranty) {
-        await recordAuditLog({
-          action: "WARRANTY_AUTO_ARCHIVE_FROM_SERVICE_ORDER",
-          actor: admin,
-          entity: "Warranty",
-          entityId: archivedWarranty.id,
-          oldData: toAuditJson(order.warranty),
-          newData: toAuditJson(archivedWarranty),
-          request,
-        });
-      }
-      const refreshedOrder = await prisma.serviceOrder.findUnique({
-        where: { id: order.id },
-        include: serviceOrderInclude,
-      });
-      if (refreshedOrder) order = refreshedOrder;
-    }
-
-    if (typeof updateData.status === "string" && order.contactRequestId) {
-      await prisma.contactRequest.update({
-        where: { id: order.contactRequestId },
-        data: { status: mapOrderStatusToContactStatus(order.status) },
+    if (transactionResult.warrantyAudit) {
+      await recordAuditLog({
+        action: transactionResult.warrantyAudit.action,
+        actor: admin,
+        entity: "Warranty",
+        entityId: transactionResult.warrantyAudit.entityId,
+        oldData: transactionResult.warrantyAudit.oldData,
+        newData: transactionResult.warrantyAudit.newData,
+        request,
       });
     }
 

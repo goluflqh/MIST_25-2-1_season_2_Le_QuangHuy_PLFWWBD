@@ -38,6 +38,16 @@ function getDaysRemaining(endDate: string) {
 }
 
 function getWarrantyStatus(endDate: string) {
+  const parsedEndDate = new Date(endDate);
+  if (!Number.isFinite(parsedEndDate.getTime()) || parsedEndDate.getUTCFullYear() <= 1900) {
+    return {
+      key: "unknown" as const,
+      label: "Chưa rõ hạn",
+      color: "bg-slate-100 text-slate-700",
+      border: "border-slate-200 bg-slate-50/30",
+    };
+  }
+
   const daysRemaining = getDaysRemaining(endDate);
   if (daysRemaining < 0) {
     return {
@@ -130,7 +140,7 @@ export default function AdminWarrantyClient({
         summary[status.key] += 1;
         return summary;
       },
-      { total: 0, valid: 0, expiring: 0, expired: 0 }
+      { total: 0, valid: 0, expiring: 0, expired: 0, unknown: 0 }
     );
   }, [warranties]);
 
@@ -570,9 +580,11 @@ export default function AdminWarrantyClient({
             {paginatedWarranties.map((warranty) => {
               const status = getWarrantyStatus(warranty.endDate);
               const daysRemaining = getDaysRemaining(warranty.endDate);
-              const timelineCopy = daysRemaining < 0
-                ? `Quá hạn ${Math.abs(daysRemaining)} ngày`
-                : `Còn ${daysRemaining} ngày`;
+              const timelineCopy = status.key === "unknown"
+                ? "Cần kiểm tra ngày dữ liệu nguồn"
+                : daysRemaining < 0
+                  ? `Quá hạn ${Math.abs(daysRemaining)} ngày`
+                  : `Còn ${daysRemaining} ngày`;
 
               return (
                 <div
@@ -632,7 +644,7 @@ export default function AdminWarrantyClient({
                           type="button"
                           onClick={() => setEditingId(null)}
                           disabled={savingEditId === warranty.id}
-                          className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 disabled:text-slate-300"
+                          className="min-h-11 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 disabled:text-slate-300"
                         >
                           Huỷ
                         </button>
@@ -640,7 +652,7 @@ export default function AdminWarrantyClient({
                           type="button"
                           onClick={() => saveEdit(warranty.id)}
                           disabled={savingEditId === warranty.id}
-                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:bg-slate-200 disabled:text-slate-400"
+                          className="min-h-11 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-200 disabled:text-slate-400"
                         >
                           {savingEditId === warranty.id ? "Đang lưu..." : "Lưu sửa"}
                         </button>
@@ -674,14 +686,14 @@ export default function AdminWarrantyClient({
                         <button
                           type="button"
                           onClick={() => startEdit(warranty)}
-                          className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                          className="min-h-11 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200"
                         >
                           Sửa
                         </button>
                         <button
                           onClick={() => deleteWarranty(warranty.id)}
                           disabled={deletingId === warranty.id}
-                          className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                          className="min-h-11 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
                         >
                           {deletingId === warranty.id ? "..." : "Xoá"}
                         </button>

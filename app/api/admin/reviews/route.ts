@@ -1,6 +1,7 @@
 import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
+import { createInvalidJsonResponse, readJsonBody } from "@/lib/api-route";
 import { prisma } from "@/lib/prisma";
 import { PUBLIC_REVIEWS_TAG } from "@/lib/public-data";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
@@ -32,8 +33,26 @@ export async function PATCH(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
 
-    const { id, approved } = await request.json();
+    const body = await readJsonBody(request);
+    if (!body) return createInvalidJsonResponse();
+
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    const approved = body.approved;
+    if (!id || id.length > 64 || typeof approved !== "boolean") {
+      return NextResponse.json(
+        { success: false, message: "Mã đánh giá và trạng thái duyệt chưa đúng định dạng." },
+        { status: 400 }
+      );
+    }
+
     const previousReview = await prisma.review.findUnique({ where: { id } });
+    if (!previousReview || previousReview.deletedAt) {
+      return NextResponse.json(
+        { success: false, message: "Không tìm thấy đánh giá cần cập nhật." },
+        { status: 404 }
+      );
+    }
+
     const review = await prisma.review.update({ where: { id }, data: { approved } });
     await recordAuditLog({
       action: "REVIEW_MODERATE",
@@ -44,7 +63,7 @@ export async function PATCH(request: Request) {
       newData: toAuditJson(review),
       request,
     });
-    revalidateTag(PUBLIC_REVIEWS_TAG, "max");
+    revalidateTag(PUBLIC_REVIEWS_TAG, { expire: 0 });
     return NextResponse.json({ success: true, review });
   } catch (error) {
     console.error("Admin review PATCH error:", error);
@@ -61,7 +80,25 @@ export async function DELETE(request: Request) {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
 
-    const { id } = await request.json();
+    const body = await readJsonBody(request);
+    if (!body) return createInvalidJsonResponse();
+
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!id || id.length > 64) {
+      return NextResponse.json(
+        { success: false, message: "Mã đánh giá chưa đúng định dạng." },
+        { status: 400 }
+      );
+    }
+
+    const previousReview = await prisma.review.findUnique({ where: { id } });
+    if (!previousReview || previousReview.deletedAt) {
+      return NextResponse.json(
+        { success: false, message: "Không tìm thấy đánh giá cần xoá." },
+        { status: 404 }
+      );
+    }
+
     const deletedReview = await prisma.review.delete({ where: { id } });
     await recordAuditLog({
       action: "REVIEW_DELETE",
@@ -71,7 +108,7 @@ export async function DELETE(request: Request) {
       oldData: toAuditJson(deletedReview),
       request,
     });
-    revalidateTag(PUBLIC_REVIEWS_TAG, "max");
+    revalidateTag(PUBLIC_REVIEWS_TAG, { expire: 0 });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Admin review DELETE error:", error);

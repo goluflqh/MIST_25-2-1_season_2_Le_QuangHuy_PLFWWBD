@@ -67,8 +67,8 @@ async function readSourceWorkbook(options: CliOptions): Promise<MinhHongParsedWo
   if (options.source === "none") return null;
 
   if (options.source === "raw-sheet") {
-    const exportsData = await fetchMinhHongSourceSheetExports();
-    const buffer = await buildMinhHongSourceImportWorkbookFromExports(exportsData);
+    const exportsData = await fetchMinhHongSourceSheetExports(fetch, options.scope);
+    const buffer = await buildMinhHongSourceImportWorkbookFromExports(exportsData, options.scope);
     return parseMinhHongAdminWorkbook(buffer);
   }
 

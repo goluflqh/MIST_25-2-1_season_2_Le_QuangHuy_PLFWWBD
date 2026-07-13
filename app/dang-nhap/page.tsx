@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -30,6 +30,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!user) {
@@ -58,6 +59,12 @@ export default function LoginPage() {
 
     return () => window.clearInterval(timer);
   }, [retryAfterSec]);
+
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.focus();
+    }
+  }, [error]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,7 +136,11 @@ export default function LoginPage() {
 
         {error && (
           <div
+            ref={errorRef}
+            id="login-error"
             data-testid="login-error"
+            role="alert"
+            tabIndex={-1}
             className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-body text-center"
           >
             {error}
@@ -138,7 +149,10 @@ export default function LoginPage() {
 
         {(notice || retryAfterSec > 0) && (
           <div
+            id="login-notice"
             data-testid="login-notice"
+            role="status"
+            aria-live="polite"
             className="mb-6 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm font-body text-center"
           >
             {retryAfterSec > 0
@@ -149,32 +163,43 @@ export default function LoginPage() {
 
         <form data-testid="login-form" onSubmit={handleSubmit} className="space-y-6 relative z-10">
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2 font-body">
+            <label htmlFor="login-phone" className="block text-sm font-semibold text-slate-700 mb-2 font-body">
               Số Điện Thoại
             </label>
             <input
+              id="login-phone"
+              name="phone"
               type="tel"
+              inputMode="tel"
+              autoComplete="tel"
               data-testid="login-phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none font-body"
               placeholder="09xxxxxxxx"
               disabled={isSubmitDisabled}
+              aria-describedby={error ? "login-error" : undefined}
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2 font-body flex justify-between">
-              Mật Khẩu
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label htmlFor="login-password" className="block text-sm font-semibold text-slate-700 font-body">
+                Mật Khẩu
+              </label>
               <button
                 type="button"
                 onClick={() => setShowForgot(!showForgot)}
-                className="text-red-600 hover:text-red-700 font-medium"
+                aria-expanded={showForgot}
+                aria-controls="login-forgot-help"
+                className="min-h-11 rounded-lg px-2 text-sm font-medium text-red-600 hover:bg-red-50 hover:text-red-700"
               >
                 Quên mật khẩu?
               </button>
-            </label>
+            </div>
             <div className="relative">
               <input
+                id="login-password"
+                name="password"
                 type={isPasswordVisible ? "text" : "password"}
                 data-testid="login-password"
                 value={password}
@@ -183,6 +208,7 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 disabled={isSubmitDisabled}
                 autoComplete="current-password"
+                aria-describedby={error ? "login-error" : undefined}
               />
               <PasswordVisibilityToggle
                 testId="login-password-toggle"
@@ -209,6 +235,7 @@ export default function LoginPage() {
 
         {showForgot && (
           <div
+            id="login-forgot-help"
             data-testid="login-forgot-help"
             className="mt-6 p-4 rounded-xl bg-yellow-50 border border-yellow-200 relative z-10"
           >

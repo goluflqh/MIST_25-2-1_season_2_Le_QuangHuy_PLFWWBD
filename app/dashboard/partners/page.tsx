@@ -1,4 +1,5 @@
 import { partnerInclude, serializePartner } from "@/lib/partner-ledger";
+import { isMinhHongImportScopeEnabled } from "@/lib/minhhong-import/import-policy";
 import { prisma } from "@/lib/prisma";
 import AdminPartnerLedgerClient from "./AdminPartnerLedgerClient";
 
@@ -9,5 +10,10 @@ export default async function AdminPartnerLedgerPage() {
     orderBy: [{ active: "desc" }, { name: "asc" }],
   });
 
-  return <AdminPartnerLedgerClient initialPartners={partners.map(serializePartner)} />;
+  return (
+    <AdminPartnerLedgerClient
+      initialPartners={partners.map(serializePartner)}
+      partnerImportEnabled={isMinhHongImportScopeEnabled("partners")}
+    />
+  );
 }

@@ -35,6 +35,7 @@ export interface MinhHongParsedPartner {
 }
 
 export interface MinhHongParsedPartnerEntry {
+  legacySourceCode?: string | null;
   sourceCode: string;
   sourceRow: number | null;
   sourceSheet: "Nhập hàng" | "Thanh toán" | "Trả hàng";
@@ -56,6 +57,7 @@ export interface MinhHongParsedPartnerEntry {
 }
 
 export interface MinhHongParsedCustomerOrder {
+  legacyOrderCode?: string | null;
   sourceCode: string;
   sourceRow: number | null;
   orderCode: string;
@@ -184,8 +186,24 @@ function parseDateKey(
 
 function parseSourceRow(value: CellValue, fallbackRow: number) {
   const text = clean(value);
+  const rangeMatch = text.match(/![A-Z]+(\d+)(?::[A-Z]+\d+)?/i);
+  if (rangeMatch) return Number.parseInt(rangeMatch[1], 10);
   const match = text.match(/(\d+)(?!.*\d)/);
   return match ? Number.parseInt(match[1], 10) : fallbackRow;
+}
+
+function parseStableSourceId(value: CellValue) {
+  return clean(value).match(/\bsource_id=(MH_[0-9A-F]{32})\b/i)?.[1]?.toUpperCase() || null;
+}
+
+function stableInternalCode(prefix: string, businessCode: string, sourceId: string | null) {
+  return `${prefix}:${sourceId || businessCode}`;
+}
+
+function displayOrderCode(orderCode: string, sourceId: string | null, rowNumber: number) {
+  if (orderCode) return orderCode;
+  if (sourceId) return `MH-DH-${sourceId.slice(-8)}`;
+  return `ROW-${rowNumber}`;
 }
 
 function rowHasBusinessContent(row: CellValue[], skipIndexes: number[]) {
@@ -285,12 +303,15 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
 
     const partnerCode = clean(row[2]);
     const partnerName = clean(row[3]);
+    const purchaseCode = clean(row[0]) || `ROW-${workbookRow}`;
+    const stableSourceId = parseStableSourceId(row[14]);
     const category = clean(row[6]);
     const seller = clean(row[4]);
     const countsInDebt = parseDebtFlag(row[12]);
     const entryType = isOpeningBalance(category, description, seller) ? "OPENING_BALANCE" : "PURCHASE";
     const entry: MinhHongParsedPartnerEntry = {
-      sourceCode: `NHAP_HANG:${clean(row[0]) || `ROW-${workbookRow}`}`,
+      legacySourceCode: stableSourceId ? `NHAP_HANG:${purchaseCode}` : null,
+      sourceCode: stableInternalCode("NHAP_HANG", purchaseCode, stableSourceId),
       sourceRow: parseSourceRow(row[14], workbookRow),
       sourceSheet: "Nhập hàng",
       partnerCode,
@@ -324,9 +345,12 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
 
     const partnerCode = clean(row[2]);
     const partnerName = clean(row[3]);
+    const paymentCode = clean(row[0]) || `ROW-${workbookRow}`;
+    const stableSourceId = parseStableSourceId(row[8]);
     const countsInDebt = parseDebtFlag(row[6]);
     partnerEntries.push({
-      sourceCode: `THANH_TOAN:${clean(row[0]) || `ROW-${workbookRow}`}`,
+      legacySourceCode: stableSourceId ? `THANH_TOAN:${paymentCode}` : null,
+      sourceCode: stableInternalCode("THANH_TOAN", paymentCode, stableSourceId),
       sourceRow: parseSourceRow(row[8], workbookRow),
       sourceSheet: "Thanh toán",
       partnerCode,
@@ -360,9 +384,12 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
 
     const partnerCode = clean(row[2]);
     const partnerName = clean(row[3]);
+    const returnCode = clean(row[0]) || `ROW-${workbookRow}`;
+    const stableSourceId = parseStableSourceId(row[11]);
     const countsInDebt = parseDebtFlag(row[9]);
     partnerEntries.push({
-      sourceCode: `TRA_HANG:${clean(row[0]) || `ROW-${workbookRow}`}`,
+      legacySourceCode: stableSourceId ? `TRA_HANG:${returnCode}` : null,
+      sourceCode: stableInternalCode("TRA_HANG", returnCode, stableSourceId),
       sourceRow: parseSourceRow(row[11], workbookRow),
       sourceSheet: "Trả hàng",
       partnerCode,
@@ -420,10 +447,13 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     const priceStatus = !quoted && (statusText === "Quên giá" || customerName || productName) ? "LEGACY_MISSING" : quoted ? "CONFIRMED" : "UNKNOWN";
     const debtAmount = quoted || paid ? Math.max(quoted - paid, 0) : parseMoney(row[7]);
     const sourceRow = parseSourceRow(row[10], workbookRow);
+    const stableSourceId = parseStableSourceId(row[10]);
+    const visibleOrderCode = displayOrderCode(orderCode, stableSourceId, workbookRow);
     customerOrders.push({
-      sourceCode: `DON_KHACH:${orderCode || `ROW-${workbookRow}`}`,
+      legacyOrderCode: stableSourceId && orderCode ? orderCode : null,
+      sourceCode: stableInternalCode("DON_KHACH", visibleOrderCode, stableSourceId),
       sourceRow,
-      orderCode,
+      orderCode: visibleOrderCode,
       orderDate: parseDateKey(row[1], errors, { sheet: "Đơn khách", rowNumber: workbookRow }, warnings),
       customerName,
       customerPhone,

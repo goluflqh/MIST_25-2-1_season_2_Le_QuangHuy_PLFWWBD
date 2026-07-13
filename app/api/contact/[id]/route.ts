@@ -3,7 +3,12 @@ import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { mapContactStatusToOrderStatus } from "@/lib/service-orders";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
-import { archiveWarrantyForServiceOrder, createWarrantyForServiceOrder, DEFAULT_WARRANTY_MONTHS } from "@/lib/warranties";
+import {
+  archiveWarrantyForServiceOrder,
+  createWarrantyForServiceOrder,
+  DEFAULT_WARRANTY_MONTHS,
+  WarrantyValidationError,
+} from "@/lib/warranties";
 
 // PATCH /api/contact/[id] — Admin updates contact status + notes
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -48,28 +53,32 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       );
     }
 
-    const updated = await prisma.contactRequest.update({
-      where: { id },
-      data: updateData,
-    });
-
-    if (status && previousContact.serviceOrder && !previousContact.serviceOrder.deletedAt) {
-      const nextOrderStatus = mapContactStatusToOrderStatus(status);
-      await prisma.serviceOrder.update({
-        where: { id: previousContact.serviceOrder.id },
-        data: {
-          status: nextOrderStatus,
-          ...(nextOrderStatus === "COMPLETED" ? {} : { warrantyEndDate: null }),
-        },
+    const updated = await prisma.$transaction(async (tx) => {
+      const transactionalContact = await tx.contactRequest.update({
+        where: { id },
+        data: updateData,
       });
-      if (nextOrderStatus === "COMPLETED") {
-        await createWarrantyForServiceOrder(prisma, previousContact.serviceOrder.id, {
-          warrantyMonths: previousContact.serviceOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
+
+      if (status && previousContact.serviceOrder && !previousContact.serviceOrder.deletedAt) {
+        const nextOrderStatus = mapContactStatusToOrderStatus(status);
+        await tx.serviceOrder.update({
+          where: { id: previousContact.serviceOrder.id },
+          data: {
+            status: nextOrderStatus,
+            ...(nextOrderStatus === "COMPLETED" ? {} : { warrantyEndDate: null }),
+          },
         });
-      } else {
-        await archiveWarrantyForServiceOrder(prisma, previousContact.serviceOrder.id);
+        if (nextOrderStatus === "COMPLETED") {
+          await createWarrantyForServiceOrder(tx, previousContact.serviceOrder.id, {
+            warrantyMonths: previousContact.serviceOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
+          });
+        } else {
+          await archiveWarrantyForServiceOrder(tx, previousContact.serviceOrder.id);
+        }
       }
-    }
+
+      return transactionalContact;
+    });
     await recordAuditLog({
       action: "CONTACT_UPDATE",
       actor: admin,
@@ -83,6 +92,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ success: true, contact: updated });
   } catch (error) {
     console.error("Contact update error:", error);
+    if (error instanceof WarrantyValidationError) {
+      return NextResponse.json({ success: false, message: error.message }, { status: error.status });
+    }
     return NextResponse.json({ success: false, message: "Lỗi hệ thống." }, { status: 500 });
   }
 }

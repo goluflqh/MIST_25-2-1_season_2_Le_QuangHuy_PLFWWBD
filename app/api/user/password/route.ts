@@ -7,6 +7,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { hashPassword, verifyPassword } from "@/lib/auth";
 import { getCurrentSession, unauthorizedResponse } from "@/lib/session";
+import { cookies } from "next/headers";
 
 export async function PATCH(request: Request) {
   try {
@@ -45,10 +46,15 @@ export async function PATCH(request: Request) {
     }
 
     const hashed = await hashPassword(newPassword);
-    await prisma.user.update({
-      where: { id: session.user.id },
-      data: { password: hashed },
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: session.user.id },
+        data: { password: hashed },
+      });
+      await tx.session.deleteMany({ where: { userId: session.user.id } });
     });
+    const cookieStore = await cookies();
+    cookieStore.delete("session_token");
 
     return Response.json({ success: true, message: "Đã đổi mật khẩu thành công!" });
   } catch (error) {

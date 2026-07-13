@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { createHash, randomUUID } from "node:crypto";
 import { parseAdminDateInput } from "@/lib/admin-date";
 import { formatVietnamDate } from "@/lib/vietnam-time";
 import { getGoogleAccessToken, hasGoogleServiceAccountCredentials } from "../google-sheets-sync";
@@ -10,12 +11,14 @@ import {
   MINHHONG_RECONCILIATION_KEYS,
   MINHHONG_RETURN_COLUMNS,
 } from "./workbook-contract";
+import type { MinhHongImportScope } from "./import-scope";
+import { MinhHongSourceSheetFetchError } from "./source-fetch-guard";
 
 type SourceExportKind = "legacy" | "manual";
 
 interface SourceWorkbookInput {
   legacyWorkbookBuffer: Buffer;
-  manualWorkbookBuffer: Buffer;
+  manualWorkbookBuffer?: Buffer;
 }
 
 export interface SourceExport {
@@ -26,6 +29,105 @@ export interface SourceExport {
 
 type CellValue = unknown;
 type SourceIssueLevel = "warning" | "blocking";
+
+export const MINHHONG_SOURCE_ID_PATTERN = /^MH_[0-9A-F]{32}$/;
+
+export const MINHHONG_SOURCE_ID_TARGETS = [
+  {
+    id: "customer-orders" as const,
+    kind: "legacy" as const,
+    sheetName: "Đơn hàng đã bán",
+    headerRow: 3,
+    firstDataRow: 4,
+    sourceIdColumn: 12,
+  },
+  {
+    id: "legacy-purchases" as const,
+    kind: "legacy" as const,
+    sheetName: "Sheet1",
+    headerRow: 2,
+    firstDataRow: 4,
+    sourceIdColumn: 11,
+  },
+  {
+    id: "legacy-returns" as const,
+    kind: "legacy" as const,
+    sheetName: "Đơn trả lại",
+    headerRow: 3,
+    firstDataRow: 4,
+    sourceIdColumn: 6,
+  },
+  {
+    id: "current-partner-activity" as const,
+    kind: "manual" as const,
+    sheetName: "Đơn hàng mua từ long",
+    headerRow: 1,
+    firstDataRow: 3,
+    sourceIdColumn: 7,
+  },
+] as const;
+
+type MinhHongSourceIdTarget = (typeof MINHHONG_SOURCE_ID_TARGETS)[number];
+
+export interface MinhHongSourceIdAssignment {
+  kind: SourceExportKind;
+  range: string;
+  rowFingerprint: string;
+  rowNumber: number;
+  sheetName: string;
+  spreadsheetId: string;
+  value: string;
+}
+
+export interface MinhHongSourceIdRowCheck {
+  kind: SourceExportKind;
+  rowFingerprint: string;
+  rowNumber: number;
+  sheetName: string;
+  sourceId: string;
+  spreadsheetId: string;
+}
+
+export interface MinhHongSourceIdTargetSummary {
+  hidden: boolean;
+  id: MinhHongSourceIdTarget["id"];
+  invalidRows: number;
+  missingRows: number;
+  sheetName: string;
+  totalRows: number;
+  validRows: number;
+}
+
+export interface MinhHongSourceIdPlan {
+  assignments: MinhHongSourceIdAssignment[];
+  canApply: boolean;
+  duplicateRows: number;
+  fingerprint: string;
+  headerConflicts: string[];
+  headerWrites: number;
+  invalidRows: number;
+  issues: string[];
+  missingRows: number;
+  requiresSetup: boolean;
+  rowChecks: MinhHongSourceIdRowCheck[];
+  targets: MinhHongSourceIdTargetSummary[];
+  totalRows: number;
+  validRows: number;
+}
+
+export class MinhHongSourceIdPlanChangedError extends Error {
+  constructor() {
+    super("Sheet nguồn đã thay đổi sau lần đọc đầu tiên; chưa ghi source_id. Hãy kiểm tra lại rồi xác nhận lần nữa.");
+    this.name = "MinhHongSourceIdPlanChangedError";
+  }
+}
+
+export class MinhHongSourceIdPartialWriteError extends Error {
+  constructor(public readonly updatedCells: number, message: string) {
+    super(message);
+    this.name = "MinhHongSourceIdPartialWriteError";
+  }
+}
 
 interface SourceIssue {
   level: SourceIssueLevel;
@@ -291,6 +393,308 @@ function rowValues(worksheet: ExcelJS.Worksheet, rowNumber: number) {
   return worksheet.getRow(rowNumber).values as CellValue[];
 }
 
+function sourceIdColumnLetter(columnNumber: number) {
+  let value = columnNumber;
+  let letters = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    letters = String.fromCharCode(65 + remainder) + letters;
+    value = Math.floor((value - 1) / 26);
+  }
+  return letters;
+}
+
+function sourceIdRange(target: MinhHongSourceIdTarget, rowNumber: number) {
+  return `${quoteSourceSheetName(target.sheetName)}!${sourceIdColumnLetter(target.sourceIdColumn)}${rowNumber}`;
+}
+
+function sourceIdRowRange(target: MinhHongSourceIdTarget, rowNumber: number) {
+  return `${quoteSourceSheetName(target.sheetName)}!A${rowNumber}:${sourceIdColumnLetter(target.sourceIdColumn)}${rowNumber}`;
+}
+
+function isSourceIdBusinessRow(target: MinhHongSourceIdTarget, row: ExcelJS.Row) {
+  const values = row.values as CellValue[];
+  if (target.id === "legacy-purchases") return Boolean(clean(values[2]) && money(values[7]));
+  if (target.id === "legacy-returns") return Boolean(clean(values[2]) && money(values[5]));
+  if (target.id === "current-partner-activity") {
+    return Array.from({ length: 6 }, (_, index) => clean(row.getCell(index + 1).value)).some(Boolean);
+  }
+  return Array.from({ length: 11 }, (_, index) => clean(row.getCell(index + 1).value)).some(Boolean);
+}
+
+function normalizedSourceIdNumber(value: number) {
+  return String(Number(value.toFixed(12)));
+}
+
+function sourceIdFormulaFingerprint(formula: string): [string, string] {
+  return ["formula", formula.trim().replace(/^=/, "")];
+}
+
+function sourceIdFingerprintValue(value: CellValue): [string, unknown?] {
+  if (value === null || value === undefined) return ["empty"];
+  if (value instanceof Date) {
+    const serial = (value.getTime() - Date.UTC(1899, 11, 30)) / 86_400_000;
+    return ["number", normalizedSourceIdNumber(serial)];
+  }
+  if (typeof value === "number") return ["number", normalizedSourceIdNumber(value)];
+  if (typeof value === "boolean") return ["boolean", value];
+  if (typeof value !== "object") {
+    const text = String(value).trim();
+    if (text.startsWith("=")) return sourceIdFormulaFingerprint(text);
+    return text ? ["text", text] : ["empty"];
+  }
+
+  const record = value as Record<string, unknown>;
+  if ("result" in record) return sourceIdFingerprintValue(record.result);
+  if ("text" in record) return sourceIdFingerprintValue(record.text);
+  if (Array.isArray(record.richText)) {
+    const text = record.richText.map((part) => clean((part as Record<string, unknown>).text)).join("").trim();
+    return text ? ["text", text] : ["empty"];
+  }
+  return ["empty"];
+}
+
+function sourceIdValuesFingerprint(values: CellValue[], cellCount: number) {
+  return JSON.stringify(
+    Array.from({ length: cellCount }, (_, index) => sourceIdFingerprintValue(values[index]))
+  );
+}
+
+function sourceIdRowFingerprint(target: MinhHongSourceIdTarget, row: ExcelJS.Row) {
+  return JSON.stringify(
+    Array.from({ length: target.sourceIdColumn - 1 }, (_, index) => {
+      const cell = row.getCell(index + 1);
+      return cell.formula
+        ? sourceIdFormulaFingerprint(cell.formula)
+        : sourceIdFingerprintValue(cell.value);
+    })
+  );
+}
+
+function sourceReference(reference: string, sourceId: string) {
+  return MINHHONG_SOURCE_ID_PATTERN.test(sourceId)
+    ? `${reference} | source_id=${sourceId}`
+    : reference;
+}
+
+function createSourceId(usedIds: Set<string>) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const sourceId = `MH_${randomUUID().replace(/-/g, "").toUpperCase()}`;
+    if (!usedIds.has(sourceId)) {
+      usedIds.add(sourceId);
+      return sourceId;
+    }
+  }
+  throw new Error("Không tạo được source_id duy nhất cho Sheet nguồn.");
+}
+
+function inspectMinhHongSourceIds(
+  legacyWorkbook: ExcelJS.Workbook,
+  manualWorkbook: ExcelJS.Workbook,
+  spreadsheetIds: Record<SourceExportKind, string>,
+  generateAssignments: boolean,
+  scope: MinhHongImportScope = "all"
+): MinhHongSourceIdPlan {
+  const assignments: MinhHongSourceIdAssignment[] = [];
+  const headerConflicts: string[] = [];
+  const issues: string[] = [];
+  const fingerprintRows: string[] = [];
+  const rowChecks: MinhHongSourceIdRowCheck[] = [];
+  const validRowsById = new Map<string, Array<{ rowNumber: number; target: MinhHongSourceIdTarget }>>();
+  const usedIds = new Set<string>();
+  const summaries = new Map<MinhHongSourceIdTarget["id"], MinhHongSourceIdTargetSummary>();
+
+  const targetsForScope = MINHHONG_SOURCE_ID_TARGETS.filter((target) => (
+    scope === "all"
+    || (scope === "service-orders" && target.id === "customer-orders")
+    || (scope === "partners" && target.id !== "customer-orders")
+  ));
+
+  for (const target of targetsForScope) {
+    const workbook = target.kind === "legacy" ? legacyWorkbook : manualWorkbook;
+    const worksheet = getWorksheet(workbook, target.sheetName);
+    const spreadsheetId = spreadsheetIds[target.kind];
+    const summary: MinhHongSourceIdTargetSummary = {
+      hidden: Boolean(worksheet.getColumn(target.sourceIdColumn).hidden),
+      id: target.id,
+      invalidRows: 0,
+      missingRows: 0,
+      sheetName: target.sheetName,
+      totalRows: 0,
+      validRows: 0,
+    };
+    summaries.set(target.id, summary);
+
+    const headerRow = worksheet.getRow(target.headerRow);
+    const headerValue = clean(headerRow.getCell(target.sourceIdColumn).value);
+    const sourceIdHeaderColumns = Array.from(
+      { length: Math.max(worksheet.columnCount, target.sourceIdColumn + 1) },
+      (_, index) => index + 1
+    ).filter((column) => clean(headerRow.getCell(column).value).toLocaleLowerCase("vi-VN") === "source_id");
+    fingerprintRows.push(JSON.stringify({
+      rowNumber: target.headerRow,
+      target: target.id,
+      values: Array.from({ length: target.sourceIdColumn }, (_, index) => clean(headerRow.getCell(index + 1).value)),
+    }));
+    rowChecks.push({
+      kind: target.kind,
+      rowFingerprint: sourceIdRowFingerprint(target, headerRow),
+      rowNumber: target.headerRow,
+      sheetName: target.sheetName,
+      sourceId: headerValue,
+      spreadsheetId,
+    });
+
+    if (!headerValue && sourceIdHeaderColumns.length > 0) {
+      headerConflicts.push(
+        `${target.sheetName}: cột source_id đã bị di chuyển khỏi vị trí ${sourceIdColumnLetter(target.sourceIdColumn)}; chưa thể tự động gán ID.`
+      );
+    } else if (!headerValue) {
+      assignments.push({
+        kind: target.kind,
+        range: sourceIdRange(target, target.headerRow),
+        rowFingerprint: sourceIdRowFingerprint(target, headerRow),
+        rowNumber: target.headerRow,
+        sheetName: target.sheetName,
+        spreadsheetId,
+        value: "source_id",
+      });
+    } else if (headerValue.toLocaleLowerCase("vi-VN") !== "source_id") {
+      headerConflicts.push(
+        `${target.sheetName}: ô tiêu đề ${sourceIdColumnLetter(target.sourceIdColumn)}${target.headerRow} đang có dữ liệu khác, không thể dùng làm cột source_id.`
+      );
+    } else if (sourceIdHeaderColumns.some((column) => column !== target.sourceIdColumn)) {
+      headerConflicts.push(`${target.sheetName}: có nhiều hơn một cột source_id; hãy giữ đúng một cột ở vị trí đã quy định.`);
+    }
+
+    for (let rowNumber = target.firstDataRow; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+      const row = worksheet.getRow(rowNumber);
+      fingerprintRows.push(JSON.stringify({
+        rowNumber,
+        target: target.id,
+        values: Array.from({ length: target.sourceIdColumn }, (_, index) => clean(row.getCell(index + 1).value)),
+      }));
+      if (!isSourceIdBusinessRow(target, row)) continue;
+
+      summary.totalRows += 1;
+      const sourceId = clean(row.getCell(target.sourceIdColumn).value);
+      rowChecks.push({
+        kind: target.kind,
+        rowFingerprint: sourceIdRowFingerprint(target, row),
+        rowNumber,
+        sheetName: target.sheetName,
+        sourceId,
+        spreadsheetId,
+      });
+      if (!sourceId) {
+        summary.missingRows += 1;
+        if (generateAssignments) {
+          assignments.push({
+            kind: target.kind,
+            range: sourceIdRange(target, rowNumber),
+            rowFingerprint: sourceIdRowFingerprint(target, row),
+            rowNumber,
+            sheetName: target.sheetName,
+            spreadsheetId,
+            value: createSourceId(usedIds),
+          });
+        }
+        continue;
+      }
+
+      if (!MINHHONG_SOURCE_ID_PATTERN.test(sourceId)) {
+        summary.invalidRows += 1;
+        issues.push(`${target.sheetName} dòng ${rowNumber}: source_id "${sourceId}" không đúng định dạng MH_ + 32 ký tự HEX.`);
+        continue;
+      }
+
+      usedIds.add(sourceId);
+      summary.validRows += 1;
+      validRowsById.set(sourceId, [
+        ...(validRowsById.get(sourceId) || []),
+        { rowNumber, target },
+      ]);
+    }
+  }
+
+  let duplicateRows = 0;
+  for (const [sourceId, rows] of validRowsById.entries()) {
+    if (rows.length < 2) continue;
+    duplicateRows += rows.length;
+    for (const row of rows) {
+      const summary = summaries.get(row.target.id);
+      if (summary) summary.validRows = Math.max(0, summary.validRows - 1);
+    }
+    issues.push(
+      `source_id ${sourceId} bị trùng tại ${rows.map((row) => `${row.target.sheetName} dòng ${row.rowNumber}`).join(", ")}.`
+    );
+  }
+
+  issues.push(...headerConflicts);
+  const targets = [...summaries.values()];
+  const totalRows = targets.reduce((sum, target) => sum + target.totalRows, 0);
+  const missingRows = targets.reduce((sum, target) => sum + target.missingRows, 0);
+  const invalidRows = targets.reduce((sum, target) => sum + target.invalidRows, 0);
+  const validRows = targets.reduce((sum, target) => sum + target.validRows, 0);
+  const headerWrites = assignments.filter((assignment) => assignment.value === "source_id").length;
+  const fingerprint = createHash("sha256").update(fingerprintRows.join("\n")).digest("hex");
+  const canApply = invalidRows === 0 && duplicateRows === 0 && headerConflicts.length === 0;
+
+  return {
+    assignments,
+    canApply,
+    duplicateRows,
+    fingerprint,
+    headerConflicts,
+    headerWrites,
+    invalidRows,
+    issues,
+    missingRows,
+    requiresSetup: canApply && (assignments.length > 0 || targets.some((target) => !target.hidden)),
+    rowChecks,
+    targets,
+    totalRows,
+    validRows,
+  };
+}
+
+function stableSourceId(row: ExcelJS.Row, targetId: MinhHongSourceIdTarget["id"], fallback: string) {
+  const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => item.id === targetId);
+  if (!target) return fallback;
+  const sourceId = clean(row.getCell(target.sourceIdColumn).value);
+  if (MINHHONG_SOURCE_ID_PATTERN.test(sourceId)) return sourceId;
+
+  const fingerprint = sourceIdRowFingerprint(target, row);
+  return `MH_${createHash("sha256")
+    .update(`${targetId}:${fingerprint}`)
+    .digest("hex")
+    .slice(0, 32)
+    .toUpperCase()}`;
+}
+
+function pushSourceIdImportIssues(
+  plan: MinhHongSourceIdPlan,
+  issues: SourceIssue[],
+  options: { requireSheetSourceIds?: boolean } = {}
+) {
+  for (const target of plan.targets) {
+    if (options.requireSheetSourceIds && target.missingRows > 0) {
+      pushIssue(
+        issues,
+        "blocking",
+        `${target.sheetName}: ${target.missingRows} dòng nghiệp vụ chưa có source_id. Hãy chạy “Kiểm tra source_id” và gán ID trước khi import.`
+      );
+    }
+    if (target.invalidRows > 0) {
+      pushIssue(issues, "blocking", `${target.sheetName}: ${target.invalidRows} dòng có source_id sai định dạng.`);
+    }
+  }
+  if (plan.duplicateRows > 0) {
+    pushIssue(issues, "blocking", `${plan.duplicateRows} dòng đang dùng source_id bị trùng; không thể import an toàn.`);
+  }
+  for (const message of plan.headerConflicts) pushIssue(issues, "blocking", message);
+}
+
 function normalizePhone(...values: CellValue[]) {
   for (const value of values) {
     const digits = clean(value).replace(/\D/g, "");
@@ -386,6 +790,11 @@ function buildManualActivityRows(manualWorkbook: ExcelJS.Workbook, issues: Sourc
     }
 
     if (itemName && amount) {
+      const sourceId = stableSourceId(
+        row,
+        "current-partner-activity",
+        String(purchaseIndex).padStart(4, "0")
+      );
       purchaseRows.push([
         "NH-MOI-" + String(purchaseIndex).padStart(4, "0"),
         dateText,
@@ -404,12 +813,17 @@ function buildManualActivityRows(manualWorkbook: ExcelJS.Workbook, issues: Sourc
           "Dòng phát sinh trong sheet Minh Hồng tự tạo sau mốc nợ 12.720.000.",
           remaining ? "Cột Còn ghi " + remaining.toLocaleString("vi-VN") + "." : "",
         ].filter(Boolean).join(" "),
-        "Đơn hàng mua từ long!A" + rowNumber + ":F" + rowNumber,
+        sourceReference("Đơn hàng mua từ long!A" + rowNumber + ":F" + rowNumber, sourceId),
       ]);
       purchaseIndex += 1;
     }
 
     if (paid) {
+      const sourceId = stableSourceId(
+        row,
+        "current-partner-activity",
+        String(paymentIndex).padStart(4, "0")
+      );
       paymentRows.push([
         "TT-MOI-" + String(paymentIndex).padStart(4, "0"),
         dateText,
@@ -419,7 +833,7 @@ function buildManualActivityRows(manualWorkbook: ExcelJS.Workbook, issues: Sourc
         "Trả theo sheet mới",
         "Có",
         "Khoản trả ở dòng " + rowNumber + " của sheet Minh Hồng tự tạo sau mốc nợ 12.720.000.",
-        "Thanh toán!A" + rowNumber + ":F" + rowNumber,
+        sourceReference("Thanh toán!A" + rowNumber + ":F" + rowNumber, sourceId),
       ]);
       paymentIndex += 1;
     }
@@ -479,6 +893,7 @@ function buildPurchaseRows(legacyWorkbook: ExcelJS.Workbook, manualWorkbook: Exc
 
     const note = clean(row[8]);
     const seller = inferSeller(note, clean(row[9]));
+    const sourceId = stableSourceId(worksheet.getRow(rowNumber), "legacy-purchases", String(index).padStart(4, "0"));
     rows.push([
       "NH-" + String(index).padStart(4, "0"),
       normalizeSourceDate(row[1], "Sheet1 dòng " + rowNumber, issues),
@@ -494,7 +909,7 @@ function buildPurchaseRows(legacyWorkbook: ExcelJS.Workbook, manualWorkbook: Exc
       "Có",
       "Không",
       [note, "Đã gộp trong số dư chốt 07/05/2026"].filter(Boolean).join(" | "),
-      "Sheet1!A" + rowNumber + ":J" + rowNumber,
+      sourceReference("Sheet1!A" + rowNumber + ":J" + rowNumber, sourceId),
     ]);
     index += 1;
   }
@@ -546,6 +961,7 @@ function buildReturnRows(legacyWorkbook: ExcelJS.Workbook) {
     const amount = money(row[5]);
     if (!itemName || !amount) continue;
 
+    const sourceId = stableSourceId(worksheet.getRow(rowNumber), "legacy-returns", String(index).padStart(4, "0"));
     rows.push([
       "TR-" + String(index).padStart(4, "0"),
       "",
@@ -558,7 +974,7 @@ function buildReturnRows(legacyWorkbook: ExcelJS.Workbook) {
       amount,
       "Không",
       "Đã gộp trong số dư chốt 07/05/2026; giữ lại để đối chiếu.",
-      "Đơn trả lại!A" + rowNumber + ":E" + rowNumber,
+      sourceReference("Đơn trả lại!A" + rowNumber + ":E" + rowNumber, sourceId),
     ]);
     index += 1;
   }
@@ -612,6 +1028,7 @@ function buildCustomerRows(
 
     const priceStatus = !total && (customerName || product) ? "Quên giá" : "";
     const remaining = total || paid ? Math.max(total - paid, 0) : sourceRemaining;
+    const sourceId = stableSourceId(worksheet.getRow(rowNumber), "customer-orders", String(index).padStart(4, "0"));
     rows.push([
       "DH-" + String(index).padStart(4, "0"),
       dateText,
@@ -623,7 +1040,7 @@ function buildCustomerRows(
       remaining,
       priceStatus,
       note,
-      "Đơn hàng đã bán!A" + rowNumber + ":K" + rowNumber,
+      sourceReference("Đơn hàng đã bán!A" + rowNumber + ":K" + rowNumber, sourceId),
     ]);
     index += 1;
   }
@@ -752,16 +1169,24 @@ export async function buildMinhHongSourceSheetLink(
   };
 }
 
-export async function fetchMinhHongSourceSheetExports(fetchImpl: typeof fetch = fetch): Promise<SourceExport[]> {
+export async function fetchMinhHongSourceSheetExports(
+  fetchImpl: typeof fetch = fetch,
+  scope: MinhHongImportScope = "all"
+): Promise<SourceExport[]> {
   const exports: SourceExport[] = [];
-  const accessToken = hasGoogleServiceAccountCredentials()
-    ? await getGoogleAccessToken(fetchImpl)
-    : "";
+  if (!hasGoogleServiceAccountCredentials()) {
+    throw new MinhHongSourceSheetFetchError(
+      "Kết nối Google Sheet chưa được cấu hình trên máy chủ. Hãy liên hệ người quản trị rồi thử lại.",
+      503
+    );
+  }
+  const accessToken = await getGoogleAccessToken(fetchImpl);
 
   for (const source of MINHHONG_SOURCE_SHEET_EXPORTS) {
+    if (scope === "service-orders" && source.kind !== "legacy") continue;
     const response = await fetchImpl(
       buildSourceSheetExportUrl(source.spreadsheetId),
-      accessToken ? { headers: { Authorization: "Bearer " + accessToken } } : undefined
+      { headers: { Authorization: "Bearer " + accessToken } }
     );
     if (!response.ok) {
       throw new Error("Không tải được Google Sheet nguồn " + source.spreadsheetId + " (" + response.status + " " + response.statusText + ").");
@@ -905,36 +1330,343 @@ export async function applyMinhHongSourceSheetDateRepairs(
   return { updatedCells };
 }
 
-export async function buildMinhHongSourceImportWorkbook(input: SourceWorkbookInput): Promise<Buffer> {
+async function loadMinhHongSourceIdWorkbooks(exports: SourceExport[], scope: MinhHongImportScope) {
+  const legacy = exports.find((item) => item.kind === "legacy");
+  const manual = exports.find((item) => item.kind === "manual");
+  if (!legacy || (scope !== "service-orders" && !manual)) {
+    throw new Error("Thiếu raw source Sheet export để kiểm tra source_id.");
+  }
+
+  const legacyWorkbook = new ExcelJS.Workbook();
+  const manualWorkbook = new ExcelJS.Workbook();
+  await legacyWorkbook.xlsx.load(legacy.buffer as unknown as Parameters<typeof legacyWorkbook.xlsx.load>[0]);
+  if (manual) {
+    await manualWorkbook.xlsx.load(manual.buffer as unknown as Parameters<typeof manualWorkbook.xlsx.load>[0]);
+  }
+  return {
+    legacyWorkbook,
+    manualWorkbook,
+    spreadsheetIds: {
+      legacy: legacy.spreadsheetId,
+      manual: manual?.spreadsheetId || getSourceSheetExportByKind("manual").spreadsheetId,
+    },
+  };
+}
+
+export async function buildMinhHongSourceIdPlanFromExports(
+  exports: SourceExport[],
+  scope: MinhHongImportScope = "all"
+) {
+  const { legacyWorkbook, manualWorkbook, spreadsheetIds } = await loadMinhHongSourceIdWorkbooks(exports, scope);
+  return inspectMinhHongSourceIds(legacyWorkbook, manualWorkbook, spreadsheetIds, true, scope);
+}
+
+function sourceIdAssignmentSnapshot(plan: MinhHongSourceIdPlan) {
+  return plan.assignments
+    .map((assignment) => JSON.stringify({
+      kind: assignment.kind,
+      range: assignment.range,
+      rowFingerprint: assignment.rowFingerprint,
+      rowNumber: assignment.rowNumber,
+      sheetName: assignment.sheetName,
+      spreadsheetId: assignment.spreadsheetId,
+    }))
+    .sort();
+}
+
+function sourceIdRowTarget(row: Pick<MinhHongSourceIdAssignment, "kind" | "sheetName">) {
+  const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => (
+    item.kind === row.kind && item.sheetName === row.sheetName
+  ));
+  if (!target) throw new Error(`Khong tim thay cau hinh Sheet nguon ${row.sheetName}.`);
+  return target;
+}
+
+async function assertSourceIdRowsStillCurrent(
+  accessToken: string,
+  spreadsheetId: string,
+  rowChecks: MinhHongSourceIdRowCheck[],
+  fetchImpl: typeof fetch
+) {
+  const ranges = rowChecks.map((rowCheck) => (
+    sourceIdRowRange(sourceIdRowTarget(rowCheck), rowCheck.rowNumber)
+  ));
+
+  const response = await fetchImpl(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGetByDataFilter`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        dataFilters: ranges.map((a1Range) => ({ a1Range })),
+        dateTimeRenderOption: "SERIAL_NUMBER",
+        majorDimension: "ROWS",
+        valueRenderOption: "FORMULA",
+      }),
+    }
+  );
+  const data = await response.json() as {
+    error?: { message?: string };
+    valueRanges?: Array<{ valueRange?: { range?: string; values?: CellValue[][] } }>;
+  };
+  if (!response.ok) {
+    throw new Error(data.error?.message || "Không đọc lại được các ô source_id ngay trước khi ghi.");
+  }
+
+  const valueRanges = data.valueRanges || [];
+  if (valueRanges.length !== rowChecks.length) {
+    throw new MinhHongSourceIdPlanChangedError();
+  }
+
+  const valuesByRange = new Map<string, CellValue[][]>();
+  for (const matchedRange of valueRanges) {
+    const range = matchedRange.valueRange?.range;
+    if (!range || valuesByRange.has(range)) {
+      throw new MinhHongSourceIdPlanChangedError();
+    }
+    valuesByRange.set(range, matchedRange.valueRange?.values || []);
+  }
+
+  for (const rowCheck of rowChecks) {
+    const target = sourceIdRowTarget(rowCheck);
+    const rows = valuesByRange.get(sourceIdRowRange(target, rowCheck.rowNumber));
+    if (!rows) throw new MinhHongSourceIdPlanChangedError();
+    if (rows.length > 1) throw new MinhHongSourceIdPlanChangedError();
+    const values = rows[0] || [];
+    const currentFingerprint = sourceIdValuesFingerprint(values, target.sourceIdColumn - 1);
+    if (
+      clean(values[target.sourceIdColumn - 1]) !== rowCheck.sourceId
+      || currentFingerprint !== rowCheck.rowFingerprint
+    ) {
+      throw new MinhHongSourceIdPlanChangedError();
+    }
+  }
+}
+
+export async function applyMinhHongSourceIdPlan(
+  plan: MinhHongSourceIdPlan,
+  reviewedFingerprint: string,
+  currentExports: SourceExport[],
+  fetchImpl: typeof fetch = fetch,
+  scope: MinhHongImportScope = "all"
+) {
+  if (!plan.canApply) {
+    throw new Error("Sheet nguồn có source_id sai hoặc trùng; chưa ghi bất kỳ ô nào.");
+  }
+
+  if (plan.fingerprint !== reviewedFingerprint) {
+    throw new MinhHongSourceIdPlanChangedError();
+  }
+
+  const currentPlan = await buildMinhHongSourceIdPlanFromExports(currentExports, scope);
+  const plannedAssignments = sourceIdAssignmentSnapshot(plan);
+  const currentAssignments = sourceIdAssignmentSnapshot(currentPlan);
+  if (
+    !currentPlan.canApply
+    || plan.fingerprint !== currentPlan.fingerprint
+    || plannedAssignments.length !== currentAssignments.length
+    || plannedAssignments.some((assignment, index) => assignment !== currentAssignments[index])
+  ) {
+    throw new MinhHongSourceIdPlanChangedError();
+  }
+  const accessToken = await getGoogleAccessToken(fetchImpl);
+  const assignmentsBySpreadsheet = new Map<string, MinhHongSourceIdAssignment[]>();
+  for (const assignment of currentPlan.assignments) {
+    assignmentsBySpreadsheet.set(assignment.spreadsheetId, [
+      ...(assignmentsBySpreadsheet.get(assignment.spreadsheetId) || []),
+      assignment,
+    ]);
+  }
+  const rowChecksBySpreadsheet = new Map<string, MinhHongSourceIdRowCheck[]>();
+  for (const rowCheck of currentPlan.rowChecks) {
+    rowChecksBySpreadsheet.set(rowCheck.spreadsheetId, [
+      ...(rowChecksBySpreadsheet.get(rowCheck.spreadsheetId) || []),
+      rowCheck,
+    ]);
+  }
+
+  for (const [spreadsheetId, rowChecks] of rowChecksBySpreadsheet.entries()) {
+    await assertSourceIdRowsStillCurrent(accessToken, spreadsheetId, rowChecks, fetchImpl);
+  }
+  if (currentPlan.assignments.length === 0) return { updatedCells: 0 };
+
+  let updatedCells = 0;
+  for (const [spreadsheetId, assignments] of assignmentsBySpreadsheet.entries()) {
+    const response = await fetchImpl(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        data: assignments.map((assignment) => ({
+          range: assignment.range,
+          values: [[assignment.value]],
+        })),
+        valueInputOption: "RAW",
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const message = data.error?.message || "Không ghi được source_id vào Google Sheet nguồn.";
+      if (updatedCells > 0) throw new MinhHongSourceIdPartialWriteError(updatedCells, message);
+      throw new Error(message);
+    }
+
+    const spreadsheetUpdatedCells = Number(data.totalUpdatedCells ?? assignments.length);
+    if (spreadsheetUpdatedCells < assignments.length) {
+      const confirmedCells = updatedCells + spreadsheetUpdatedCells;
+      throw new MinhHongSourceIdPartialWriteError(
+        confirmedCells,
+        `Google Sheet chỉ xác nhận ${spreadsheetUpdatedCells}/${assignments.length} ô source_id trong một bảng; hãy chạy kiểm tra lại trước khi import.`
+      );
+    }
+    updatedCells += spreadsheetUpdatedCells;
+  }
+
+  return { updatedCells };
+}
+
+export async function hideMinhHongSourceIdColumns(
+  plan: MinhHongSourceIdPlan,
+  sourceExports: SourceExport[],
+  fetchImpl: typeof fetch = fetch
+) {
+  if (!plan.canApply) {
+    throw new Error("Sheet nguồn chưa đủ điều kiện để ẩn cột định danh.");
+  }
+
+  const accessToken = await getGoogleAccessToken(fetchImpl);
+  const requestsBySpreadsheet = new Map<string, Array<Record<string, unknown>>>();
+
+  for (const summary of plan.targets) {
+    const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => item.id === summary.id);
+    if (!target) continue;
+    const source = sourceExports.find((item) => item.kind === target.kind);
+    if (!source) throw new Error(`Không tìm thấy Sheet nguồn cho ${target.sheetName}.`);
+
+    const sheetId = await fetchSheetId(accessToken, source.spreadsheetId, target.sheetName, fetchImpl);
+    const requests = requestsBySpreadsheet.get(source.spreadsheetId) || [];
+    requests.push({
+      updateDimensionProperties: {
+        range: {
+          dimension: "COLUMNS",
+          endIndex: target.sourceIdColumn,
+          sheetId,
+          startIndex: target.sourceIdColumn - 1,
+        },
+        properties: { hiddenByUser: true },
+        fields: "hiddenByUser",
+      },
+    });
+    requestsBySpreadsheet.set(source.spreadsheetId, requests);
+  }
+
+  for (const [spreadsheetId, requests] of requestsBySpreadsheet.entries()) {
+    const response = await fetchImpl(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ requests }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Không ẩn được cột định danh kỹ thuật trên Google Sheet.");
+  }
+}
+
+export async function buildMinhHongSourceImportWorkbook(
+  input: SourceWorkbookInput,
+  scope: MinhHongImportScope = "all"
+): Promise<Buffer> {
   const legacyWorkbook = new ExcelJS.Workbook();
   const manualWorkbook = new ExcelJS.Workbook();
   await legacyWorkbook.xlsx.load(input.legacyWorkbookBuffer as unknown as Parameters<typeof legacyWorkbook.xlsx.load>[0]);
-  await manualWorkbook.xlsx.load(input.manualWorkbookBuffer as unknown as Parameters<typeof manualWorkbook.xlsx.load>[0]);
+  if (input.manualWorkbookBuffer) {
+    await manualWorkbook.xlsx.load(input.manualWorkbookBuffer as unknown as Parameters<typeof manualWorkbook.xlsx.load>[0]);
+  } else if (scope !== "service-orders") {
+    throw new Error("Thiếu raw source Sheet đối tác để tạo preview import.");
+  }
 
+  const result = await buildMinhHongSourceImportPreview(
+    legacyWorkbook,
+    manualWorkbook,
+    {
+      legacy: getSourceSheetExportByKind("legacy").spreadsheetId,
+      manual: getSourceSheetExportByKind("manual").spreadsheetId,
+    },
+    false,
+    scope
+  );
+  return result.buffer;
+}
+
+async function buildMinhHongSourceImportPreview(
+  legacyWorkbook: ExcelJS.Workbook,
+  manualWorkbook: ExcelJS.Workbook,
+  spreadsheetIds: Record<SourceExportKind, string>,
+  generateAssignments: boolean,
+  scope: MinhHongImportScope
+) {
   const outputWorkbook = new ExcelJS.Workbook();
   const issues: SourceIssue[] = [];
-  const purchaseRows = buildPurchaseRows(legacyWorkbook, manualWorkbook, issues);
-  const paymentRows = buildPaymentRows(legacyWorkbook, manualWorkbook, issues);
-  const returnRows = buildReturnRows(legacyWorkbook);
+  const sourceIdPlan = inspectMinhHongSourceIds(
+    legacyWorkbook,
+    manualWorkbook,
+    spreadsheetIds,
+    generateAssignments,
+    scope
+  );
+  pushSourceIdImportIssues(sourceIdPlan, issues);
+  const includePartnerLedger = scope !== "service-orders";
+  const purchaseRows = includePartnerLedger ? buildPurchaseRows(legacyWorkbook, manualWorkbook, issues) : [];
+  const paymentRows = includePartnerLedger ? buildPaymentRows(legacyWorkbook, manualWorkbook, issues) : [];
+  const returnRows = includePartnerLedger ? buildReturnRows(legacyWorkbook) : [];
   const customerRows = buildCustomerRows(legacyWorkbook, issues);
   const reconciliationRows = buildReconciliationRows(purchaseRows, paymentRows, returnRows, customerRows, issues);
 
-  appendRows(outputWorkbook.addWorksheet("Đối tác"), MINHHONG_PARTNER_COLUMNS, PARTNER_ROWS);
+  appendRows(outputWorkbook.addWorksheet("Đối tác"), MINHHONG_PARTNER_COLUMNS, includePartnerLedger ? PARTNER_ROWS : []);
   appendRows(outputWorkbook.addWorksheet("Nhập hàng"), MINHHONG_PURCHASE_COLUMNS, purchaseRows);
   appendRows(outputWorkbook.addWorksheet("Thanh toán"), MINHHONG_PAYMENT_COLUMNS, paymentRows);
   appendRows(outputWorkbook.addWorksheet("Trả hàng"), MINHHONG_RETURN_COLUMNS, returnRows);
   appendRows(outputWorkbook.addWorksheet("Đơn khách"), MINHHONG_CUSTOMER_ORDER_COLUMNS, customerRows);
   appendRows(outputWorkbook.addWorksheet("Đối soát"), ["Khoá", "Nhãn", "Giá trị kỳ vọng", "Ghi chú"], reconciliationRows);
 
-  return Buffer.from(await outputWorkbook.xlsx.writeBuffer());
+  return {
+    buffer: Buffer.from(await outputWorkbook.xlsx.writeBuffer()),
+    sourceIdPlan,
+  };
 }
 
-export async function buildMinhHongSourceImportWorkbookFromExports(exports: SourceExport[]) {
+export async function buildMinhHongSourceImportWorkbookFromExports(
+  exports: SourceExport[],
+  scope: MinhHongImportScope = "all"
+) {
   const legacy = exports.find((item) => item.kind === "legacy");
   const manual = exports.find((item) => item.kind === "manual");
-  if (!legacy || !manual) throw new Error("Thiếu raw source Sheet export để tạo preview import.");
+  if (!legacy || (scope !== "service-orders" && !manual)) {
+    throw new Error("Thiếu raw source Sheet export để tạo preview import.");
+  }
   return buildMinhHongSourceImportWorkbook({
     legacyWorkbookBuffer: legacy.buffer,
-    manualWorkbookBuffer: manual.buffer,
-  });
+    manualWorkbookBuffer: manual?.buffer,
+  }, scope);
+}
+
+export async function buildMinhHongSourceImportPreviewFromExports(
+  exports: SourceExport[],
+  scope: MinhHongImportScope = "all"
+) {
+  const { legacyWorkbook, manualWorkbook, spreadsheetIds } = await loadMinhHongSourceIdWorkbooks(exports, scope);
+  return buildMinhHongSourceImportPreview(
+    legacyWorkbook,
+    manualWorkbook,
+    spreadsheetIds,
+    true,
+    scope
+  );
 }

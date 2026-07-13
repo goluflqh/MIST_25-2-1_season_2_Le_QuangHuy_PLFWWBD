@@ -83,7 +83,7 @@ export default async function RootLayout({
     : 0;
 
   return (
-    <html lang="vi" className="scroll-smooth scroll-pt-32" data-scroll-behavior="smooth">
+    <html lang="vi" className="scroll-smooth scroll-pt-32 motion-reduce:scroll-auto" data-scroll-behavior="smooth">
       <body
         className="flex min-h-screen flex-col bg-[#fffdfa] font-body text-slate-800 antialiased [--app-header-offset:96px] sm:[--app-header-offset:108px]"
       >
@@ -95,13 +95,21 @@ export default async function RootLayout({
               : null
           }
         >
+          <a
+            href="#main-content"
+            className="fixed left-4 top-3 z-[100] -translate-y-24 rounded-xl bg-slate-950 px-4 py-3 font-body text-sm font-bold text-white shadow-xl transition-transform focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 motion-reduce:transition-none"
+          >
+            Chuyển đến nội dung chính
+          </a>
           <div className="pointer-events-none fixed inset-0 z-[-1] bg-[linear-gradient(180deg,#fff7ed_0%,#fffdfa_36%,#f8fafc_100%)]" />
 
           <Header
             initialNotificationCount={initialNotificationCount}
             initialNotificationUserId={currentUser?.id ?? null}
           />
-          <main className="flex-grow pt-[var(--app-header-offset)]">{children}</main>
+          <main id="main-content" tabIndex={-1} className="flex-grow pt-[var(--app-header-offset)]">
+            {children}
+          </main>
           <Footer />
           <ChatbotWidget />
         </AuthProvider>

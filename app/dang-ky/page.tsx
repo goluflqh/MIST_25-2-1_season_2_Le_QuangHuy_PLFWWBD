@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -29,6 +29,7 @@ function RegisterPageContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [referrerName, setReferrerName] = useState("");
+  const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!user) {
@@ -48,6 +49,12 @@ function RegisterPageContent() {
         .catch(() => {});
     }
   }, [refCode]);
+
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.focus();
+    }
+  }, [error]);
 
   const handlePhoneChange = (value: string) => {
     setPhone(value);
@@ -134,7 +141,11 @@ function RegisterPageContent() {
 
         {error && (
           <div
+            ref={errorRef}
+            id="register-error"
             data-testid="register-error"
+            role="alert"
+            tabIndex={-1}
             className="mb-6 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-body text-center"
           >
             {error}
@@ -147,11 +158,14 @@ function RegisterPageContent() {
           className="space-y-5 relative z-10"
         >
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2 font-body">
+            <label htmlFor="register-name" className="block text-sm font-semibold text-slate-700 mb-2 font-body">
               Họ và Tên
             </label>
             <input
+              id="register-name"
+              name="name"
               type="text"
+              autoComplete="name"
               data-testid="register-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -161,11 +175,15 @@ function RegisterPageContent() {
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2 font-body">
+            <label htmlFor="register-phone" className="block text-sm font-semibold text-slate-700 mb-2 font-body">
               Số Điện Thoại
             </label>
             <input
+              id="register-phone"
+              name="phone"
               type="tel"
+              inputMode="tel"
+              autoComplete="tel"
               data-testid="register-phone"
               value={phone}
               onChange={(e) => handlePhoneChange(e.target.value)}
@@ -175,18 +193,26 @@ function RegisterPageContent() {
               placeholder="09xxxxxxxx"
               disabled={isLoading}
               maxLength={10}
+              aria-invalid={Boolean(phoneError)}
+              aria-describedby={phoneError ? "register-phone-error" : undefined}
             />
-            {phoneError && <p className="text-xs text-red-500 font-body mt-1">{phoneError}</p>}
+            {phoneError && (
+              <p id="register-phone-error" role="alert" className="text-xs text-red-500 font-body mt-1">
+                {phoneError}
+              </p>
+            )}
             {phone.length === 10 && !phoneError && (
-              <p className="text-xs text-green-600 font-body mt-1">✓ SĐT hợp lệ</p>
+              <p role="status" className="text-xs text-green-600 font-body mt-1">✓ SĐT hợp lệ</p>
             )}
           </div>
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2 font-body">
+            <label htmlFor="register-password" className="block text-sm font-semibold text-slate-700 mb-2 font-body">
               Mật Khẩu
             </label>
             <div className="relative">
               <input
+                id="register-password"
+                name="password"
                 type={isPasswordVisible ? "text" : "password"}
                 data-testid="register-password"
                 value={password}
@@ -195,6 +221,7 @@ function RegisterPageContent() {
                 placeholder="Ít nhất 6 ký tự..."
                 disabled={isLoading}
                 autoComplete="new-password"
+                aria-describedby={password.length > 0 ? "register-password-status" : undefined}
               />
               <PasswordVisibilityToggle
                 testId="register-password-toggle"
@@ -204,12 +231,12 @@ function RegisterPageContent() {
               />
             </div>
             {password.length > 0 && password.length < 6 && (
-              <p className="text-xs text-red-500 font-body mt-1">
+              <p id="register-password-status" role="status" className="text-xs text-red-500 font-body mt-1">
                 Cần thêm {6 - password.length} ký tự nữa
               </p>
             )}
             {password.length >= 6 && (
-              <p className="text-xs text-green-600 font-body mt-1">✓ Mật khẩu đủ dài</p>
+              <p id="register-password-status" role="status" className="text-xs text-green-600 font-body mt-1">✓ Mật khẩu đủ dài</p>
             )}
           </div>
 

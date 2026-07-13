@@ -177,7 +177,6 @@ export default function SolarLightPage() {
                 alt="Đèn pha năng lượng mặt trời và tấm pin rời lắp ở cổng nhà."
                 fill
                 priority
-                unoptimized
                 sizes="(max-width: 1024px) 100vw, 38vw"
                 className="object-cover"
               />

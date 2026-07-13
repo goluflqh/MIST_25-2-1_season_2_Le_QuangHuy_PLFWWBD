@@ -37,6 +37,7 @@ interface ServiceOrderData {
   quotedPrice: number | null;
   priceStatus: string;
   paidAmount: number;
+  paidAt: string | null;
   contactRequestId: string | null;
   couponRedemptionId: string | null;
   couponCode: string | null;
@@ -436,6 +437,7 @@ export default function AdminServiceOrdersClient({
   const importPanelRef = useRef<HTMLDivElement | null>(null);
   const importTextRef = useRef<HTMLTextAreaElement | null>(null);
   const appliedPrefillRef = useRef(false);
+  const editDrawerOpenerRef = useRef<HTMLElement | null>(null);
   const [orders, setOrders] = useState(initialOrders);
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -667,6 +669,9 @@ export default function AdminServiceOrdersClient({
   };
 
   const editOrder = (order: ServiceOrderData) => {
+    editDrawerOpenerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     setEditingId(order.id);
     setFormData(buildOrderFormData(order));
     setShowImport(false);
@@ -676,6 +681,47 @@ export default function AdminServiceOrdersClient({
       orderFirstFieldRef.current?.focus({ preventScroll: true });
     }, 50);
   };
+
+  useEffect(() => {
+    if (!editingId) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setShowForm(false);
+        setEditingId(null);
+        setFormData(createEmptyOrderForm());
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = orderFormRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    const opener = editDrawerOpenerRef.current;
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      opener?.focus();
+    };
+  }, [editingId]);
 
   const saveOrderForm = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1019,10 +1065,9 @@ export default function AdminServiceOrdersClient({
       {showForm ? (
         <div className={editingId ? "fixed inset-0 z-[80] flex items-end bg-slate-950/30 p-0 backdrop-blur-[1px] sm:items-stretch sm:justify-end" : ""}>
           {editingId ? (
-            <button
-              type="button"
-              aria-label="Đóng sửa đơn"
-              onClick={() => {
+            <div
+              aria-hidden="true"
+              onMouseDown={() => {
                 setShowForm(false);
                 resetForm();
               }}
@@ -1032,6 +1077,9 @@ export default function AdminServiceOrdersClient({
           <form
             ref={orderFormRef}
             onSubmit={saveOrderForm}
+            role={editingId ? "dialog" : undefined}
+            aria-modal={editingId ? true : undefined}
+            aria-labelledby={editingId ? "dashboard-order-edit-title" : undefined}
             className={editingId
               ? "relative z-10 max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-slate-100 bg-white p-4 shadow-2xl sm:h-full sm:max-h-none sm:w-[min(760px,100vw)] sm:rounded-none sm:p-6"
               : "scroll-mt-28 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6"}
@@ -1039,7 +1087,7 @@ export default function AdminServiceOrdersClient({
             <div className={`${editingId ? "sticky top-0 z-10 -mx-4 -mt-4 mb-4 border-b border-slate-100 bg-white/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6" : "mb-4"}`}>
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-heading text-lg font-bold text-slate-900">
+                  <h3 id={editingId ? "dashboard-order-edit-title" : undefined} className="font-heading text-lg font-bold text-slate-900">
                     {editingId ? "Sửa đơn đang xem" : "Thêm đơn nhanh"}
                   </h3>
                   <p className="font-body text-sm text-slate-500">
@@ -1740,7 +1788,10 @@ export default function AdminServiceOrdersClient({
                     <div className="mt-3 grid grid-cols-2 gap-2 font-body text-sm md:hidden">
                       <span className="rounded-xl bg-slate-50 px-3 py-2 text-slate-600">Ngày: <strong>{formatOrderDate(order)}</strong></span>
                       <span className="rounded-xl bg-slate-50 px-3 py-2 text-slate-600">Phải thu: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(payable) : priceStatus.label}</strong></span>
-                      <span className="rounded-xl bg-green-50 px-3 py-2 text-green-700">Đã thu: <strong>{formatMoney(order.paidAmount)}</strong></span>
+                      <span className="rounded-xl bg-green-50 px-3 py-2 text-green-700">
+                        Đã thu: <strong>{formatMoney(order.paidAmount)}</strong>
+                        {order.paidAt ? <small className="mt-0.5 block font-semibold text-green-600">Ngày thu {formatDate(order.paidAt)}</small> : null}
+                      </span>
                       <span className="rounded-xl bg-red-50 px-3 py-2 text-red-700">Còn lại: <strong>{formatMoney(debt)}</strong></span>
                     </div>
                     <div className="mt-2 hidden gap-x-4 gap-y-1 font-body text-[12px] leading-5 text-slate-500 md:grid md:grid-cols-3 xl:grid-cols-4">
@@ -1749,7 +1800,10 @@ export default function AdminServiceOrdersClient({
                       <span>Giá gốc: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(order.quotedPrice) : priceStatus.label}</strong></span>
                       <span>Giảm giá: <strong className="text-emerald-700">{formatMoney(order.discountAmount)}</strong></span>
                       <span>Phải thu: <strong>{order.priceStatus === "CONFIRMED" ? formatMoney(payable) : priceStatus.label}</strong></span>
-                      <span>Đã thu: <strong>{formatMoney(order.paidAmount)}</strong></span>
+                      <span>
+                        Đã thu: <strong>{formatMoney(order.paidAmount)}</strong>
+                        {order.paidAt ? ` · ${formatDate(order.paidAt)}` : ""}
+                      </span>
                       <span>Còn lại: <strong className={debt > 0 ? "text-red-600" : "text-green-700"}>{formatMoney(debt)}</strong></span>
                     </div>
                     {order.couponCode ? (

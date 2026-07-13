@@ -230,6 +230,11 @@ export function reconcileMinhHongWorkbook(
     for (const orderCode of duplicateValues(parsed.customerOrders.map((order) => order.orderCode))) {
       blockingIssues.push(`Mã đơn ${orderCode} xuất hiện nhiều lần trong workbook.`);
     }
+    if (duplicateValues(parsed.customerOrders.map((order) => order.sourceCode)).length > 0) {
+      blockingIssues.push(
+        "Có các dòng đơn khách trùng hoàn toàn nên chưa thể phân biệt an toàn. Hãy bổ sung thông tin khác biệt rồi kiểm tra lại."
+      );
+    }
   }
 
   return {

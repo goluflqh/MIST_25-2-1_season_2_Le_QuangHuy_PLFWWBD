@@ -1,18 +1,20 @@
 import { parseAdminDateInput } from "@/lib/admin-date";
-import { getImportedFallbackOrderDate } from "@/lib/admin-order-display";
-import { sanitizeText } from "@/lib/sanitize";
+import { getImportedFallbackOrderDate, isImportedOrderDateFallback } from "@/lib/admin-order-display";
+import { normalizePhone, sanitizeText } from "@/lib/sanitize";
 import { createWarrantyForServiceOrder, DEFAULT_WARRANTY_MONTHS, getDefaultWarrantyEndDate } from "@/lib/warranties";
-import { formatVietnamDate } from "@/lib/vietnam-time";
+import { formatVietnamDate, getVietnamDateKey } from "@/lib/vietnam-time";
 import type { MinhHongImportScope } from "./import-scope";
 import { getServiceOrderInvalidDateSourceRows, reconcileMinhHongWorkbook } from "./reconciliation";
 import type { MinhHongParsedCustomerOrder, MinhHongParsedPartner, MinhHongParsedPartnerEntry, MinhHongParsedWorkbook } from "./workbook-parser";
 
 interface ImportTransaction {
   partner: {
+    findMany(args: { where: { code: { in: string[] } } }): Promise<Array<Record<string, unknown>>>;
     findUnique(args: { where: { code: string } }): Promise<Record<string, unknown> | null>;
     upsert(args: { where: { code: string }; create: Record<string, unknown>; update: Record<string, unknown> }): Promise<Record<string, unknown>>;
   };
   partnerLedgerEntry: {
+    findMany(args: { where: { sourceCode: { in: string[] } } }): Promise<Array<Record<string, unknown>>>;
     findUnique(args: { where: { sourceCode: string } }): Promise<Record<string, unknown> | null>;
     upsert(args: { where: { sourceCode: string }; create: Record<string, unknown>; update: Record<string, unknown> }): Promise<Record<string, unknown>>;
   };
@@ -20,7 +22,8 @@ interface ImportTransaction {
     upsert(args: { where: { phone: string }; create: Record<string, unknown>; update: Record<string, unknown> }): Promise<Record<string, unknown>>;
   };
   serviceOrder: {
-    findUnique(args: { where: { id?: string; orderCode?: string }; include?: Record<string, unknown> }): Promise<Record<string, unknown> | null>;
+    findMany(args: { where: Record<string, unknown>; include?: Record<string, unknown> }): Promise<Array<Record<string, unknown>>>;
+    findUnique(args: { where: { id?: string; orderCode?: string; sourceCode?: string }; include?: Record<string, unknown> }): Promise<Record<string, unknown> | null>;
     create(args: { data: Record<string, unknown> }): Promise<Record<string, unknown>>;
     update(args: { where: { id?: string; orderCode?: string }; data: Record<string, unknown> }): Promise<Record<string, unknown>>;
   };
@@ -35,7 +38,10 @@ interface ImportTransaction {
 }
 
 export interface ImportRunner extends ImportTransaction {
-  $transaction<T>(callback: (tx: ImportTransaction) => Promise<T>): Promise<T>;
+  $transaction<T>(
+    callback: (tx: ImportTransaction) => Promise<T>,
+    options?: { maxWait?: number; timeout?: number }
+  ): Promise<T>;
 }
 
 export interface MinhHongImportOptions {
@@ -100,8 +106,9 @@ interface PartnerPlanItem {
 }
 
 interface PartnerEntryPlanItem {
-  action: ImportAction;
+  action: ImportAction | "conflict";
   entry: MinhHongParsedPartnerEntry;
+  matchSourceCode: string;
 }
 
 interface ServiceOrderPlanItem {
@@ -141,6 +148,7 @@ function recordMatches(existing: Record<string, unknown>, data: Record<string, u
 
 type FieldChangeConfig = {
   format?: (value: unknown) => string;
+  hideInPreview?: boolean;
   label: string;
 };
 
@@ -178,6 +186,7 @@ function recordChanges(existing: Record<string, unknown>, data: Record<string, u
   return Object.entries(data).flatMap(([field, value]) => {
     if (comparableValue(existing[field]) === comparableValue(value)) return [];
     const config = fieldChangeConfig(labels[field], field);
+    if (config.hideInPreview) return [];
     const formatter = config.format || formatDiffValue;
     return [{
       after: formatter(value),
@@ -270,13 +279,13 @@ function customerPhone(order: MinhHongParsedCustomerOrder) {
   return sanitizeText(order.customerPhone) || buildPlaceholderPhone(order.sourceRow);
 }
 
-function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string) {
+function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string, existingOrderCode?: string) {
   const phone = customerPhone(order);
   const orderDate = toOrderDate(order.orderDate, order.sourceRow);
   const status = serviceOrderStatus(order);
   const warrantyMonths = DEFAULT_WARRANTY_MONTHS;
   return {
-    orderCode: order.orderCode,
+    orderCode: existingOrderCode || order.orderCode,
     customerId,
     customerName: order.customerName || "Khách chưa rõ tên",
     customerPhone: phone,
@@ -287,6 +296,7 @@ function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string
     status,
     source: "IMPORT",
     sourceName: "Đơn khách",
+    sourceCode: order.sourceCode,
     sourceRow: order.sourceRow,
     orderDate,
     quotedPrice: order.quotedPrice,
@@ -303,10 +313,170 @@ function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string
   };
 }
 
-function serviceOrderBusinessData(order: MinhHongParsedCustomerOrder) {
+function serviceOrderBusinessData(order: MinhHongParsedCustomerOrder, existing?: Record<string, unknown> | null) {
   return Object.fromEntries(
-    Object.entries(serviceOrderData(order, "preview-customer")).filter(([key]) => key !== "customerId")
+    Object.entries(serviceOrderData(
+      order,
+      "preview-customer",
+      existing?.orderCode ? String(existing.orderCode) : undefined
+    )).filter(([key]) => key !== "customerId")
   );
+}
+
+function normalizedBusinessText(value: unknown) {
+  return sanitizeText(String(value ?? ""))
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("vi-VN");
+}
+
+function normalizedBusinessDate(value: unknown) {
+  const date = parseAdminDateInput(value);
+  return date ? getVietnamDateKey(date) : normalizedBusinessText(value);
+}
+
+function normalizedBusinessNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : normalizedBusinessText(value);
+}
+
+function normalizedBusinessBoolean(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  return value === true;
+}
+
+function normalizedCustomerIdentity(name: unknown, phone: unknown, sourceRow: unknown) {
+  const normalizedPhone = normalizePhone(sanitizeText(String(phone ?? "")));
+  const row = typeof sourceRow === "number" && Number.isFinite(sourceRow) ? sourceRow : null;
+  return {
+    name: normalizedBusinessText(name) || normalizedBusinessText("Khách chưa rõ tên"),
+    phone: normalizedPhone === buildPlaceholderPhone(row) ? "" : normalizedPhone,
+  };
+}
+
+function serviceOrderRolloutSignature(order: MinhHongParsedCustomerOrder) {
+  return JSON.stringify({
+    customer: normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow),
+    notes: normalizedBusinessText(order.notes),
+    orderDate: normalizedBusinessDate(order.orderDate),
+    paidAmount: normalizedBusinessNumber(order.paidAmount),
+    priceStatus: normalizedBusinessText(priceStatus(order)),
+    productName: normalizedBusinessText(order.productName) || normalizedBusinessText("Đơn khách cũ"),
+    quotedPrice: normalizedBusinessNumber(order.quotedPrice),
+  });
+}
+
+function existingServiceOrderRolloutSignature(order: Record<string, unknown>) {
+  return JSON.stringify({
+    customer: normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow),
+    notes: normalizedBusinessText(order.notes),
+    orderDate: isImportedOrderDateFallback(order) ? "" : normalizedBusinessDate(order.orderDate),
+    paidAmount: normalizedBusinessNumber(order.paidAmount),
+    priceStatus: normalizedBusinessText(order.priceStatus),
+    productName: normalizedBusinessText(order.productName) || normalizedBusinessText("Đơn khách cũ"),
+    quotedPrice: normalizedBusinessNumber(order.quotedPrice),
+  });
+}
+
+function serviceOrderAnchorDate(value: unknown, sourceRow: unknown) {
+  const parsedDate = parseAdminDateInput(value);
+  const row = typeof sourceRow === "number" && Number.isFinite(sourceRow) ? sourceRow : null;
+  return getVietnamDateKey(parsedDate || getImportedFallbackOrderDate(row));
+}
+
+function serviceOrderAnchorSignature(order: MinhHongParsedCustomerOrder) {
+  return JSON.stringify({
+    customer: normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow),
+    orderDate: serviceOrderAnchorDate(order.orderDate, order.sourceRow),
+    productName: normalizedBusinessText(order.productName),
+  });
+}
+
+function hasStableServiceOrderAnchor(order: MinhHongParsedCustomerOrder, existing: Record<string, unknown>) {
+  const incomingCustomer = normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow);
+  const existingCustomer = normalizedCustomerIdentity(existing.customerName, existing.customerPhone, existing.sourceRow);
+  const sameCustomer = incomingCustomer.phone && existingCustomer.phone
+    ? incomingCustomer.phone === existingCustomer.phone
+    : incomingCustomer.name === existingCustomer.name;
+
+  return sameCustomer
+    && normalizedBusinessText(order.productName) === normalizedBusinessText(existing.productName)
+    && serviceOrderAnchorDate(order.orderDate, order.sourceRow) === serviceOrderAnchorDate(existing.orderDate, existing.sourceRow);
+}
+
+function canRefreshDerivedServiceOrderIdentity(
+  order: MinhHongParsedCustomerOrder,
+  existing: Record<string, unknown>,
+  incomingSourceCodes: Set<string>
+) {
+  const existingSourceCode = sanitizeText(String(existing.sourceCode || ""));
+  const existingSourceRow = Number(existing.sourceRow);
+  if (!existingSourceCode || !order.sourceRow || !Number.isFinite(existingSourceRow)) return false;
+  if (existingSourceRow !== order.sourceRow || incomingSourceCodes.has(existingSourceCode)) return false;
+  return hasStableServiceOrderAnchor(order, existing);
+}
+
+function partnerEntryRolloutSignature(entry: MinhHongParsedPartnerEntry, partnerId: string | null) {
+  return JSON.stringify({
+    amount: normalizedBusinessNumber(entry.amount),
+    category: normalizedBusinessText(entry.category),
+    countsInDebt: normalizedBusinessBoolean(entry.countsInDebt),
+    description: normalizedBusinessText(entry.description),
+    entryDate: normalizedBusinessDate(entry.entryDate),
+    entryType: normalizedBusinessText(entry.entryType),
+    notes: normalizedBusinessText(entry.notes),
+    partnerId: normalizedBusinessText(partnerId),
+    paymentMethod: normalizedBusinessText(entry.paymentMethod),
+    quantity: normalizedBusinessNumber(entry.quantity),
+    receivedGoods: normalizedBusinessBoolean(entry.receivedGoods),
+    sourceName: normalizedBusinessText(entry.sourceSheet),
+    unit: normalizedBusinessText(entry.unit),
+    unitPrice: normalizedBusinessNumber(entry.unitPrice),
+  });
+}
+
+function existingPartnerEntryRolloutSignature(entry: Record<string, unknown>) {
+  return JSON.stringify({
+    amount: normalizedBusinessNumber(entry.amount),
+    category: normalizedBusinessText(entry.category),
+    countsInDebt: normalizedBusinessBoolean(entry.countsInDebt),
+    description: normalizedBusinessText(entry.description),
+    entryDate: normalizedBusinessDate(entry.entryDate),
+    entryType: normalizedBusinessText(entry.entryType),
+    notes: normalizedBusinessText(entry.notes),
+    partnerId: normalizedBusinessText(entry.partnerId),
+    paymentMethod: normalizedBusinessText(entry.paymentMethod),
+    quantity: normalizedBusinessNumber(entry.quantity),
+    receivedGoods: normalizedBusinessBoolean(entry.receivedGoods),
+    sourceName: normalizedBusinessText(entry.sourceName),
+    unit: normalizedBusinessText(entry.unit),
+    unitPrice: normalizedBusinessNumber(entry.unitPrice),
+  });
+}
+
+function partnerEntryRolloutIdentitySignature(entry: MinhHongParsedPartnerEntry, partnerId: string | null) {
+  const signature = JSON.parse(partnerEntryRolloutSignature(entry, partnerId)) as Record<string, unknown>;
+  delete signature.entryDate;
+  return JSON.stringify(signature);
+}
+
+function existingPartnerEntryRolloutIdentitySignature(entry: Record<string, unknown>) {
+  const signature = JSON.parse(existingPartnerEntryRolloutSignature(entry)) as Record<string, unknown>;
+  delete signature.entryDate;
+  return JSON.stringify(signature);
+}
+
+function duplicateRolloutSignatures(signatures: string[]) {
+  const counts = new Map<string, number>();
+  for (const signature of signatures) {
+    counts.set(signature, (counts.get(signature) || 0) + 1);
+  }
+  return new Set([...counts].flatMap(([signature, count]) => count > 1 ? [signature] : []));
+}
+
+function legacyServiceOrderSourceCode(order: MinhHongParsedCustomerOrder) {
+  return order.legacyOrderCode ? `DON_KHACH:${order.legacyOrderCode}` : null;
 }
 
 function serviceOrderPreviewLabel(order: MinhHongParsedCustomerOrder) {
@@ -341,7 +511,7 @@ const partnerEntryFieldLabels: FieldChangeMap = {
   quantity: "Số lượng",
   receivedGoods: "Đã nhận hàng",
   reference: "Chứng từ",
-  sourceCode: "Mã dòng Sheet",
+  sourceCode: { label: "Mã dòng Sheet", hideInPreview: true },
   sourceName: "Tab nguồn",
   sourceRow: "Dòng Excel",
   unit: "Đơn vị",
@@ -367,6 +537,7 @@ const serviceOrderFieldLabels: FieldChangeMap = {
   service: "Loại dịch vụ",
   solution: "Cách xử lý",
   source: "Nguồn dữ liệu",
+  sourceCode: { label: "Mã dòng Sheet", hideInPreview: true },
   sourceName: "Tab nguồn",
   sourceRow: "Dòng Excel",
   status: "Trạng thái đơn",
@@ -380,9 +551,10 @@ function hasInvalidTypedOrderDate(order: MinhHongParsedCustomerOrder) {
 }
 
 async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWorkbook, options: ImportPlanOptions = {}): Promise<ImportPlan> {
-  const includePartnerLedger = options.scope !== "service-orders";
-  const includeServiceOrders = options.scope !== "partners";
-  const invalidServiceOrderDateRows = options.scope === "service-orders"
+  const scope = options.scope || "service-orders";
+  const includePartnerLedger = scope !== "service-orders";
+  const includeServiceOrders = scope !== "partners";
+  const invalidServiceOrderDateRows = scope === "service-orders"
     ? getServiceOrderInvalidDateSourceRows(parsed)
     : new Set<number>();
   const preview: MinhHongImportPreview = {
@@ -396,9 +568,15 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
   const partnerIds = new Map<string, string>();
 
   if (includePartnerLedger) {
+    const existingPartners = new Map(
+      (await tx.partner.findMany({
+        where: { code: { in: parsed.partners.map((partner) => partner.partnerCode) } },
+      })).map((partner) => [String(partner.code), partner])
+    );
+
     for (const partner of parsed.partners) {
       const data = partnerData(partner);
-      const existing = await tx.partner.findUnique({ where: { code: partner.partnerCode } });
+      const existing = existingPartners.get(partner.partnerCode) || null;
       const action: ImportAction = !existing ? "created" : recordMatches(existing, data) ? "unchanged" : "updated";
       countAction(preview.partners, action);
       if (action !== "unchanged") {
@@ -416,9 +594,67 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
 
   const partnerEntryPlans: PartnerEntryPlanItem[] = [];
   if (includePartnerLedger) {
+    const duplicatePartnerEntryRolloutSignatures = duplicateRolloutSignatures(
+      parsed.partnerEntries
+        .filter((entry) => Boolean(entry.legacySourceCode))
+        .map((entry) => partnerEntryRolloutSignature(entry, partnerIds.get(entry.partnerCode) || null))
+    );
+    const duplicatePartnerEntryRolloutIdentitySignatures = duplicateRolloutSignatures(
+      parsed.partnerEntries
+        .filter((entry) => Boolean(entry.legacySourceCode))
+        .map((entry) => partnerEntryRolloutIdentitySignature(entry, partnerIds.get(entry.partnerCode) || null))
+    );
+    const partnerEntrySourceCodes = [...new Set(parsed.partnerEntries.flatMap((entry) => [
+      entry.sourceCode,
+      entry.legacySourceCode || "",
+    ]).filter(Boolean))];
+    const existingPartnerEntries = new Map(
+      (await tx.partnerLedgerEntry.findMany({
+        where: { sourceCode: { in: partnerEntrySourceCodes } },
+      })).map((entry) => [String(entry.sourceCode), entry])
+    );
+
     for (const entry of parsed.partnerEntries) {
-      const existing = await tx.partnerLedgerEntry.findUnique({ where: { sourceCode: entry.sourceCode } });
+      const stableMatch = existingPartnerEntries.get(entry.sourceCode) || null;
+      const legacyMatch = entry.legacySourceCode
+        ? existingPartnerEntries.get(entry.legacySourceCode) || null
+        : null;
+      if (stableMatch && legacyMatch && stableMatch !== legacyMatch) {
+        preview.conflicts.push(`source_id của dòng ${entry.sourceCode} đang thuộc một giao dịch khác; chưa thể tự động hợp nhất.`);
+        partnerEntryPlans.push({ action: "conflict", entry, matchSourceCode: entry.sourceCode });
+        continue;
+      }
+
       const partnerId = partnerIds.get(entry.partnerCode);
+      if (!stableMatch && legacyMatch && entry.legacySourceCode) {
+        const signature = partnerEntryRolloutSignature(entry, partnerId || null);
+        const identitySignature = partnerEntryRolloutIdentitySignature(entry, partnerId || null);
+        const isUniqueSignature = !duplicatePartnerEntryRolloutSignatures.has(signature);
+        const matchesLegacyBusinessIdentity = Boolean(
+          partnerId && (
+            signature === existingPartnerEntryRolloutSignature(legacyMatch)
+            || (
+              !duplicatePartnerEntryRolloutIdentitySignatures.has(identitySignature)
+              && identitySignature === existingPartnerEntryRolloutIdentitySignature(legacyMatch)
+            )
+          )
+        );
+        if (!isUniqueSignature || !matchesLegacyBusinessIdentity) {
+          preview.conflicts.push(
+            !isUniqueSignature
+              ? `source_id của dòng ${entry.sourceCode} trùng dữ liệu nghiệp vụ trong lần gắn source_id đầu tiên; chưa thể tự động hợp nhất.`
+              : `source_id của dòng ${entry.sourceCode} không khớp dữ liệu nghiệp vụ của giao dịch cũ; chưa thể tự động hợp nhất.`
+          );
+          partnerEntryPlans.push({
+            action: "conflict",
+            entry,
+            matchSourceCode: String(legacyMatch.sourceCode),
+          });
+          continue;
+        }
+      }
+
+      const existing = stableMatch || legacyMatch;
       const data = partnerId ? ledgerData(entry, partnerId) : null;
       const action: ImportAction = !existing
         ? "created"
@@ -427,31 +663,111 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
           : "updated";
       countAction(preview.partnerEntries, action);
       if (action !== "unchanged") {
+        const changes = action === "updated" && existing && data
+          ? recordChanges(existing, data, partnerEntryFieldLabels).filter(
+              (change) => change.field !== "entryDate" || Boolean(sanitizeText(entry.entryDate))
+            )
+          : [];
         preview.records.partnerEntries.push({
           action,
-          changes: action === "updated" && existing && data ? recordChanges(existing, data, partnerEntryFieldLabels) : [],
+          changes,
           key: entry.sourceCode,
           label: entry.description,
         });
       }
-      partnerEntryPlans.push({ action, entry });
+      partnerEntryPlans.push({
+        action,
+        entry,
+        matchSourceCode: existing ? String(existing.sourceCode) : entry.sourceCode,
+      });
     }
   }
 
   const serviceOrderPlans: ServiceOrderPlanItem[] = [];
   if (includeServiceOrders) {
+    const incomingServiceOrderSourceCodes = new Set(parsed.customerOrders.map((order) => order.sourceCode));
+    const duplicateServiceOrderAnchorSignatures = duplicateRolloutSignatures(
+      parsed.customerOrders.map(serviceOrderAnchorSignature)
+    );
+    const existingServiceOrderRows = await tx.serviceOrder.findMany({
+      where: {
+        OR: [
+          { sourceCode: { in: parsed.customerOrders.map((order) => order.sourceCode) } },
+          {
+            orderCode: {
+              in: [...new Set(parsed.customerOrders.flatMap((order) => [
+                order.orderCode,
+                order.legacyOrderCode || "",
+              ]).filter(Boolean))],
+            },
+          },
+        ],
+      },
+      include: { warranty: true },
+    });
+    const existingServiceOrdersBySourceCode = new Map(
+      existingServiceOrderRows
+        .filter((order) => order.sourceCode)
+        .map((order) => [String(order.sourceCode), order])
+    );
+    const existingServiceOrdersByOrderCode = new Map(
+      existingServiceOrderRows.map((order) => [String(order.orderCode), order])
+    );
+    const duplicateServiceOrderRolloutSignatures = duplicateRolloutSignatures(
+      parsed.customerOrders
+        .filter((order) => Boolean(order.legacyOrderCode))
+        .map(serviceOrderRolloutSignature)
+    );
+
     for (const order of parsed.customerOrders) {
       if (
-        options.scope === "service-orders"
+        scope === "service-orders"
         && ((order.sourceRow && invalidServiceOrderDateRows.has(order.sourceRow)) || hasInvalidTypedOrderDate(order))
       ) {
         continue;
       }
 
-      const existing = await tx.serviceOrder.findUnique({
-        where: { orderCode: order.orderCode },
-        include: { warranty: true },
-      });
+      const sourceCodeMatch = existingServiceOrdersBySourceCode.get(order.sourceCode) || null;
+      const orderCodeMatch = existingServiceOrdersByOrderCode.get(order.orderCode) || null;
+      const legacyOrderCodeMatch = order.legacyOrderCode
+        ? existingServiceOrdersByOrderCode.get(order.legacyOrderCode) || null
+        : null;
+      const codeMatches = [...new Set([orderCodeMatch, legacyOrderCodeMatch].filter(Boolean))];
+      if (!sourceCodeMatch && codeMatches.length > 1) {
+        const message = `source_id của ${order.orderCode} đang thuộc một đơn khác; chưa thể tự động hợp nhất.`;
+        preview.conflicts.push(message);
+        serviceOrderPlans.push({ action: "conflict", existing: sourceCodeMatch, order });
+        continue;
+      }
+
+      const legacyCandidate = !sourceCodeMatch && order.legacyOrderCode
+        ? legacyOrderCodeMatch
+        : null;
+      const expectedLegacySourceCode = legacyServiceOrderSourceCode(order);
+      const legacyRekeyCandidate = legacyCandidate
+        && (!legacyCandidate.sourceCode || String(legacyCandidate.sourceCode) === expectedLegacySourceCode)
+        ? legacyCandidate
+        : null;
+      const orderFallbackMatch = orderCodeMatch || legacyOrderCodeMatch;
+      const safeIdentityRefresh = Boolean(
+        orderFallbackMatch
+        && !duplicateServiceOrderAnchorSignatures.has(serviceOrderAnchorSignature(order))
+        && canRefreshDerivedServiceOrderIdentity(order, orderFallbackMatch, incomingServiceOrderSourceCodes)
+      );
+      if (
+        !sourceCodeMatch
+        && orderFallbackMatch?.sourceCode
+        && String(orderFallbackMatch.sourceCode) !== order.sourceCode
+        && !legacyRekeyCandidate
+        && !safeIdentityRefresh
+      ) {
+        const message = `Mã đơn ${order.orderCode} đã có source_id khác; chưa ghi đè danh tính ổn định.`;
+        preview.conflicts.push(message);
+        serviceOrderPlans.push({ action: "conflict", existing: orderFallbackMatch, order });
+        continue;
+      }
+
+      const existing = sourceCodeMatch || orderFallbackMatch;
       if (existing && existing.source !== "IMPORT" && !existing.deletedAt) {
         const message = `Không ghi đè đơn thủ công ${order.orderCode}; dữ liệu trên web được giữ nguyên.`;
         preview.conflicts.push(message);
@@ -459,18 +775,38 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
         continue;
       }
 
+      if (legacyRekeyCandidate) {
+        const signature = serviceOrderRolloutSignature(order);
+        const isUniqueSignature = !duplicateServiceOrderRolloutSignatures.has(signature);
+        const matchesLegacyBusinessIdentity = signature === existingServiceOrderRolloutSignature(legacyRekeyCandidate);
+        if ((!isUniqueSignature || !matchesLegacyBusinessIdentity) && !safeIdentityRefresh) {
+          preview.conflicts.push(
+            !isUniqueSignature
+              ? `source_id của ${order.orderCode} trùng dữ liệu nghiệp vụ trong lần gắn source_id đầu tiên; chưa thể tự động hợp nhất.`
+              : `source_id của ${order.orderCode} không khớp dữ liệu nghiệp vụ của đơn cũ; chưa thể tự động hợp nhất.`
+          );
+          serviceOrderPlans.push({ action: "conflict", existing: legacyRekeyCandidate, order });
+          continue;
+        }
+      }
+
       const action: ImportAction = !existing
         ? "created"
-        : recordMatches(existing, serviceOrderBusinessData(order))
+        : recordMatches(existing, serviceOrderBusinessData(order, existing))
           ? "unchanged"
           : "updated";
       countAction(preview.serviceOrders, action);
       if (action !== "unchanged") {
-        const data = serviceOrderBusinessData(order);
+        const data = serviceOrderBusinessData(order, existing);
+        const changes = action === "updated" && existing
+          ? recordChanges(existing, data, serviceOrderFieldLabels).filter(
+              (change) => change.field !== "orderDate" || Boolean(sanitizeText(order.orderDate))
+            )
+          : [];
         preview.records.serviceOrders.push({
           action,
-          changes: action === "updated" && existing ? recordChanges(existing, data, serviceOrderFieldLabels) : [],
-          key: order.orderCode,
+          changes,
+          key: existing?.orderCode ? String(existing.orderCode) : order.orderCode,
           label: serviceOrderPreviewLabel(order),
         });
       }
@@ -515,6 +851,9 @@ async function upsertPartners(tx: ImportTransaction, plans: PartnerPlanItem[]) {
 
 async function upsertLedgerEntries(tx: ImportTransaction, plans: PartnerEntryPlanItem[], partnersByCode: Map<string, string>) {
   for (const plan of plans) {
+    if (plan.action === "conflict") {
+      throw new MinhHongWorkbookImportError(`Không thể hợp nhất giao dịch ${plan.entry.sourceCode} do source_id bị trùng.`);
+    }
     if (plan.action === "unchanged") continue;
     const entry = plan.entry;
     const partnerId = partnersByCode.get(entry.partnerCode);
@@ -523,7 +862,7 @@ async function upsertLedgerEntries(tx: ImportTransaction, plans: PartnerEntryPla
     }
     const data = ledgerData(entry, partnerId);
     await tx.partnerLedgerEntry.upsert({
-      where: { sourceCode: entry.sourceCode },
+      where: { sourceCode: plan.matchSourceCode },
       create: data,
       update: data,
     });
@@ -590,10 +929,18 @@ async function upsertServiceOrders(tx: ImportTransaction, plans: ServiceOrderPla
 
     const order = plan.order;
     const customer = await upsertCustomer(tx, order);
-    const data = serviceOrderData(order, asId(customer));
+    const data = serviceOrderData(
+      order,
+      asId(customer),
+      plan.existing?.orderCode ? String(plan.existing.orderCode) : undefined
+    );
     let savedOrder: Record<string, unknown>;
     if (plan.action === "updated") {
-      savedOrder = await tx.serviceOrder.update({ where: { orderCode: order.orderCode }, data });
+      const existingId = plan.existing ? asId(plan.existing) : "";
+      savedOrder = await tx.serviceOrder.update({
+        where: existingId ? { id: existingId } : { orderCode: order.orderCode },
+        data,
+      });
     } else {
       savedOrder = await tx.serviceOrder.create({ data });
     }
@@ -616,7 +963,7 @@ async function writeAuditLog(tx: ImportTransaction, summary: MinhHongImportSumma
 }
 
 export async function importMinhHongParsedWorkbook(parsed: MinhHongParsedWorkbook, runner: ImportRunner, options: MinhHongImportOptions = {}) {
-  const scope = options.scope || "all";
+  const scope = options.scope || "service-orders";
   const reconciliation = reconcileMinhHongWorkbook(parsed, { scope });
   if (!reconciliation.ok) {
     throw new MinhHongWorkbookImportError(reconciliation.blockingIssues.join("\n"));
@@ -647,5 +994,5 @@ export async function importMinhHongParsedWorkbook(parsed: MinhHongParsedWorkboo
     };
     await writeAuditLog(tx, summary, options.userId);
     return summary;
-  });
+  }, { maxWait: 10_000, timeout: 120_000 });
 }

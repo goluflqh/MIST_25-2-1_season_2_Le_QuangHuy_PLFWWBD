@@ -21,8 +21,7 @@ services:
     build:
       context: .
       target: migrator
-    profiles:
-      - migrate
+    restart: "no"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
       DIRECT_URL: postgresql://${POSTGRES_USER:-minhhong}:${POSTGRES_PASSWORD:-minhhong_local_dev}@postgres:5432/${POSTGRES_DB:-minhhong_next}?schema=public
@@ -60,11 +59,18 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: ${GOOGLE_SERVICE_ACCOUNT_EMAIL:-}
+      GOOGLE_PRIVATE_KEY: ${GOOGLE_PRIVATE_KEY:-}
+      MINHHONG_SOURCE_SHEET_WORKBOOK_MAX_MB: ${MINHHONG_SOURCE_SHEET_WORKBOOK_MAX_MB:-25}
+      MINHHONG_SOURCE_SHEET_FETCH_TIMEOUT_MS: ${MINHHONG_SOURCE_SHEET_FETCH_TIMEOUT_MS:-30000}
+      MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED: ${MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   minhhong_postgres_prod_data:

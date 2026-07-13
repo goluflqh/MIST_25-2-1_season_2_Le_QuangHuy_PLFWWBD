@@ -1,27 +1,69 @@
 import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
+import { createInvalidJsonResponse, readJsonBody } from "@/lib/api-route";
 import { prisma } from "@/lib/prisma";
 import { getPublicActivePricingItems, PUBLIC_PRICING_TAG } from "@/lib/public-data";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
 function parseInteger(value: unknown, fallback: number) {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  if (value === undefined || value === null || value === "") return fallback;
+
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string" && /^-?\d+$/.test(value.trim())
+      ? Number(value.trim())
+      : Number.NaN;
+
+  if (!Number.isSafeInteger(parsed) || Math.abs(parsed) > 10_000) {
+    throw new PricingValidationError("Thứ tự hiển thị phải là số nguyên từ -10.000 đến 10.000.");
+  }
+
+  return parsed;
+}
+
+function parseText(value: unknown, fallback: string, maxLength: number, fieldName: string) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "string") {
+    throw new PricingValidationError(`${fieldName} chưa đúng định dạng.`);
+  }
+
+  const normalized = value.trim();
+  if (normalized.length > maxLength) {
+    throw new PricingValidationError(`${fieldName} không được dài quá ${maxLength} ký tự.`);
+  }
+
+  return normalized;
+}
+
+class PricingValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PricingValidationError";
+  }
 }
 
 function normalizePricingData(body: Record<string, unknown>) {
+  if (body.active !== undefined && typeof body.active !== "boolean") {
+    throw new PricingValidationError("Trạng thái hiển thị phải là true hoặc false.");
+  }
+
   const active = typeof body.active === "boolean" ? body.active : undefined;
+  const category = parseText(body.category, "PIN", 40, "Nhóm dịch vụ");
+  const name = parseText(body.name, "", 120, "Tên dịch vụ");
+  const price = parseText(body.price, "", 80, "Giá hiển thị");
+
+  if (!category || !name || !price) {
+    throw new PricingValidationError("Nhóm, tên dịch vụ và giá hiển thị là bắt buộc.");
+  }
 
   return {
-    category: String(body.category || "PIN"),
-    name: String(body.name || "").trim(),
-    price: String(body.price || "").trim(),
-    unit: String(body.unit || "VNĐ").trim(),
-    description: typeof body.description === "string" && body.description.trim()
-      ? body.description.trim()
-      : null,
-    note: typeof body.note === "string" && body.note.trim() ? body.note.trim() : null,
+    category,
+    name,
+    price,
+    unit: parseText(body.unit, "VNĐ", 20, "Đơn vị") || "VNĐ",
+    description: parseText(body.description, "", 1_000, "Mô tả") || null,
+    note: parseText(body.note, "", 500, "Ghi chú") || null,
     sortOrder: parseInteger(body.sortOrder, 0),
     ...(active === undefined ? {} : { active }),
   };
@@ -50,7 +92,8 @@ export async function POST(request: Request) {
   try {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
-    const body = await request.json();
+    const body = await readJsonBody(request);
+    if (!body) return createInvalidJsonResponse();
     const pricingData = normalizePricingData(body);
     const existingItems = await prisma.pricingItem.findMany({
       where: { category: pricingData.category },
@@ -81,6 +124,10 @@ export async function POST(request: Request) {
     revalidateTag(PUBLIC_PRICING_TAG, "max");
     return NextResponse.json({ success: true, item });
   } catch (error) {
+    if (error instanceof PricingValidationError) {
+      return NextResponse.json({ success: false, message: error.message }, { status: 400 });
+    }
+
     console.error("Pricing POST error:", error);
     return NextResponse.json(
       { success: false, message: "Không tạo được mục giá lúc này." },
@@ -94,7 +141,13 @@ export async function PATCH(request: Request) {
   try {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
-    const { id, ...data } = await request.json();
+    const body = await readJsonBody(request);
+    if (!body) return createInvalidJsonResponse();
+    const { id: rawId, ...data } = body;
+    const id = typeof rawId === "string" ? rawId.trim() : "";
+    if (!id || id.length > 64) {
+      return NextResponse.json({ success: false, message: "Mã mục giá chưa đúng định dạng." }, { status: 400 });
+    }
     const pricingData = normalizePricingData(data);
     const previousItem = await prisma.pricingItem.findUnique({ where: { id } });
 
@@ -133,6 +186,10 @@ export async function PATCH(request: Request) {
     revalidateTag(PUBLIC_PRICING_TAG, "max");
     return NextResponse.json({ success: true, item });
   } catch (error) {
+    if (error instanceof PricingValidationError) {
+      return NextResponse.json({ success: false, message: error.message }, { status: 400 });
+    }
+
     console.error("Pricing PATCH error:", error);
     return NextResponse.json(
       { success: false, message: "Không cập nhật được mục giá lúc này." },
@@ -146,7 +203,12 @@ export async function DELETE(request: Request) {
   try {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
-    const { id } = await request.json();
+    const body = await readJsonBody(request);
+    if (!body) return createInvalidJsonResponse();
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!id || id.length > 64) {
+      return NextResponse.json({ success: false, message: "Mã mục giá chưa đúng định dạng." }, { status: 400 });
+    }
     const deletedItem = await prisma.pricingItem.delete({ where: { id } });
     await recordAuditLog({
       action: "PRICING_DELETE",

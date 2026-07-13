@@ -39,6 +39,36 @@ export default async function AdminUsersPage() {
     },
   });
 
+  const customerPhones = users
+    .filter((user) => user.role !== "ADMIN")
+    .map((user) => user.phone);
+  const [unlinkedCustomers, unlinkedContacts, unlinkedOrders, unlinkedWarranties] = await Promise.all([
+    prisma.customer.groupBy({
+      by: ["phone"],
+      where: { phone: { in: customerPhones }, userId: null, deletedAt: null },
+      _count: { _all: true },
+    }),
+    prisma.contactRequest.groupBy({
+      by: ["phone"],
+      where: { phone: { in: customerPhones }, userId: null, deletedAt: null },
+      _count: { _all: true },
+    }),
+    prisma.serviceOrder.groupBy({
+      by: ["customerPhone"],
+      where: { customerPhone: { in: customerPhones }, userId: null, deletedAt: null },
+      _count: { _all: true },
+    }),
+    prisma.warranty.groupBy({
+      by: ["customerPhone"],
+      where: { customerPhone: { in: customerPhones }, userId: null, deletedAt: null },
+      _count: { _all: true },
+    }),
+  ]);
+  const unlinkedCustomerCounts = new Map(unlinkedCustomers.map((row) => [row.phone, row._count._all]));
+  const unlinkedContactCounts = new Map(unlinkedContacts.map((row) => [row.phone, row._count._all]));
+  const unlinkedOrderCounts = new Map(unlinkedOrders.map((row) => [row.customerPhone, row._count._all]));
+  const unlinkedWarrantyCounts = new Map(unlinkedWarranties.map((row) => [row.customerPhone, row._count._all]));
+
   return (
     <AdminUsersClient
       initialUsers={users.map((user) => {
@@ -52,6 +82,12 @@ export default async function AdminUsersPage() {
         ) || user.serviceOrders.some((order) => order.createdAt < user.createdAt);
         const hasWarranty = user.warranties.length > 0
           || user.serviceOrders.some((order) => order.warranty && !order.warranty.deletedAt);
+        const unlinkedHistory = {
+          customerProfiles: unlinkedCustomerCounts.get(user.phone) ?? 0,
+          contactRequests: unlinkedContactCounts.get(user.phone) ?? 0,
+          serviceOrders: unlinkedOrderCounts.get(user.phone) ?? 0,
+          warranties: unlinkedWarrantyCounts.get(user.phone) ?? 0,
+        };
 
         return {
           id: user.id,
@@ -68,6 +104,13 @@ export default async function AdminUsersPage() {
           serviceOrderCount: user.serviceOrders.length,
           totalDebt,
           warrantyCount: user.warranties.length,
+          unlinkedHistory: {
+            ...unlinkedHistory,
+            total: unlinkedHistory.customerProfiles
+              + unlinkedHistory.contactRequests
+              + unlinkedHistory.serviceOrders
+              + unlinkedHistory.warranties,
+          },
           _count: user._count,
         };
       })}

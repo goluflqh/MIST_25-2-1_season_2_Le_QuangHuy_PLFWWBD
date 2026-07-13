@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCleanupAuthStatus } from "@/lib/cleanup-auth";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -7,10 +8,19 @@ import { prisma } from "@/lib/prisma";
  * Protected by a secret key in the Authorization header.
  */
 export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const expectedSecret = `Bearer ${process.env.AUTH_SECRET}`;
+  const authStatus = getCleanupAuthStatus(
+    request.headers.get("authorization"),
+    process.env.AUTH_SECRET
+  );
 
-  if (!authHeader || authHeader !== expectedSecret) {
+  if (authStatus === "misconfigured") {
+    return NextResponse.json(
+      { success: false, message: "Cleanup authentication is not configured." },
+      { status: 503 }
+    );
+  }
+
+  if (authStatus !== "authorized") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

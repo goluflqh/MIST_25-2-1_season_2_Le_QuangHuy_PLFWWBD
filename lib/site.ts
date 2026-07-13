@@ -49,16 +49,19 @@ export function getAbsoluteUrl(path: string) {
 
 export const defaultOpenGraphImage = {
   url: "/showcase/generated/hero-battery-workbench-v2.webp",
-  alt: `${siteConfig.name} - ${siteConfig.tagline}`,
+  alt: `Ảnh minh hoạ: ${siteConfig.name} - ${siteConfig.tagline}`,
 } as const;
 
 export const marketingSitemapRoutes = [
   { path: "/", changeFrequency: "weekly", priority: 1 },
+  { path: "/dich-vu", changeFrequency: "weekly", priority: 0.9 },
   { path: "/dich-vu/dong-pin", changeFrequency: "weekly", priority: 0.9 },
   { path: "/dich-vu/camera", changeFrequency: "weekly", priority: 0.9 },
   { path: "/dich-vu/den-nang-luong", changeFrequency: "weekly", priority: 0.9 },
   { path: "/dich-vu/pin-luu-tru", changeFrequency: "weekly", priority: 0.9 },
   { path: "/bao-gia", changeFrequency: "weekly", priority: 0.8 },
+  { path: "/tra-cuu-bao-hanh", changeFrequency: "weekly", priority: 0.8 },
+  { path: "/quyen-rieng-tu", changeFrequency: "yearly", priority: 0.3 },
 ] as const;
 
 export function buildMarketingMetadata({
