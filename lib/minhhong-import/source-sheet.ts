@@ -15,6 +15,21 @@ import type { MinhHongImportScope } from "./import-scope";
 import { MinhHongSourceSheetFetchError } from "./source-fetch-guard";
 
 type SourceExportKind = "legacy" | "manual";
+const UNIFIED_PARTNER_SHEET_NAME = "Đơn đối tác";
+export const MINHHONG_PARTNER_SHEET_COLUMNS = [
+  "Ngày",
+  "Đối tác",
+  "Loại giao dịch",
+  "Nội dung / mặt hàng",
+  "Số lượng",
+  "Đơn giá",
+  "Số tiền",
+  "Phương thức thanh toán",
+  "Ghi chú",
+  "Còn phải trả",
+  "Tính công nợ",
+  "source_id",
+] as const;
 
 interface SourceWorkbookInput {
   legacyWorkbookBuffer: Buffer;
@@ -64,6 +79,14 @@ export const MINHHONG_SOURCE_ID_TARGETS = [
     headerRow: 1,
     firstDataRow: 3,
     sourceIdColumn: 7,
+  },
+  {
+    id: "partner-ledger" as const,
+    kind: "legacy" as const,
+    sheetName: UNIFIED_PARTNER_SHEET_NAME,
+    headerRow: 1,
+    firstDataRow: 2,
+    sourceIdColumn: 12,
   },
 ] as const;
 
@@ -180,17 +203,10 @@ export const MINHHONG_SOURCE_SHEET_LINK_TARGETS = [
   },
   {
     id: "partners-current" as const,
-    kind: "manual" as const,
+    kind: "legacy" as const,
     label: "Sheet đối tác",
     scope: "partners" as const,
-    sheetName: "Đơn hàng mua từ long",
-  },
-  {
-    id: "partners-legacy-purchases" as const,
-    kind: "legacy" as const,
-    label: "Sheet nhập cũ",
-    scope: "partners" as const,
-    sheetName: "Sheet1",
+    sheetName: UNIFIED_PARTNER_SHEET_NAME,
   },
 ] as const;
 
@@ -419,6 +435,9 @@ function isSourceIdBusinessRow(target: MinhHongSourceIdTarget, row: ExcelJS.Row)
   if (target.id === "current-partner-activity") {
     return Array.from({ length: 6 }, (_, index) => clean(row.getCell(index + 1).value)).some(Boolean);
   }
+  if (target.id === "partner-ledger") {
+    return Array.from({ length: 11 }, (_, index) => clean(row.getCell(index + 1).value)).some(Boolean);
+  }
   return Array.from({ length: 11 }, (_, index) => clean(row.getCell(index + 1).value)).some(Boolean);
 }
 
@@ -504,11 +523,13 @@ function inspectMinhHongSourceIds(
   const usedIds = new Set<string>();
   const summaries = new Map<MinhHongSourceIdTarget["id"], MinhHongSourceIdTargetSummary>();
 
-  const targetsForScope = MINHHONG_SOURCE_ID_TARGETS.filter((target) => (
-    scope === "all"
-    || (scope === "service-orders" && target.id === "customer-orders")
-    || (scope === "partners" && target.id !== "customer-orders")
-  ));
+  const hasUnifiedPartnerSheet = Boolean(legacyWorkbook.getWorksheet(UNIFIED_PARTNER_SHEET_NAME));
+  const targetsForScope = MINHHONG_SOURCE_ID_TARGETS.filter((target) => {
+    if (target.id === "customer-orders") return scope !== "partners";
+    if (scope === "service-orders") return false;
+    if (hasUnifiedPartnerSheet) return target.id === "partner-ledger";
+    return target.id !== "partner-ledger";
+  });
 
   for (const target of targetsForScope) {
     const workbook = target.kind === "legacy" ? legacyWorkbook : manualWorkbook;
@@ -749,6 +770,152 @@ function parseQuantity(value: CellValue) {
   if (!text) return "";
   const numeric = Number.parseFloat(text.replace(",", "."));
   return Number.isFinite(numeric) ? numeric : text;
+}
+
+function partnerCodeFromName(name: string) {
+  const normalizedName = clean(name).toLocaleLowerCase("vi-VN");
+  const known = PARTNER_ROWS.find((row) => clean(row[1]).toLocaleLowerCase("vi-VN") === normalizedName);
+  if (known) return clean(known[0]);
+
+  const generated = clean(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return generated ? `DT_${generated}` : "KHAC";
+}
+
+function buildUnifiedPartnerActivityRows(legacyWorkbook: ExcelJS.Workbook, issues: SourceIssue[]) {
+  const worksheet = getWorksheet(legacyWorkbook, UNIFIED_PARTNER_SHEET_NAME);
+  const purchaseRows: CellValue[][] = [];
+  const paymentRows: CellValue[][] = [];
+  const returnRows: CellValue[][] = [];
+  const runningBalances = new Map<string, number>();
+  const partners = new Map<string, CellValue[]>();
+
+  MINHHONG_PARTNER_SHEET_COLUMNS.slice(0, 11).forEach((expected, index) => {
+    const actual = clean(worksheet.getRow(1).getCell(index + 1).value);
+    if (actual !== expected) {
+      pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME}: cột ${index + 1} phải là "${expected}".`);
+    }
+  });
+
+  for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const partnerName = clean(row.getCell(2).value);
+    const typeText = clean(row.getCell(3).value).toLocaleLowerCase("vi-VN");
+    const description = clean(row.getCell(4).value);
+    const hasContent = Array.from({ length: 11 }, (_, index) => clean(row.getCell(index + 1).value)).some(Boolean);
+    if (!hasContent) continue;
+
+    const partnerCode = partnerCodeFromName(partnerName);
+    if (partnerName && !partners.has(partnerCode)) {
+      partners.set(partnerCode, [
+        partnerCode,
+        partnerName,
+        "Đối tác công nợ",
+        "",
+        `Nhập từ tab ${UNIFIED_PARTNER_SHEET_NAME}`,
+        "Đang theo dõi",
+      ]);
+    }
+    const dateText = normalizeSourceDate(row.getCell(1).value, `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}`, issues);
+    const quantity = parseQuantity(row.getCell(5).value);
+    const unitPrice = money(row.getCell(6).value);
+    const amount = money(row.getCell(7).value);
+    const paymentMethod = clean(row.getCell(8).value);
+    const notes = clean(row.getCell(9).value);
+    const statedBalanceText = clean(row.getCell(10).value);
+    const statedBalance = money(row.getCell(10).value);
+    const countsInDebt = isDebtCounted(row.getCell(11).value);
+    const isAdjustment = typeText === "điều chỉnh" || typeText === "dieu chinh";
+    const sourceId = stableSourceId(row, "partner-ledger", String(rowNumber).padStart(4, "0"));
+    const source = sourceReference(`${UNIFIED_PARTNER_SHEET_NAME}!A${rowNumber}:L${rowNumber}`, sourceId);
+
+    if (!partnerName || !description) {
+      pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: thiếu đối tác hoặc nội dung giao dịch.`);
+      continue;
+    }
+    if (countsInDebt && (isAdjustment ? amount === 0 : amount <= 0)) {
+      pushIssue(
+        issues,
+        "blocking",
+        `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: giao dịch tính công nợ phải có số tiền ${isAdjustment ? "khác 0" : "lớn hơn 0"}.`
+      );
+    }
+    if (!isAdjustment && amount > 0 && typeof quantity === "number" && unitPrice > 0 && Math.round(quantity * unitPrice) !== amount) {
+      pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: số lượng × đơn giá không khớp số tiền.`);
+    }
+
+    let signedAmount = 0;
+    if (typeText === "số dư đầu kỳ" || typeText === "so du dau ky" || typeText === "mua hàng" || typeText === "mua hang" || isAdjustment) {
+      signedAmount = amount;
+      const openingBalance = typeText.includes("đầu kỳ") || typeText.includes("dau ky");
+      purchaseRows.push([
+        `DP-NH-${String(rowNumber).padStart(4, "0")}`,
+        dateText,
+        partnerCode,
+        partnerName,
+        openingBalance ? "Chốt công nợ" : isAdjustment ? "Điều chỉnh" : partnerName,
+        description,
+        openingBalance ? "Số dư chốt" : isAdjustment ? "Điều chỉnh" : "Mua hàng",
+        quantity,
+        "",
+        unitPrice || "",
+        amount,
+        "",
+        countsInDebt ? "Có" : "Không",
+        notes,
+        source,
+      ]);
+    } else if (typeText === "thanh toán" || typeText === "thanh toan") {
+      signedAmount = -amount;
+      paymentRows.push([
+        `DP-TT-${String(rowNumber).padStart(4, "0")}`,
+        dateText,
+        partnerCode,
+        partnerName,
+        amount,
+        paymentMethod,
+        countsInDebt ? "Có" : "Không",
+        notes || description,
+        source,
+      ]);
+    } else if (typeText === "trả hàng" || typeText === "tra hang") {
+      signedAmount = -amount;
+      returnRows.push([
+        `DP-TR-${String(rowNumber).padStart(4, "0")}`,
+        dateText,
+        partnerCode,
+        partnerName,
+        description,
+        "Trả hàng",
+        quantity,
+        unitPrice || "",
+        amount,
+        countsInDebt ? "Có" : "Không",
+        notes,
+        source,
+      ]);
+    } else {
+      pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: loại giao dịch chưa hợp lệ.`);
+      continue;
+    }
+
+    const previousBalance = runningBalances.get(partnerCode) || 0;
+    const nextBalance = previousBalance + (countsInDebt ? signedAmount : 0);
+    runningBalances.set(partnerCode, nextBalance);
+    if (statedBalanceText && statedBalance !== nextBalance) {
+      pushIssue(
+        issues,
+        "blocking",
+        `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: còn phải trả ${statedBalance.toLocaleString("vi-VN")} không khớp số tính được ${nextBalance.toLocaleString("vi-VN")}.`
+      );
+    }
+  }
+
+  return { partnerRows: [...partners.values()], paymentRows, purchaseRows, returnRows };
 }
 
 function buildManualActivityRows(manualWorkbook: ExcelJS.Workbook, issues: SourceIssue[]) {
@@ -1066,6 +1233,11 @@ function isOpeningPurchaseRow(row: CellValue[]) {
     || text.includes("chốt công nợ");
 }
 
+function isAdjustmentPurchaseRow(row: CellValue[]) {
+  const text = `${clean(row[4])} ${clean(row[6])}`.toLocaleLowerCase("vi-VN");
+  return text.includes("điều chỉnh") || text.includes("dieu chinh");
+}
+
 function buildPartnerReconciliationTotals(purchaseRows: CellValue[][], paymentRows: CellValue[][], returnRows: CellValue[][]) {
   const longPurchaseRows = purchaseRows.filter((row) => isLongRow(row, 2, 3));
   const longPaymentRows = paymentRows.filter((row) => isLongRow(row, 2, 3));
@@ -1074,7 +1246,10 @@ function buildPartnerReconciliationTotals(purchaseRows: CellValue[][], paymentRo
     .filter((row) => isDebtCounted(row[12]) && isOpeningPurchaseRow(row))
     .reduce((sum, row) => sum + money(row[10]), 0);
   const countedPurchase = longPurchaseRows
-    .filter((row) => isDebtCounted(row[12]) && !isOpeningPurchaseRow(row))
+    .filter((row) => isDebtCounted(row[12]) && !isOpeningPurchaseRow(row) && !isAdjustmentPurchaseRow(row))
+    .reduce((sum, row) => sum + money(row[10]), 0);
+  const countedAdjustment = longPurchaseRows
+    .filter((row) => isDebtCounted(row[12]) && isAdjustmentPurchaseRow(row))
     .reduce((sum, row) => sum + money(row[10]), 0);
   const countedPayment = longPaymentRows
     .filter((row) => isDebtCounted(row[6]))
@@ -1089,7 +1264,7 @@ function buildPartnerReconciliationTotals(purchaseRows: CellValue[][], paymentRo
     countedPurchase,
     historicalPaid,
     openingBalance,
-    payable: openingBalance + countedPurchase - countedPayment - countedReturn,
+    payable: openingBalance + countedPurchase + countedAdjustment - countedPayment - countedReturn,
   };
 }
 
@@ -1173,6 +1348,7 @@ export async function fetchMinhHongSourceSheetExports(
   fetchImpl: typeof fetch = fetch,
   scope: MinhHongImportScope = "all"
 ): Promise<SourceExport[]> {
+  void scope; // Retain the public call shape while every scope uses the unified source workbook.
   const exports: SourceExport[] = [];
   if (!hasGoogleServiceAccountCredentials()) {
     throw new MinhHongSourceSheetFetchError(
@@ -1183,7 +1359,7 @@ export async function fetchMinhHongSourceSheetExports(
   const accessToken = await getGoogleAccessToken(fetchImpl);
 
   for (const source of MINHHONG_SOURCE_SHEET_EXPORTS) {
-    if (scope === "service-orders" && source.kind !== "legacy") continue;
+    if (source.kind !== "legacy") continue;
     const response = await fetchImpl(
       buildSourceSheetExportUrl(source.spreadsheetId),
       { headers: { Authorization: "Bearer " + accessToken } }
@@ -1333,13 +1509,14 @@ export async function applyMinhHongSourceSheetDateRepairs(
 async function loadMinhHongSourceIdWorkbooks(exports: SourceExport[], scope: MinhHongImportScope) {
   const legacy = exports.find((item) => item.kind === "legacy");
   const manual = exports.find((item) => item.kind === "manual");
-  if (!legacy || (scope !== "service-orders" && !manual)) {
-    throw new Error("Thiếu raw source Sheet export để kiểm tra source_id.");
-  }
+  if (!legacy) throw new Error("Thiếu raw source Sheet export để kiểm tra source_id.");
 
   const legacyWorkbook = new ExcelJS.Workbook();
   const manualWorkbook = new ExcelJS.Workbook();
   await legacyWorkbook.xlsx.load(legacy.buffer as unknown as Parameters<typeof legacyWorkbook.xlsx.load>[0]);
+  if (scope !== "service-orders" && !manual && !legacyWorkbook.getWorksheet(UNIFIED_PARTNER_SHEET_NAME)) {
+    throw new Error("Thiếu raw source Sheet export để kiểm tra source_id.");
+  }
   if (manual) {
     await manualWorkbook.xlsx.load(manual.buffer as unknown as Parameters<typeof manualWorkbook.xlsx.load>[0]);
   }
@@ -1588,7 +1765,7 @@ export async function buildMinhHongSourceImportWorkbook(
   await legacyWorkbook.xlsx.load(input.legacyWorkbookBuffer as unknown as Parameters<typeof legacyWorkbook.xlsx.load>[0]);
   if (input.manualWorkbookBuffer) {
     await manualWorkbook.xlsx.load(input.manualWorkbookBuffer as unknown as Parameters<typeof manualWorkbook.xlsx.load>[0]);
-  } else if (scope !== "service-orders") {
+  } else if (scope !== "service-orders" && !legacyWorkbook.getWorksheet(UNIFIED_PARTNER_SHEET_NAME)) {
     throw new Error("Thiếu raw source Sheet đối tác để tạo preview import.");
   }
 
@@ -1623,13 +1800,26 @@ async function buildMinhHongSourceImportPreview(
   );
   pushSourceIdImportIssues(sourceIdPlan, issues);
   const includePartnerLedger = scope !== "service-orders";
-  const purchaseRows = includePartnerLedger ? buildPurchaseRows(legacyWorkbook, manualWorkbook, issues) : [];
-  const paymentRows = includePartnerLedger ? buildPaymentRows(legacyWorkbook, manualWorkbook, issues) : [];
-  const returnRows = includePartnerLedger ? buildReturnRows(legacyWorkbook) : [];
+  const unifiedPartnerRows = includePartnerLedger && legacyWorkbook.getWorksheet(UNIFIED_PARTNER_SHEET_NAME)
+    ? buildUnifiedPartnerActivityRows(legacyWorkbook, issues)
+    : null;
+  const purchaseRows = includePartnerLedger
+    ? unifiedPartnerRows?.purchaseRows || buildPurchaseRows(legacyWorkbook, manualWorkbook, issues)
+    : [];
+  const paymentRows = includePartnerLedger
+    ? unifiedPartnerRows?.paymentRows || buildPaymentRows(legacyWorkbook, manualWorkbook, issues)
+    : [];
+  const returnRows = includePartnerLedger
+    ? unifiedPartnerRows?.returnRows || buildReturnRows(legacyWorkbook)
+    : [];
   const customerRows = buildCustomerRows(legacyWorkbook, issues);
   const reconciliationRows = buildReconciliationRows(purchaseRows, paymentRows, returnRows, customerRows, issues);
 
-  appendRows(outputWorkbook.addWorksheet("Đối tác"), MINHHONG_PARTNER_COLUMNS, includePartnerLedger ? PARTNER_ROWS : []);
+  appendRows(
+    outputWorkbook.addWorksheet("Đối tác"),
+    MINHHONG_PARTNER_COLUMNS,
+    includePartnerLedger ? unifiedPartnerRows?.partnerRows || PARTNER_ROWS : []
+  );
   appendRows(outputWorkbook.addWorksheet("Nhập hàng"), MINHHONG_PURCHASE_COLUMNS, purchaseRows);
   appendRows(outputWorkbook.addWorksheet("Thanh toán"), MINHHONG_PAYMENT_COLUMNS, paymentRows);
   appendRows(outputWorkbook.addWorksheet("Trả hàng"), MINHHONG_RETURN_COLUMNS, returnRows);
@@ -1648,8 +1838,15 @@ export async function buildMinhHongSourceImportWorkbookFromExports(
 ) {
   const legacy = exports.find((item) => item.kind === "legacy");
   const manual = exports.find((item) => item.kind === "manual");
-  if (!legacy || (scope !== "service-orders" && !manual)) {
+  if (!legacy) {
     throw new Error("Thiếu raw source Sheet export để tạo preview import.");
+  }
+  if (scope !== "service-orders" && !manual) {
+    const legacyWorkbook = new ExcelJS.Workbook();
+    await legacyWorkbook.xlsx.load(legacy.buffer as unknown as Parameters<typeof legacyWorkbook.xlsx.load>[0]);
+    if (!legacyWorkbook.getWorksheet(UNIFIED_PARTNER_SHEET_NAME)) {
+      throw new Error("Thiếu raw source Sheet export để tạo preview import.");
+    }
   }
   return buildMinhHongSourceImportWorkbook({
     legacyWorkbookBuffer: legacy.buffer,

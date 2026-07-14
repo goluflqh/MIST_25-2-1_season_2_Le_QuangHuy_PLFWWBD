@@ -42,7 +42,7 @@ export interface MinhHongParsedPartnerEntry {
   partnerCode: string;
   partnerName: string;
   entryDate: string;
-  entryType: "OPENING_BALANCE" | "PURCHASE" | "PAYMENT" | "RETURN";
+  entryType: "ADJUSTMENT" | "OPENING_BALANCE" | "PURCHASE" | "PAYMENT" | "RETURN";
   description: string;
   category: string | null;
   amount: number;
@@ -77,6 +77,7 @@ export interface MinhHongPartnerTotals {
   longCountedPurchase: number;
   longCountedPayment: number;
   longCountedReturn: number;
+  longCountedAdjustment?: number;
   longPayable: number;
   longHistoricalPaid: number;
   longReferenceOnlyAmount: number;
@@ -119,6 +120,16 @@ function clean(value: CellValue): string {
   }
 
   return String(value).trim();
+}
+
+function compactKey(value: CellValue) {
+  return clean(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("vi-VN")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function parseMoney(value: CellValue) {
@@ -290,6 +301,7 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     longCountedPurchase: 0,
     longCountedPayment: 0,
     longCountedReturn: 0,
+    longCountedAdjustment: 0,
     longPayable: 0,
     longHistoricalPaid: 0,
     longReferenceOnlyAmount: 0,
@@ -299,7 +311,8 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     const workbookRow = index + 2;
     const amount = parseMoney(row[10]);
     const description = clean(row[5]);
-    if (!amount || !description) continue;
+    const countsInDebt = parseDebtFlag(row[12]);
+    if (!description || (!amount && countsInDebt)) continue;
 
     const partnerCode = clean(row[2]);
     const partnerName = clean(row[3]);
@@ -307,8 +320,8 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     const stableSourceId = parseStableSourceId(row[14]);
     const category = clean(row[6]);
     const seller = clean(row[4]);
-    const countsInDebt = parseDebtFlag(row[12]);
-    const entryType = isOpeningBalance(category, description, seller) ? "OPENING_BALANCE" : "PURCHASE";
+    const adjustment = compactKey(`${category} ${seller}`).includes("dieu chinh");
+    const entryType = isOpeningBalance(category, description, seller) ? "OPENING_BALANCE" : adjustment ? "ADJUSTMENT" : "PURCHASE";
     const entry: MinhHongParsedPartnerEntry = {
       legacySourceCode: stableSourceId ? `NHAP_HANG:${purchaseCode}` : null,
       sourceCode: stableInternalCode("NHAP_HANG", purchaseCode, stableSourceId),
@@ -335,6 +348,7 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     if (!isLong(partnerCode, partnerName)) continue;
     if (countsInDebt && entryType === "OPENING_BALANCE") partnerTotals.longOpeningBalance += amount;
     if (countsInDebt && entryType === "PURCHASE") partnerTotals.longCountedPurchase += amount;
+    if (countsInDebt && entryType === "ADJUSTMENT") partnerTotals.longCountedAdjustment = (partnerTotals.longCountedAdjustment || 0) + amount;
     if (!countsInDebt) partnerTotals.longReferenceOnlyAmount += amount;
   }
 
@@ -380,13 +394,13 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     const workbookRow = index + 2;
     const amount = parseMoney(row[8]);
     const description = clean(row[4]);
-    if (!amount || !description) continue;
+    const countsInDebt = parseDebtFlag(row[9]);
+    if (!description || (!amount && countsInDebt)) continue;
 
     const partnerCode = clean(row[2]);
     const partnerName = clean(row[3]);
     const returnCode = clean(row[0]) || `ROW-${workbookRow}`;
     const stableSourceId = parseStableSourceId(row[11]);
-    const countsInDebt = parseDebtFlag(row[9]);
     partnerEntries.push({
       legacySourceCode: stableSourceId ? `TRA_HANG:${returnCode}` : null,
       sourceCode: stableInternalCode("TRA_HANG", returnCode, stableSourceId),
@@ -414,7 +428,11 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     else partnerTotals.longReferenceOnlyAmount += amount;
   }
 
-  partnerTotals.longPayable = partnerTotals.longOpeningBalance + partnerTotals.longCountedPurchase - partnerTotals.longCountedPayment - partnerTotals.longCountedReturn;
+  partnerTotals.longPayable = partnerTotals.longOpeningBalance
+    + partnerTotals.longCountedPurchase
+    + (partnerTotals.longCountedAdjustment || 0)
+    - partnerTotals.longCountedPayment
+    - partnerTotals.longCountedReturn;
 
   const customerOrders: MinhHongParsedCustomerOrder[] = [];
   const customerOrderTotals: MinhHongCustomerOrderTotals = {

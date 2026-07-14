@@ -109,12 +109,13 @@ function buildPreviewFingerprint(
   upload: WorkbookUpload,
   source: MinhHongImportSource,
   scope: MinhHongImportScope,
+  parsed: unknown,
   reconciliation: unknown,
   changes: unknown
 ) {
   const hash = createHash("sha256");
-  hash.update(upload.buffer);
-  hash.update(JSON.stringify({ source, scope, reconciliation, changes }));
+  if (source === "workbook") hash.update(upload.buffer);
+  hash.update(JSON.stringify({ source, scope, parsed, reconciliation, changes }));
   return hash.digest("hex");
 }
 
@@ -278,7 +279,7 @@ export async function POST(request: Request) {
     const parsed = await parseMinhHongAdminWorkbook(upload.buffer);
     const reconciliation = reconcileMinhHongWorkbook(parsed, { scope });
     const changes = await previewMinhHongParsedWorkbook(parsed, prisma as unknown as ImportRunner, { scope });
-    const previewFingerprint = buildPreviewFingerprint(upload, source, scope, reconciliation, changes);
+    const previewFingerprint = buildPreviewFingerprint(upload, source, scope, parsed, reconciliation, changes);
 
     if (mode === "preview") {
       const confirmationEnabled = isMinhHongImportConfirmationEnabled(scope);

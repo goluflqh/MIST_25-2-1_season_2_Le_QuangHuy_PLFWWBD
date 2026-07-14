@@ -99,7 +99,7 @@ Trên GitHub, nhánh nâng cấp cũng cần chờ workflow CI xanh cho pull req
 - Đặt `GOOGLE_SERVICE_ACCOUNT_EMAIL` và `GOOGLE_PRIVATE_KEY` trong secret/runtime của VPS; `.env` ở worktree khác không tự đi theo deploy.
 - Trong đúng runtime đã có secret, chạy `npm run minhhong:audit:raw:orders`; chỉ rollout luồng đơn bán khi kết quả cuối là `OK`.
 - Dashboard đối tác luôn cho phép **Kiểm tra dữ liệu** theo phạm vi công nợ đối tác, nhưng production phải giữ `MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED=false` trong đợt đầu để chưa thể xác nhận cập nhật.
-- Mở `/dashboard/orders`, bấm **Kiểm tra dữ liệu**. Đây là smoke test chỉ đọc. Nếu giao diện yêu cầu thiết lập lần đầu, chỉ bấm **Hoàn tất thiết lập** sau khi được phê duyệt ngay tại thời điểm thao tác; hệ thống sẽ thêm mã liên kết vào cột kỹ thuật được ẩn rồi tự kiểm tra lại. Tương tự, chỉ xác nhận import sau khi báo cáo sạch và đã được phê duyệt cho lần ghi database đó.
+- Mở `/dashboard/orders`, bấm **Kiểm tra dữ liệu từ Sheet**. Đây là smoke test chỉ đọc trong vận hành bình thường. Nếu Sheet cần thiết lập lần đầu, cùng thao tác này sẽ tự thêm mã liên kết vào cột kỹ thuật được ẩn rồi kiểm tra lại; chỉ xác nhận cập nhật sau khi báo cáo sạch và đã được phê duyệt cho lần ghi database đó.
 - Trước khi mở cập nhật đối tác, chạy `npm run minhhong:audit:raw:partners` trong cùng runtime và xử lý hết mọi dòng `ERROR`; các thay đổi tổng tiền dạng `WARN` phải được người quản trị xác nhận là dữ liệu mới hợp lệ.
 - Sau khi dữ liệu công nợ đã được đối soát riêng và audit không còn `ERROR`, đặt `MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED=true` rồi restart app để mở thao tác xác nhận import đối tác trên production.
 

@@ -45,6 +45,7 @@ function getWarrantyStatus(endDate: string) {
       label: "Chưa rõ hạn",
       color: "bg-slate-100 text-slate-700",
       border: "border-slate-200 bg-slate-50/30",
+      accent: "bg-slate-400",
     };
   }
 
@@ -55,6 +56,7 @@ function getWarrantyStatus(endDate: string) {
       label: "Hết bảo hành",
       color: "bg-red-100 text-red-700",
       border: "border-red-200 bg-red-50/30",
+      accent: "bg-red-500",
     };
   }
 
@@ -64,6 +66,7 @@ function getWarrantyStatus(endDate: string) {
       label: "Sắp hết hạn",
       color: "bg-amber-100 text-amber-700",
       border: "border-amber-200 bg-amber-50/30",
+      accent: "bg-amber-500",
     };
   }
 
@@ -72,6 +75,7 @@ function getWarrantyStatus(endDate: string) {
     label: "Còn bảo hành",
     color: "bg-green-100 text-green-700",
     border: "border-green-100",
+    accent: "bg-emerald-500",
   };
 }
 
@@ -590,8 +594,10 @@ export default function AdminWarrantyClient({
                 <div
                   key={warranty.id}
                   data-testid="dashboard-warranty-card"
-                  className={`rounded-xl border bg-white p-4 shadow-sm md:p-3 ${status.border} ${deletingId === warranty.id ? "opacity-60" : ""}`}
+                  data-warranty-state={status.key}
+                  className={`relative overflow-hidden rounded-2xl border bg-white p-4 pl-5 shadow-sm ${status.border} ${deletingId === warranty.id ? "opacity-60" : ""}`}
                 >
+                  <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 ${status.accent}`} />
                   {editingId === warranty.id ? (
                     <div className="space-y-3">
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -659,41 +665,57 @@ export default function AdminWarrantyClient({
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center md:gap-2">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                       <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <code className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold">{warranty.serialNo}</code>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${status.color}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <code className="min-w-0 truncate rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-mono text-xs font-bold text-slate-700">{warranty.serialNo}</code>
+                          <span data-testid="dashboard-warranty-card-status" className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-extrabold ${status.color}`}>
                             {status.label}
                           </span>
-                          <span className="font-body text-xs text-slate-400">
-                            {serviceLabels[warranty.service] || warranty.service}
-                          </span>
                         </div>
-                        <p className="mt-1 font-body text-sm font-semibold text-slate-800 md:text-[13px]">{warranty.productName}</p>
-                        <p className="font-body text-xs text-slate-500">{warranty.customerName} · {warranty.customerPhone}</p>
-                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-body text-[10px] text-slate-400 md:mt-1.5">
-                          <span>Tạo: {formatDate(warranty.startDate)}</span>
-                          <span>BH đến: {formatDate(warranty.endDate)}</span>
-                          <span>{timelineCopy}</span>
-                          {warranty.serviceOrderId ? <span>Từ đơn dịch vụ</span> : null}
+                        <p className="mt-3 font-heading text-base font-extrabold leading-snug text-slate-900">{warranty.productName}</p>
+                        <p className="mt-1 font-body text-xs font-bold uppercase tracking-wide text-slate-400">
+                          {serviceLabels[warranty.service] || warranty.service}
+                          {warranty.serviceOrderId ? " · Từ đơn dịch vụ" : " · Phiếu tạo riêng"}
+                        </p>
+
+                        <div data-testid="dashboard-warranty-card-customer" className="mt-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-white/90 p-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 font-heading text-sm font-extrabold text-white">
+                            {warranty.customerName.charAt(0)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate font-body text-sm font-extrabold text-slate-900">{warranty.customerName}</p>
+                            <p className="font-body text-xs font-semibold tabular-nums text-slate-500">{warranty.customerPhone}</p>
+                          </div>
                         </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div className="rounded-xl border border-slate-200 bg-white/80 px-3 py-2.5">
+                            <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Bắt đầu</p>
+                            <p className="mt-0.5 font-body text-sm font-bold tabular-nums text-slate-700">{formatDate(warranty.startDate)}</p>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white/80 px-3 py-2.5">
+                            <p className="font-body text-[10px] font-bold uppercase tracking-wider text-slate-400">Hết hạn</p>
+                            <p className="mt-0.5 font-body text-sm font-bold tabular-nums text-slate-700">{formatDate(warranty.endDate)}</p>
+                          </div>
+                        </div>
+                        <p className={`mt-2 rounded-lg px-3 py-2 font-body text-xs font-extrabold ${status.color}`}>{timelineCopy}</p>
                         {warranty.notes && (
-                          <p className="mt-2 line-clamp-2 font-body text-xs text-slate-500">{warranty.notes}</p>
+                          <p className="mt-2 line-clamp-2 rounded-lg bg-white/70 px-3 py-2 font-body text-xs leading-5 text-slate-500">{warranty.notes}</p>
                         )}
                       </div>
-                      <div className="flex shrink-0 gap-2 md:self-center">
+                      <div data-testid="dashboard-warranty-card-actions" className="grid shrink-0 grid-cols-2 gap-2 sm:w-28 sm:grid-cols-1">
                         <button
                           type="button"
                           onClick={() => startEdit(warranty)}
-                          className="min-h-11 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                          className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50"
                         >
                           Sửa
                         </button>
                         <button
                           onClick={() => deleteWarranty(warranty.id)}
                           disabled={deletingId === warranty.id}
-                          className="min-h-11 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-500 disabled:bg-slate-100 disabled:text-slate-300"
+                          className="min-h-11 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
                         >
                           {deletingId === warranty.id ? "..." : "Xoá"}
                         </button>

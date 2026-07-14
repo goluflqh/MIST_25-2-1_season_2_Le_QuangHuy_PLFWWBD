@@ -135,7 +135,14 @@ function parseQuantityText(value: string) {
 }
 
 function formatDate(value: string | null) {
-  return formatVietnamDate(value) || "Chưa có";
+  if (!value) return "Chưa có ngày";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime()) || date.getUTCFullYear() <= 1900) return "Chưa có ngày";
+  return formatVietnamDate(value) || "Chưa có ngày";
+}
+
+function formatEntryAmount(entry: Pick<PartnerEntryData, "amount" | "countsInDebt">) {
+  return !entry.countsInDebt && entry.amount === 0 ? "—" : formatMoney(entry.amount);
 }
 
 function upsertPartner(partners: PartnerData[], nextPartner: PartnerData) {
@@ -488,7 +495,7 @@ export default function AdminPartnerLedgerClient({
   };
 
   const syncGoogleSheet = async () => {
-    showConfirm("Xuất dữ liệu công nợ đối tác hiện tại trên web sang các tab WEB_Công nợ đối tác, WEB_Giao dịch đối tác và WEB_Đối tác? Tab đơn hàng và các tab gốc Minh Hồng sẽ không bị ghi hoặc xoá.", async () => {
+    showConfirm("Xuất sổ đối tác hiện tại trên web sang tab WEB_Đơn đối tác? Tab nhập Đơn đối tác và tab đơn hàng sẽ không bị ghi hoặc xoá.", async () => {
       setSyncingSheet(true);
       try {
         const response = await fetch("/api/admin/sheets-sync?scope=partners", { method: "POST" });
@@ -499,7 +506,7 @@ export default function AdminPartnerLedgerClient({
           return;
         }
 
-        showToast(`Đã xuất ${data.tabs?.length || 0} tab đối tác từ web sang Google Sheet.`, "success");
+        showToast("Đã xuất sổ đối tác từ web sang Google Sheet.", "success");
       } catch {
         showToast("Kết nối bị gián đoạn khi xuất web sang Google Sheet.", "error");
       } finally {
@@ -532,7 +539,7 @@ export default function AdminPartnerLedgerClient({
         </div>
         <p className="mt-3 font-body text-xs font-bold text-slate-500">{amountLabel}</p>
         <p className={`mt-0.5 font-heading text-xl font-extrabold tabular-nums ${amountTone}`}>
-          {formatMoney(entry.amount)}
+          {formatEntryAmount(entry)}
         </p>
         {meta ? <p className="mt-2 font-body text-sm text-slate-600">{meta}</p> : null}
         {historyNote ? <p className="mt-2 font-body text-sm font-semibold text-amber-700">{historyNote}</p> : null}
@@ -567,7 +574,7 @@ export default function AdminPartnerLedgerClient({
             disabled={syncingSheet}
             className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-300"
           >
-            {syncingSheet ? "Đang xuất…" : "Xuất web → Sheet"}
+            {syncingSheet ? "Đang xuất…" : "Xuất sang Sheet"}
           </button>
           <button
             type="button"
@@ -805,7 +812,7 @@ export default function AdminPartnerLedgerClient({
                                   {historyNote ? <p className="mt-1 text-xs font-semibold text-amber-700">{historyNote}</p> : null}
                                 </td>
                                 <td className="px-4 py-3 text-xs text-slate-600">{meta || "-"}</td>
-                                <td className="px-4 py-3 text-right font-bold text-slate-900">{formatMoney(entry.amount)}</td>
+                                <td className="px-4 py-3 text-right font-bold text-slate-900">{formatEntryAmount(entry)}</td>
                                 <td className="px-4 py-3 text-xs text-slate-600">{entry.reference || "-"}</td>
                                 <td className="px-4 py-3 text-right">
                                   <button
@@ -1162,7 +1169,7 @@ export default function AdminPartnerLedgerClient({
                               {entry.countsInDebt && entry.notes ? <p className="mt-1 break-words text-xs text-slate-500">{entry.notes}</p> : null}
                             </td>
                             <td className="px-4 py-3 text-xs text-slate-600">{meta || "-"}</td>
-                            <td className="px-4 py-3 text-right font-bold text-slate-900">{formatMoney(entry.amount)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-900">{formatEntryAmount(entry)}</td>
                             <td className="px-4 py-3 text-xs text-slate-600">{entry.reference || "-"}</td>
                             <td className="px-4 py-3 text-right">
                               <button

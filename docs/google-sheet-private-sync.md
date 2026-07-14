@@ -26,18 +26,20 @@ Sync có thể trỏ vào spreadsheet Minh Hồng đang dùng, nhưng app chỉ 
 2. Enable Google Sheets API cho project đó. Nếu dùng export XLSX private, service account cũng cần scope đọc file qua Drive; code hiện xin scope `spreadsheets` và `drive.readonly`.
 3. Tạo key JSON cho service account, lấy `client_email` đưa vào `GOOGLE_SERVICE_ACCOUNT_EMAIL`, lấy `private_key` đưa vào `GOOGLE_PRIVATE_KEY`.
 4. Mở từng Google Sheet cần đọc/ghi và share trực tiếp cho email trong `GOOGLE_SERVICE_ACCOUNT_EMAIL`:
-   - Sheet đích `Xuất web → Sheet`: quyền `Editor`.
-   - Sheet nguồn dùng cho **Kiểm tra dữ liệu** và thiết lập lần đầu: quyền `Editor`. Nút kiểm tra vẫn chỉ đọc; quyền ghi chỉ được dùng khi admin bấm **Hoàn tất thiết lập** để thêm liên kết ẩn an toàn.
+   - Sheet đích `Xuất sang Sheet`: quyền `Editor`.
+   - Sheet nguồn dùng cho **Kiểm tra dữ liệu** và thiết lập lần đầu: quyền `Editor`. Lần kiểm tra đầu chỉ dùng quyền ghi nếu cần tự thêm liên kết ẩn an toàn; các lần kiểm tra bình thường vẫn chỉ đọc.
 
 Service account không tự thấy Sheet chỉ vì tài khoản Google cá nhân của mình có quyền. Nếu chưa share đúng email service account, app sẽ báo lỗi quyền/tải Sheet.
 
 ## Cách vận hành an toàn
 
-Nút **Xuất web → Sheet** trong admin sẽ ghi lại toàn bộ các tab `WEB_*` từ web sang Google Sheet đích. Luồng này không xoá/sắp xếp lại các tab gốc, nhưng vẫn nên chỉ bấm khi đã xác nhận đúng Sheet đích và đúng service account.
+Nút **Xuất sang Sheet** trong admin ghi `WEB_Đơn hàng` hoặc `WEB_Đơn đối tác` theo đúng trang đang mở. Luồng này không ghi đè tab nhập `Đơn hàng đã bán` hoặc `Đơn đối tác`.
 
-Nút **Kiểm tra dữ liệu** của đơn bán chỉ đọc Sheet gốc, tạo báo cáo thay đổi và không sửa thông tin nghiệp vụ. Chỉ khi báo cáo sạch, admin mới bấm **Cập nhật ... lên web**; web kiểm tra lại dữ liệu trước khi ghi database.
+Tab nhập đối tác chuẩn là `Đơn đối tác` trong cùng spreadsheet với đơn dịch vụ. Mỗi dòng là một biến động: số dư đầu kỳ, mua hàng, thanh toán hoặc trả hàng. Cột `Còn phải trả` là kết quả tính; web không dùng cột này làm số nhập có thẩm quyền. Cột `Tính công nợ` và `source_id` được ẩn để giữ lịch sử đối chiếu và danh tính dòng ổn định.
 
-Trong lần dùng đầu tiên, nếu Sheet chưa có liên kết ổn định, giao diện hiển thị **Hoàn tất thiết lập**. Thao tác này chỉ thêm mã liên kết vào một cột kỹ thuật được ẩn; không sửa khách hàng, sản phẩm, ngày, số tiền hay công nợ. Hệ thống đọc lại từng dòng ngay trước khi ghi và dừng nếu Sheet vừa thay đổi. Sau khi hoàn tất, hệ thống tự kiểm tra dữ liệu lại trước khi cho phép cập nhật lên web.
+Nút chính dùng chung cho đơn dịch vụ và đối tác đổi trạng thái theo quy trình: **Kiểm tra dữ liệu từ Sheet** → **Cập nhật ... lên web**. Lần bấm đầu chỉ đọc và tạo báo cáo; lần bấm xác nhận mới ghi database. Nếu Sheet thay đổi sau khi xem trước, web bắt buộc kiểm tra lại.
+
+Trong lần dùng đầu tiên, nếu Sheet chưa có liên kết ổn định, nút **Kiểm tra dữ liệu từ Sheet** tự thêm mã liên kết vào một cột kỹ thuật được ẩn rồi kiểm tra lại. Bước tự động này không sửa khách hàng, sản phẩm, ngày, số tiền hay công nợ. Hệ thống đọc lại từng dòng ngay trước khi ghi và dừng nếu Sheet vừa thay đổi.
 
 Dashboard đối tác luôn hiển thị công cụ kiểm tra Sheet theo phạm vi công nợ đối tác. Trên production, `MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED` mặc định là `false`: có thể xem trước số liệu nhưng chưa thể xác nhận import. Chỉ đặt thành `true` sau khi dữ liệu đối tác đã được đối soát riêng.
 

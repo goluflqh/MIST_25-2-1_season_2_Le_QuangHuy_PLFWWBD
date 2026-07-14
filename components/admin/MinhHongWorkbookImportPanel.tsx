@@ -2,10 +2,6 @@
 
 import { useState } from "react";
 import { useNotify } from "@/components/NotifyProvider";
-import {
-  MINHHONG_MANUAL_WORKBOOK_MAX_BYTES,
-  MINHHONG_MANUAL_WORKBOOK_MAX_MB,
-} from "@/lib/minhhong-import/workbook-limits";
 
 interface ImportResponse {
   success: boolean;
@@ -85,7 +81,6 @@ interface MinhHongWorkbookImportPanelProps {
   scope?: "all" | "service-orders" | "partners";
 }
 
-type ImportSource = "workbook" | "raw-sheet";
 type ImportScope = NonNullable<MinhHongWorkbookImportPanelProps["scope"]>;
 type ChangedRecord = ChangeRecord & { group: string };
 
@@ -93,10 +88,6 @@ const CHANGE_RECORDS_PER_PAGE = 10;
 
 function formatMoney(value: number | undefined) {
   return `${Number(value || 0).toLocaleString("vi-VN")}đ`;
-}
-
-function formatFileSize(bytes: number) {
-  return `${(bytes / (1024 * 1024)).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} MB`;
 }
 
 function totalChanges(changes: ImportChanges | undefined, scope: ImportScope = "all") {
@@ -183,26 +174,18 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
   const { showToast } = useNotify();
   const serviceOrderScope = scope === "service-orders";
   const partnerScope = scope === "partners";
-  const [file, setFile] = useState<File | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportResponse | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isPreparingSourceSheet, setIsPreparingSourceSheet] = useState(false);
-  const [previewSource, setPreviewSource] = useState<ImportSource | null>(null);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(true);
   const [changedRecordsPage, setChangedRecordsPage] = useState(1);
 
   const submitImport = async (
     mode: "preview" | "confirm",
-    source: ImportSource,
     options?: { preservePreview?: boolean; previewSuccessMessage?: string }
   ): Promise<void> => {
-    if (source === "workbook" && !file) {
-      showToast("Chọn file Excel .xlsx trước khi kiểm tra.", "error");
-      return;
-    }
-    if (mode === "confirm" && (!preview?.previewFingerprint || previewSource !== source)) {
+    if (mode === "confirm" && !preview?.previewFingerprint) {
       showToast("Hãy kiểm tra dữ liệu lại trước khi cập nhật.", "error");
       return;
     }
@@ -210,63 +193,61 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       showToast(preview.confirmation.message || "Chưa thể xác nhận cập nhật lúc này.", "error");
       return;
     }
-    if (source === "workbook" && file && file.size > MINHHONG_MANUAL_WORKBOOK_MAX_BYTES) {
-      const message = `File Excel vượt quá giới hạn ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`;
-      setFileError(message);
-      showToast(message, "error");
-      return;
-    }
-
     if (mode === "preview") {
       setIsPreviewing(true);
       if (!options?.preservePreview) setPreview(null);
       setChangedRecordsPage(1);
     }
     if (mode === "confirm") setIsConfirming(true);
-    setPreviewSource(source);
     if (mode === "preview") setIsPreviewExpanded(true);
 
     try {
-      const params = new URLSearchParams({ mode, source });
+      const params = new URLSearchParams({ mode, source: "raw-sheet" });
       if (scope !== "all") params.set("scope", scope);
       if (mode === "confirm" && preview?.previewFingerprint) {
         params.set("previewFingerprint", preview.previewFingerprint);
       }
-      const response = await fetch(
-        "/api/admin/minhhong-import?" + params.toString(),
-        source === "workbook" && file
-          ? {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "X-Workbook-Name": encodeURIComponent(file.name),
-              },
-              body: await file.arrayBuffer(),
-            }
-          : { method: "POST" }
-      );
+      const response = await fetch("/api/admin/minhhong-import?" + params.toString(), { method: "POST" });
       const data = await response.json() as ImportResponse;
-      const sourceLabel = source === "raw-sheet" ? "Google Sheet" : "File Excel";
+      const sourceLabel = "Google Sheet";
 
       if (!response.ok || !data.success) {
-        if (mode === "confirm" && source === "raw-sheet" && data.sourceSetup?.required) {
-          await submitImport("preview", "raw-sheet");
+        if (mode === "confirm" && data.sourceSetup?.required) {
+          await submitImport("preview");
           return;
         }
         const message = friendlyImportMessage(data.message, sourceLabel + " chưa xử lý được.");
         showToast(message, "error");
         if (mode === "preview") {
           setPreview(null);
-          setPreviewSource(null);
         }
         return;
       }
 
       setPreview(data);
-      setPreviewSource(source);
+      if (
+        mode === "preview"
+        && data.sourceSetup?.required
+        && data.confirmation?.enabled !== false
+      ) {
+        const setupFingerprint = data.sourceSetup.fingerprint;
+        if (!setupFingerprint) {
+          showToast("Dữ liệu kiểm tra chưa đủ để chuẩn bị Google Sheet. Hãy thử lại.", "error");
+          return;
+        }
+        if (await prepareSourceSheet(setupFingerprint)) {
+          await submitImport("preview", {
+            preservePreview: true,
+            previewSuccessMessage: "Google Sheet đã sẵn sàng. Dữ liệu đã được kiểm tra lại.",
+          });
+        }
+        return;
+      }
       if (mode === "confirm") {
         showToast("Đã áp dụng dữ liệu Minh Hồng vào web.", "success");
         onImported?.();
+      } else if (data.confirmation?.enabled === false) {
+        showToast("Dữ liệu đã được kiểm tra và đang chờ duyệt số liệu.", "success");
       } else if (data.sourceSetup?.required) {
         showToast("Dữ liệu đã được kiểm tra. Hãy hoàn tất thiết lập lần đầu.", "success");
       } else if (data.reconciliation?.ok) {
@@ -283,7 +264,6 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       );
       if (mode === "preview") {
         setPreview(null);
-        setPreviewSource(null);
       }
     } finally {
       setIsPreviewing(false);
@@ -291,13 +271,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
     }
   };
 
-  const completeSourceSheetSetup = async () => {
-    const setupFingerprint = preview?.sourceSetup?.fingerprint;
-    if (!setupFingerprint) {
-      showToast("Dữ liệu kiểm tra đã cũ. Hãy bấm Kiểm tra dữ liệu rồi thử lại.", "error");
-      return;
-    }
-
+  const prepareSourceSheet = async (setupFingerprint: string) => {
     setIsPreparingSourceSheet(true);
     try {
       const params = new URLSearchParams({ scope });
@@ -309,15 +283,12 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       const data = await response.json() as ImportResponse;
       if (!response.ok || !data.success) {
         showToast(friendlyImportMessage(data.message, "Chưa hoàn tất được thiết lập Google Sheet."), "error");
-        return;
+        return false;
       }
-
-      await submitImport("preview", "raw-sheet", {
-        preservePreview: true,
-        previewSuccessMessage: "Google Sheet đã sẵn sàng. Dữ liệu đã được kiểm tra lại.",
-      });
+      return true;
     } catch {
       showToast("Kết nối bị gián đoạn khi thiết lập Google Sheet. Hãy thử lại.", "error");
+      return false;
     } finally {
       setIsPreparingSourceSheet(false);
     }
@@ -336,8 +307,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
     && !isConfirming
     && !isPreviewing
   );
-  const canConfirmWorkbook = Boolean(canConfirmPreview && previewSource === "workbook" && file);
-  const canConfirmRawSheet = Boolean(canConfirmPreview && previewSource === "raw-sheet");
+  const canConfirmRawSheet = canConfirmPreview;
   const changedRecords: ChangedRecord[] = preview?.changes
     ? [
         ...(serviceOrderScope ? [] : (preview.changes.records.partners || []).map((record) => ({ ...record, group: "Đối tác" }))),
@@ -392,6 +362,26 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
     : partnerScope
       ? `Cập nhật ${changeTotals.created + changeTotals.updated} mục lên web`
       : `Cập nhật ${changeTotals.created + changeTotals.updated} bản ghi lên web`;
+  const rawSheetReadyToConfirm = preview?.mode === "preview"
+    && hasPendingChanges
+    && !preview.sourceSetup?.required;
+  const rawSheetWaitingForApproval = preview?.mode === "preview"
+    && preview.confirmation?.enabled === false;
+  const rawSheetActionLabel = isConfirming
+    ? "Đang cập nhật…"
+    : isPreparingSourceSheet
+      ? "Đang chuẩn bị Google Sheet…"
+    : isPreviewing
+      ? "Đang kiểm tra…"
+      : preview?.mode === "confirm"
+        ? "Đã cập nhật"
+        : rawSheetWaitingForApproval
+          ? "Chờ duyệt số liệu"
+          : rawSheetReadyToConfirm
+            ? rawSheetConfirmLabel
+            : preview?.mode === "preview" && !hasPendingChanges
+              ? "Kiểm tra lại Sheet"
+              : "Kiểm tra dữ liệu từ Sheet";
   const changedRecordNoun = serviceOrderScope ? "đơn" : partnerScope ? "giao dịch/đối tác" : "bản ghi";
 
   return (
@@ -417,152 +407,25 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
             <button
               type="button"
               data-testid="minhhong-source-sheet-preview"
-              onClick={() => submitImport("preview", "raw-sheet")}
-              disabled={isPreviewing || isConfirming || isPreparingSourceSheet}
-              className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
+              onClick={() => submitImport(rawSheetReadyToConfirm ? "confirm" : "preview")}
+              disabled={isPreviewing || isConfirming || isPreparingSourceSheet || rawSheetWaitingForApproval || (rawSheetReadyToConfirm && !canConfirmRawSheet)}
+              className={`min-h-11 rounded-lg px-4 py-2 font-body text-sm font-bold text-white transition-colors disabled:bg-slate-300 ${rawSheetReadyToConfirm ? "bg-red-600 hover:bg-red-700" : "bg-slate-900 hover:bg-slate-800"}`}
             >
-              {isPreviewing && previewSource === "raw-sheet" ? "Đang kiểm tra…" : "Kiểm tra dữ liệu"}
+              {rawSheetActionLabel}
             </button>
-            {previewSource === "raw-sheet"
-              && preview?.mode === "preview"
-              && hasPendingChanges
-              && !preview.sourceSetup?.required ? (
-              <button
-                type="button"
-                data-testid="minhhong-source-sheet-confirm"
-                onClick={() => submitImport("confirm", "raw-sheet")}
-                disabled={!canConfirmRawSheet}
-                className="min-h-11 rounded-lg bg-red-600 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:bg-slate-300"
-              >
-                {isConfirming ? "Đang cập nhật…" : rawSheetConfirmLabel}
-              </button>
-            ) : null}
             <a
               data-testid="minhhong-source-sheet-open"
               href={sourceSheetLinkHref(scope, partnerScope ? "partners-current" : serviceOrderScope ? "service-orders" : undefined)}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 font-body text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+              className="inline-flex min-h-11 items-center justify-center rounded-md px-2 py-2 font-body text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
             >
-              Mở Google Sheet
+              Mở Sheet
             </a>
-            {partnerScope ? (
-              <a
-                data-testid="minhhong-source-sheet-open-legacy"
-                href={sourceSheetLinkHref(scope, "partners-legacy-purchases")}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-2 font-body text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
-              >
-                Mở dữ liệu nhập cũ
-              </a>
-            ) : null}
           </div>
-          {previewSource === "raw-sheet"
-            && preview?.mode === "preview"
-            && preview.sourceSetup?.required
-            && preview.confirmation?.enabled !== false ? (
-            <div
-              className="rounded-lg border border-amber-200 bg-amber-50 p-3"
-              data-testid="minhhong-source-sheet-setup-card"
-              role="status"
-              aria-live="polite"
-            >
-              <p className="font-body text-sm font-extrabold text-amber-900">Cần hoàn tất thiết lập lần đầu</p>
-              <p className="mt-1 font-body text-sm leading-5 text-amber-900/80">
-                Hệ thống cần chuẩn bị Google Sheet để các lần cập nhật sau luôn đúng dòng. Thông tin đơn hàng và công nợ đang có không bị thay đổi.
-              </p>
-              <button
-                type="button"
-                data-testid="minhhong-source-sheet-setup"
-                onClick={completeSourceSheetSetup}
-                disabled={isPreparingSourceSheet || isPreviewing || isConfirming}
-                aria-busy={isPreparingSourceSheet}
-                className="mt-3 min-h-11 cursor-pointer rounded-lg bg-amber-700 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-amber-800 active:bg-amber-900 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {isPreparingSourceSheet
-                  ? isPreviewing ? "Đang kiểm tra lại…" : "Đang hoàn tất…"
-                  : "Hoàn tất thiết lập"}
-              </button>
-            </div>
-          ) : null}
           <p className="font-body text-xs leading-5 text-slate-500" data-testid="minhhong-source-sheet-preparation-note">
             Kiểm tra chỉ đọc Google Sheet gốc; không sửa thông tin khách, sản phẩm, số tiền, ngày hoặc cấu trúc dữ liệu.
           </p>
-          <details className="rounded-lg border border-slate-200 bg-slate-50/70" data-testid="minhhong-workbook-fallback">
-            <summary className="cursor-pointer rounded-lg px-3 py-2.5 font-body text-sm font-bold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200">
-              Nhập từ file Excel dự phòng
-            </summary>
-            <div className="grid gap-2 border-t border-slate-200 p-3 sm:grid-cols-[minmax(220px,1fr)_auto] sm:items-start">
-              <div className="min-w-0">
-                <label htmlFor="minhhong-workbook-file" className="mb-1 block font-body text-sm font-bold text-slate-700">
-                  Chọn file Excel dự phòng
-                </label>
-                <input
-                  id="minhhong-workbook-file"
-                  data-testid="minhhong-workbook-file"
-                  type="file"
-                  accept=".xlsx"
-                  aria-describedby={fileError ? "minhhong-workbook-file-help minhhong-workbook-file-error" : "minhhong-workbook-file-help"}
-                  aria-invalid={Boolean(fileError)}
-                  onChange={(event) => {
-                    const selectedFile = event.target.files?.[0] || null;
-                    let error: string | null = null;
-                    if (selectedFile && !selectedFile.name.toLowerCase().endsWith(".xlsx")) {
-                      error = "Chỉ nhận file Excel có đuôi .xlsx.";
-                    } else if (selectedFile && selectedFile.size > MINHHONG_MANUAL_WORKBOOK_MAX_BYTES) {
-                      error = `File đã chọn ${formatFileSize(selectedFile.size)}, vượt mức tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`;
-                    }
-
-                    if (error) {
-                      event.currentTarget.value = "";
-                      setFile(null);
-                      setFileError(error);
-                      showToast(error, "error");
-                    } else {
-                      setFile(selectedFile);
-                      setFileError(null);
-                    }
-                    setPreview(null);
-                    setPreviewSource(null);
-                  }}
-                  className="min-h-11 w-full max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:font-body file:text-xs file:font-bold file:text-slate-700"
-                />
-                <p id="minhhong-workbook-file-help" data-testid="minhhong-workbook-file-help" className="mt-1 font-body text-xs text-slate-500">
-                  {file
-                    ? `Đã chọn ${file.name} · ${formatFileSize(file.size)} / tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`
-                    : `Chỉ dùng khi Google Sheet không truy cập được · tối đa ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`}
-                </p>
-                {fileError ? (
-                  <p id="minhhong-workbook-file-error" data-testid="minhhong-workbook-file-error" role="alert" className="mt-1 font-body text-xs font-bold text-red-600">
-                    {fileError}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  type="button"
-                  data-testid="minhhong-workbook-preview"
-                  onClick={() => submitImport("preview", "workbook")}
-                  disabled={!file || isPreviewing || isConfirming}
-                  className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
-                >
-                  {isPreviewing && previewSource === "workbook" ? "Đang kiểm tra…" : "Kiểm tra file"}
-                </button>
-                {previewSource === "workbook" && preview?.mode === "preview" && hasPendingChanges ? (
-                  <button
-                    type="button"
-                    data-testid="minhhong-workbook-confirm"
-                    onClick={() => submitImport("confirm", "workbook")}
-                    disabled={!canConfirmWorkbook}
-                    className="min-h-11 rounded-lg bg-red-600 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:bg-slate-300"
-                  >
-                    {isConfirming ? "Đang cập nhật…" : "Cập nhật file lên web"}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </details>
         </div>
       </div>
 

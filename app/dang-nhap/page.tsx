@@ -19,6 +19,24 @@ function formatRetryAfter(totalSeconds: number) {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
+function loginTargetPath(role: string | undefined) {
+  const defaultPath = role === "ADMIN" ? "/dashboard" : "/tai-khoan";
+  if (role !== "ADMIN" || typeof window === "undefined") return defaultPath;
+
+  const requestedPath = new URLSearchParams(window.location.search).get("redirect");
+  if (!requestedPath || !requestedPath.startsWith("/") || requestedPath.startsWith("//")) {
+    return defaultPath;
+  }
+
+  const targetUrl = new URL(requestedPath, window.location.origin);
+  if (targetUrl.origin !== window.location.origin) return defaultPath;
+  const isAllowedAdminPath = targetUrl.pathname === "/dashboard"
+    || targetUrl.pathname.startsWith("/dashboard/")
+    || targetUrl.pathname === "/api/admin/minhhong-source-sheet-link";
+  if (!isAllowedAdminPath) return defaultPath;
+  return `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { user, setUser } = useAuth();
@@ -37,8 +55,7 @@ export default function LoginPage() {
       return;
     }
 
-    const targetPath = user.role === "ADMIN" ? "/dashboard" : "/tai-khoan";
-    router.replace(targetPath);
+    router.replace(loginTargetPath(user.role));
   }, [router, user]);
 
   useEffect(() => {
@@ -110,8 +127,7 @@ export default function LoginPage() {
       setNotice("");
       setUser(data.user ?? null);
 
-      const targetPath = data.user?.role === "ADMIN" ? "/dashboard" : "/tai-khoan";
-      router.replace(targetPath);
+      router.replace(loginTargetPath(data.user?.role));
     } catch {
       setError("Lỗi kết nối. Vui lòng thử lại.");
     } finally {

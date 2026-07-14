@@ -175,7 +175,7 @@ const priceStatusConfig: Record<string, { label: string; color: string; hint: st
 
 const sourceLabels: Record<string, string> = {
   MANUAL: "Nhập tay",
-  IMPORT: "Nhập từ Excel/CSV",
+  IMPORT: "Dữ liệu Minh Hồng",
   PHONE: "Điện thoại",
   ZALO: "Zalo",
   FACEBOOK: "Facebook",
@@ -192,24 +192,6 @@ const productSuggestions: Record<string, string[]> = {
   CUSTOM: ["Bộ pin theo kích thước riêng", "Nguồn dự phòng theo yêu cầu"],
   KHAC: ["Tư vấn khác"],
 };
-
-const importColumns = [
-  "ngay_don",
-  "ten_khach",
-  "so_dien_thoai",
-  "dia_chi",
-  "dich_vu",
-  "san_pham",
-  "tinh_trang",
-  "phuong_an",
-  "gia_bao",
-  "tinh_trang_gia",
-  "da_thu",
-  "trang_thai",
-  "bao_hanh_thang",
-  "ghi_chu",
-  "cho_khach_xem",
-] as const;
 
 function formatDate(value: string | null) {
   return formatVietnamDate(value) || "Chưa có";
@@ -289,128 +271,6 @@ function buildOrderFormData(order: ServiceOrderData): OrderFormState {
   };
 }
 
-function splitDelimitedLine(line: string, delimiter: string) {
-  const cells: string[] = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
-
-    if (char === "\"" && next === "\"") {
-      current += "\"";
-      index += 1;
-      continue;
-    }
-
-    if (char === "\"") {
-      inQuotes = !inQuotes;
-      continue;
-    }
-
-    if (char === delimiter && !inQuotes) {
-      cells.push(current.trim());
-      current = "";
-      continue;
-    }
-
-    current += char;
-  }
-
-  cells.push(current.trim());
-  return cells;
-}
-
-function detectDelimiter(text: string) {
-  const firstLine = text.split(/\r?\n/).find((line) => line.trim()) || "";
-  if (firstLine.includes("\t")) return "\t";
-
-  const commaCount = (firstLine.match(/,/g) || []).length;
-  const semicolonCount = (firstLine.match(/;/g) || []).length;
-  return semicolonCount > commaCount ? ";" : ",";
-}
-
-function looksLikeHeader(cells: string[]) {
-  const joined = cells.join(" ").toLowerCase();
-  return joined.includes("ten_khach") || joined.includes("số điện thoại") || joined.includes("so_dien_thoai");
-}
-
-function parseImportText(text: string) {
-  const delimiter = detectDelimiter(text);
-  const rows = text
-    .replace(/^\uFEFF/, "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => splitDelimitedLine(line, delimiter));
-
-  const hasHeader = Boolean(rows[0] && looksLikeHeader(rows[0]));
-  const dataRows = (hasHeader ? rows.slice(1) : rows).map((cells, index) => ({
-    cells,
-    rowNumber: hasHeader ? index + 2 : index + 1,
-  }));
-
-  return dataRows
-    .filter(({ cells }) => cells.some((cell) => cell.trim()))
-    .map(({ cells, rowNumber }) => {
-      const hasPriceStatusColumn = cells.length >= importColumns.length;
-
-      return {
-        orderDate: cells[0] || "",
-        customerName: cells[1] || "",
-        customerPhone: cells[2] || "",
-        customerAddress: cells[3] || "",
-        service: cells[4] || "",
-        productName: cells[5] || "",
-        issueDescription: cells[6] || "",
-        solution: cells[7] || "",
-        quotedPrice: cells[8] || "",
-        priceStatus: hasPriceStatusColumn ? cells[9] || "" : "",
-        paidAmount: hasPriceStatusColumn ? cells[10] || "" : cells[9] || "",
-        status: hasPriceStatusColumn ? cells[11] || "" : cells[10] || "",
-        warrantyMonths: hasPriceStatusColumn ? cells[12] || "" : cells[11] || "",
-        notes: hasPriceStatusColumn ? cells[13] || "" : cells[12] || "",
-        customerVisible: hasPriceStatusColumn ? cells[14] || "" : cells[13] || "",
-        sourceName: "Import đơn dịch vụ",
-        sourceRow: rowNumber,
-      };
-    });
-}
-
-function buildTemplateCsv() {
-  const sample = [
-    "27/04/2026",
-    "Nguyễn Văn A",
-    "0987443258",
-    "Đồng Dương, Đà Nẵng",
-    "DONG_PIN",
-    "Pin xe điện 48V",
-    "Pin chai nhanh",
-    "Thay cell, kiểm tra BMS",
-    "1500000",
-    "CONFIRMED",
-    "500000",
-    "COMPLETED",
-    "6",
-    "Đơn cũ nhập lại từ sổ",
-    "khong",
-  ];
-  return `${importColumns.join(",")}\n${sample.map((cell) => `"${cell}"`).join(",")}\n`;
-}
-
-function downloadImportTemplate() {
-  const blob = new Blob([`\uFEFF${buildTemplateCsv()}`], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "mau-import-don-dich-vu-minh-hong.csv";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 function normalizeFormService(value: string | null) {
   const raw = String(value || "").trim();
   const upper = raw.toUpperCase();
@@ -434,16 +294,10 @@ export default function AdminServiceOrdersClient({
   const { showToast, showConfirm } = useNotify();
   const orderFormRef = useRef<HTMLFormElement | null>(null);
   const orderFirstFieldRef = useRef<HTMLInputElement | null>(null);
-  const importPanelRef = useRef<HTMLDivElement | null>(null);
-  const importTextRef = useRef<HTMLTextAreaElement | null>(null);
   const appliedPrefillRef = useRef(false);
   const editDrawerOpenerRef = useRef<HTMLElement | null>(null);
   const [orders, setOrders] = useState(initialOrders);
   const [showForm, setShowForm] = useState(false);
-  const [showImport, setShowImport] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importFailures, setImportFailures] = useState<Array<{ rowNumber: number; message: string }>>([]);
-  const [isImporting, setIsImporting] = useState(false);
   const [syncingSheet, setSyncingSheet] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -469,11 +323,6 @@ export default function AdminServiceOrdersClient({
   const [error, setError] = useState("");
   const [formData, setFormData] = useState<OrderFormState>(() => createEmptyOrderForm());
   const editingOrder = editingId ? orders.find((order) => order.id === editingId) || null : null;
-
-  const importPreview = useMemo(() => {
-    if (!importText.trim()) return [];
-    return parseImportText(importText);
-  }, [importText]);
 
   const metrics = useMemo(() => {
     const financials = summarizeServiceOrderFinancials(orders);
@@ -594,10 +443,6 @@ export default function AdminServiceOrdersClient({
   };
 
   useEffect(() => {
-    setImportFailures([]);
-  }, [importText]);
-
-  useEffect(() => {
     setPage(1);
   }, [accountFilter, couponFilter, orderCustomFromDate, orderCustomToDate, orderTimePreset, paymentFilter, priceFilter, searchQuery, serviceFilter, sortMode, sourceFilter, statusFilter, warrantyFilter]);
 
@@ -614,17 +459,9 @@ export default function AdminServiceOrdersClient({
   const openCreateForm = useCallback(() => {
     setEditingId(null);
     setFormData(createEmptyOrderForm());
-    setShowImport(false);
     setShowForm(true);
     setError("");
     scrollToWorkArea(orderFormRef, orderFirstFieldRef);
-  }, [scrollToWorkArea]);
-
-  const openImportPanel = useCallback(() => {
-    setShowForm(false);
-    setShowImport(true);
-    setError("");
-    scrollToWorkArea(importPanelRef, importTextRef);
   }, [scrollToWorkArea]);
 
   useEffect(() => {
@@ -657,7 +494,6 @@ export default function AdminServiceOrdersClient({
       warrantyMonths: "6",
     }));
     setEditingId(null);
-    setShowImport(false);
     setShowForm(true);
     setError("");
     scrollToWorkArea(orderFormRef, orderFirstFieldRef);
@@ -674,7 +510,6 @@ export default function AdminServiceOrdersClient({
       : null;
     setEditingId(order.id);
     setFormData(buildOrderFormData(order));
-    setShowImport(false);
     setShowForm(true);
     setError("");
     window.setTimeout(() => {
@@ -920,58 +755,6 @@ export default function AdminServiceOrdersClient({
     }
   };
 
-  const importOrders = async () => {
-    if (importPreview.length === 0) {
-      showToast("Chưa có dòng import hợp lệ.", "error");
-      return;
-    }
-
-    setIsImporting(true);
-    setImportFailures([]);
-
-    try {
-      const response = await fetch("/api/admin/service-orders/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orders: importPreview }),
-      });
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        showToast(data.message || "Chưa import được đơn.", "error");
-        return;
-      }
-
-      if (data.orders?.length) {
-        setOrders((prev: ServiceOrderData[]) => [...data.orders, ...prev]);
-      }
-      setImportFailures(data.failed || []);
-      if (!data.failed?.length) {
-        setImportText("");
-        setShowImport(false);
-      }
-      showToast(
-        data.failed?.length
-          ? `Đã import ${data.createdCount || 0} đơn, còn vài dòng cần sửa.`
-          : `Đã import ${data.createdCount || 0} đơn.`,
-        "success"
-      );
-    } catch {
-      showToast("Kết nối bị gián đoạn khi import đơn.", "error");
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
-  const handleImportFile = (file: File | undefined) => {
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => setImportText(String(reader.result || ""));
-    reader.onerror = () => showToast("Không đọc được file import.", "error");
-    reader.readAsText(file, "utf-8");
-  };
-
   const syncGoogleSheet = async () => {
     showConfirm("Xuất danh sách đơn bán/đơn dịch vụ hiện tại trên web sang tab WEB_Đơn hàng trong Google Sheet? Các tab gốc Minh Hồng và tab đối tác sẽ không bị ghi hoặc xoá.", async () => {
       setSyncingSheet(true);
@@ -1014,21 +797,13 @@ export default function AdminServiceOrdersClient({
             disabled={syncingSheet}
             className="min-h-11 rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-200 disabled:bg-slate-200 disabled:text-slate-400"
           >
-            {syncingSheet ? "Đang xuất…" : "Xuất web → Sheet"}
-          </button>
-          <button
-            type="button"
-            data-testid="dashboard-orders-open-import"
-            onClick={openImportPanel}
-            className="min-h-11 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-body font-bold text-white transition-colors hover:bg-slate-800"
-          >
-            CSV đơn lẻ (nâng cao)
+            {syncingSheet ? "Đang xuất…" : "Xuất sang Sheet"}
           </button>
           <button
             type="button"
             data-testid="dashboard-orders-open-create"
             onClick={openCreateForm}
-            className="col-span-2 min-h-11 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-body font-bold text-white transition-colors hover:bg-red-700 sm:col-span-1"
+            className="min-h-11 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-body font-bold text-white transition-colors hover:bg-red-700"
           >
             + Thêm đơn
           </button>
@@ -1344,97 +1119,6 @@ export default function AdminServiceOrdersClient({
             </button>
             </div>
           </form>
-        </div>
-      ) : null}
-
-      {showImport ? (
-        <div
-          ref={importPanelRef}
-          data-testid="dashboard-orders-single-import-panel"
-          className="scroll-mt-28 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6"
-        >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h3 className="font-heading text-lg font-bold text-slate-900">Nâng cao: nhập CSV/TSV một đơn</h3>
-              <p className="font-body text-sm text-slate-500">
-                Luồng chính là Sheet/Excel chuẩn ở phía trên. Mục này chỉ dùng khi cần nhập nhanh một danh sách đơn lẻ từ CSV/TSV.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={downloadImportTemplate}
-              className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200"
-            >
-              Tải mẫu CSV
-            </button>
-            <button
-              type="button"
-              data-testid="dashboard-orders-import-close"
-              onClick={() => setShowImport(false)}
-              aria-label="Đóng nhập CSV nâng cao"
-              className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200"
-            >
-              Đóng
-            </button>
-          </div>
-          <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <p className="font-body text-xs font-bold uppercase tracking-wider text-slate-500">Thứ tự cột</p>
-            <p className="mt-1 break-words font-mono text-xs text-slate-500">{importColumns.join(" | ")}</p>
-          </div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-[0.8fr_1fr]">
-            <label className="space-y-2">
-              <span className="font-body text-xs font-bold text-slate-600">Chọn file CSV/TSV</span>
-              <input
-                type="file"
-                accept=".csv,.tsv,text/csv,text/tab-separated-values"
-                onChange={(event) => handleImportFile(event.target.files?.[0])}
-                className="block w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-body"
-              />
-            </label>
-            <label className="space-y-2">
-              <span className="font-body text-xs font-bold text-slate-600">Hoặc dán bảng từ Excel</span>
-              <textarea
-                ref={importTextRef}
-                data-testid="dashboard-orders-import-text"
-                value={importText}
-                onChange={(event) => setImportText(event.target.value)}
-                rows={5}
-                placeholder="Dán dữ liệu ở đây..."
-                className="w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
-              />
-            </label>
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={importOrders}
-              disabled={isImporting || importPreview.length === 0}
-              className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-body font-bold text-white disabled:bg-slate-300"
-            >
-              {isImporting ? "Đang nhập..." : `Nhập ${importPreview.length} đơn`}
-            </button>
-            <button
-              type="button"
-              onClick={() => setImportText("")}
-              className="rounded-xl bg-slate-100 px-5 py-2.5 text-sm font-body font-bold text-slate-600 hover:bg-slate-200"
-            >
-              Xoá dữ liệu dán
-            </button>
-          </div>
-          {importFailures.length > 0 ? (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
-              <p className="font-body text-sm font-bold text-amber-800">
-                {importFailures.length} dòng chưa nhập được
-              </p>
-              <ul className="mt-2 space-y-1">
-                {importFailures.slice(0, 8).map((failure) => (
-                  <li key={`${failure.rowNumber}-${failure.message}`} className="font-body text-xs text-amber-800">
-                    Dòng {failure.rowNumber}: {failure.message}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
