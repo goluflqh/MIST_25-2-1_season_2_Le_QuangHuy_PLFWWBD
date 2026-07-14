@@ -38,9 +38,7 @@ test("trims and returns an explicit custom export target", () => {
 test("exports only protected WEB-prefixed report tabs", () => {
   assert.deepEqual([...MINHHONG_WEB_EXPORT_TAB_TITLES], [
     "WEB_Đơn hàng",
-    "WEB_Công nợ đối tác",
-    "WEB_Giao dịch đối tác",
-    "WEB_Đối tác",
+    "WEB_Đơn đối tác",
     "WEB_Đối soát",
   ]);
   assert.ok(MINHHONG_WEB_EXPORT_TAB_TITLES.every((title) => title.startsWith("WEB_")));
@@ -58,7 +56,7 @@ test("prepares WEB tabs without deleting or renaming raw source tabs", () => {
   assert.equal(requests.some((request) => "updateSheetProperties" in request), false);
   assert.ok(
     requests.some((request) =>
-      "addSheet" in request && request.addSheet.properties.title === "WEB_Công nợ đối tác"
+      "addSheet" in request && request.addSheet.properties.title === "WEB_Đơn đối tác"
     )
   );
 });
@@ -117,7 +115,6 @@ test("writes formulas with USER_ENTERED so exported sheets recalculate", () => {
   );
   const updatePayload = buildGoogleSheetsBatchUpdatePayload(tabs);
   const orderTab = tabs.find((tab) => tab.title === "WEB_Đơn hàng");
-  const partnerDebtTab = tabs.find((tab) => tab.title === "WEB_Công nợ đối tác");
   const reconciliationTab = tabs.find((tab) => tab.title === "WEB_Đối soát");
 
   assert.equal(updatePayload.valueInputOption, "USER_ENTERED");
@@ -125,9 +122,7 @@ test("writes formulas with USER_ENTERED so exported sheets recalculate", () => {
   assert.equal(orderTab?.rows[1][4], "'+SUM(1;1)");
   assert.equal(orderTab?.rows[1][9], "'@private-note");
   assert.equal(orderTab?.rows[1][11], "'=UNTRUSTED_SOURCE:A5:K5");
-  assert.equal(partnerDebtTab?.rows[1][1], "'-10+20");
   assert.equal(orderTab?.rows[1][8], "=MAX(F2-G2;0)");
-  assert.equal(partnerDebtTab?.rows[1][5], "=MAX(G2+J2+K2-H2-I2;0)");
   assert.match(String(reconciliationTab?.rows[2][1]), /^=COUNTA\(/);
 });
 
@@ -327,14 +322,13 @@ test("adds hidden technical columns for future conflict detection", () => {
   );
   const technicalHeaders = ["web_id", "source_code", "source_row", "updated_at", "sync_hash"];
 
-  for (const title of ["WEB_Đơn hàng", "WEB_Công nợ đối tác", "WEB_Giao dịch đối tác", "WEB_Đối tác"] as const) {
-    const tab = tabs.find((candidate) => candidate.title === title);
-    assert.deepEqual(tab?.rows[0].slice(-5), technicalHeaders);
-    assert.equal(typeof tab?.rows[1].at(-1), "string");
-    assert.ok(String(tab?.rows[1].at(-1)).length >= 12);
-  }
   const orderTab = tabs.find((candidate) => candidate.title === "WEB_Đơn hàng");
+  const partnerTab = tabs.find((candidate) => candidate.title === "WEB_Đơn đối tác");
+  assert.deepEqual(orderTab?.rows[0].slice(-5), technicalHeaders);
+  assert.equal(typeof orderTab?.rows[1].at(-1), "string");
+  assert.ok(String(orderTab?.rows[1].at(-1)).length >= 12);
   assert.equal(orderTab?.rows[1].at(-4), "DON_KHACH:DH-MH_STABLE_SOURCE");
+  assert.equal(partnerTab?.rows[0].some((header) => technicalHeaders.includes(String(header))), false);
 
   const formatRequests = buildGoogleSheetsFormatRequests([{ sheetId: 10, title: "WEB_Đơn hàng" }]);
   assert.ok(formatRequests.some((request) =>
@@ -382,10 +376,9 @@ test("formats money columns in WEB sheets without converting numbers to text", (
   ));
 });
 
-test("formats phone columns as text so Sheets keeps leading zeroes", () => {
+test("formats service-order phone columns as text so Sheets keeps leading zeroes", () => {
   const formatRequests = buildGoogleSheetsFormatRequests([
     { sheetId: 10, title: "WEB_Đơn hàng" },
-    { sheetId: 11, title: "WEB_Công nợ đối tác" },
   ]);
 
   assert.ok(formatRequests.some((request) =>
@@ -395,16 +388,9 @@ test("formats phone columns as text so Sheets keeps leading zeroes", () => {
     && request.repeatCell.range.endColumnIndex === 4
     && request.repeatCell.cell.userEnteredFormat?.numberFormat?.type === "TEXT"
   ));
-  assert.ok(formatRequests.some((request) =>
-    "repeatCell" in request
-    && request.repeatCell.range.sheetId === 11
-    && request.repeatCell.range.startColumnIndex === 2
-    && request.repeatCell.range.endColumnIndex === 3
-    && request.repeatCell.cell.userEnteredFormat?.numberFormat?.type === "TEXT"
-  ));
 });
 
-test("partner exports hide legacy source-only partners that are not real debt partners", () => {
+test("partner exports keep only useful business fields and hide legacy source-only partners", () => {
   const tabs = buildMinhHongSheetTabsFromData(
     [],
     [
@@ -414,7 +400,31 @@ test("partner exports hide legacy source-only partners that are not real debt pa
         code: "LONG",
         createdAt: "2026-07-08T08:00:00.000Z",
         id: "partner-long",
-        ledgerEntries: [],
+        ledgerEntries: [
+          {
+            amount: 12_730_000,
+            countsInDebt: true,
+            createdAt: "2026-05-08T00:00:00.000Z",
+            description: "Số dư Long đã chốt",
+            entryDate: "2026-05-08T00:00:00.000Z",
+            entryType: "OPENING_BALANCE",
+            id: "opening-long",
+            notes: "",
+            signedAmount: 12_730_000,
+          },
+          {
+            amount: 0,
+            countsInDebt: false,
+            createdAt: "2025-01-01T00:00:00.000Z",
+            description: "Đơn cũ thiếu giá",
+            entryDate: "1900-01-04T00:00:00.000Z",
+            entryType: "PURCHASE",
+            id: "legacy-missing-price",
+            notes: "Đối chiếu lịch sử",
+            quantity: 5,
+            signedAmount: 0,
+          },
+        ],
         name: "Long",
         notes: "",
         phone: "",
@@ -428,7 +438,16 @@ test("partner exports hide legacy source-only partners that are not real debt pa
         code: "DT_SHOPEE",
         createdAt: "2026-07-08T08:00:00.000Z",
         id: "partner-shopee",
-        ledgerEntries: [],
+        ledgerEntries: [{
+          amount: 100_000,
+          countsInDebt: false,
+          createdAt: "2025-01-01T00:00:00.000Z",
+          description: "Không xuất thành đối tác nợ riêng",
+          entryDate: "2025-01-01T00:00:00.000Z",
+          entryType: "PURCHASE",
+          id: "source-only-entry",
+          signedAmount: 0,
+        }],
         name: "Shopee",
         notes: "Nguon mua ho qua Long trong du lieu cu",
         phone: "",
@@ -438,19 +457,31 @@ test("partner exports hide legacy source-only partners that are not real debt pa
       },
     ]
   );
-  const partnerDebtTab = tabs.find((tab) => tab.title === "WEB_Công nợ đối tác");
-  const partnerListTab = tabs.find((tab) => tab.title === "WEB_Đối tác");
+  const partnerTab = tabs.find((tab) => tab.title === "WEB_Đơn đối tác");
 
-  assert.deepEqual(partnerDebtTab?.rows.slice(1).map((row) => row[0]), ["LONG"]);
-  assert.deepEqual(partnerListTab?.rows.slice(1).map((row) => row[0]), ["LONG"]);
+  assert.deepEqual(partnerTab?.rows[0], [
+    "Ngày",
+    "Đối tác",
+    "Loại giao dịch",
+    "Nội dung / mặt hàng",
+    "Số lượng",
+    "Đơn giá",
+    "Số tiền",
+    "Phương thức thanh toán",
+    "Ghi chú",
+    "Còn phải trả",
+  ]);
+  assert.deepEqual(partnerTab?.rows.slice(1).map((row) => row[1]), ["Long", "Long"]);
+  assert.equal(partnerTab?.rows[1][0], "");
+  assert.equal(partnerTab?.rows[1][6], "");
+  assert.equal(partnerTab?.rows[1][9], "");
+  assert.equal(partnerTab?.rows[2][9], 12_730_000);
 });
 
 test("can scope web-to-sheet sync to service orders or partner ledger tabs", () => {
   assert.deepEqual(buildGoogleSheetsBatchClearPayload("service-orders").ranges, ["'WEB_Đơn hàng'!A:Z"]);
   assert.deepEqual(buildGoogleSheetsBatchClearPayload("partners").ranges, [
-    "'WEB_Công nợ đối tác'!A:Z",
-    "'WEB_Giao dịch đối tác'!A:Z",
-    "'WEB_Đối tác'!A:Z",
+    "'WEB_Đơn đối tác'!A:Z",
   ]);
 
   const tabs = buildMinhHongSheetTabsFromData([], []);

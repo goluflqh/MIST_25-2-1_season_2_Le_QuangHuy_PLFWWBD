@@ -153,17 +153,25 @@ export function auditParsedMinhHongWorkbookFinancials(
     const longCountedReturn = longEntries
       .filter((entry) => entry.countsInDebt && entry.entryType === "RETURN")
       .reduce((sum, entry) => sum + entry.amount, 0);
+    const longCountedAdjustment = longEntries
+      .filter((entry) => entry.countsInDebt && entry.entryType === "ADJUSTMENT")
+      .reduce((sum, entry) => sum + entry.amount, 0);
     const longHistoricalPaid = longEntries
       .filter((entry) => entry.entryType === "PAYMENT")
       .reduce((sum, entry) => sum + entry.amount, 0);
     const longReferenceOnlyAmount = longEntries
       .filter((entry) => !entry.countsInDebt)
       .reduce((sum, entry) => sum + entry.amount, 0);
-    const longPayable = longOpeningBalance + longCountedPurchase - longCountedPayment - longCountedReturn;
+    const longPayable = longOpeningBalance
+      + longCountedPurchase
+      + longCountedAdjustment
+      - longCountedPayment
+      - longCountedReturn;
 
     addCheck(checks, issues, "Long opening balance formula", longOpeningBalance, parsed.partnerTotals.longOpeningBalance, "source.long.opening");
     addCheck(checks, issues, "Long counted purchase formula", longCountedPurchase, parsed.partnerTotals.longCountedPurchase, "source.long.purchase");
     addCheck(checks, issues, "Long counted payment formula", longCountedPayment, parsed.partnerTotals.longCountedPayment, "source.long.payment");
+    addCheck(checks, issues, "Long counted adjustment formula", longCountedAdjustment, parsed.partnerTotals.longCountedAdjustment ?? 0, "source.long.adjustment");
     addCheck(checks, issues, "Long payable formula", longPayable, parsed.partnerTotals.longPayable, "source.long.payable");
     addCheck(checks, issues, "Long historical paid formula", longHistoricalPaid, parsed.partnerTotals.longHistoricalPaid, "source.long.historical_paid");
     addCheck(checks, issues, "Long reference-only formula", longReferenceOnlyAmount, parsed.partnerTotals.longReferenceOnlyAmount, "source.long.reference_only");
@@ -172,7 +180,10 @@ export function auditParsedMinhHongWorkbookFinancials(
       issues.push(issue("error", "source.partner_duplicate_source_code", `Mã giao dịch ${sourceCode} bị trùng trong dữ liệu nguồn.`));
     }
     for (const entry of parsed.partnerEntries) {
-      if (entry.amount <= 0) {
+      const invalidAdjustment = entry.entryType === "ADJUSTMENT" && entry.amount === 0;
+      const invalidCountedAmount = entry.entryType !== "ADJUSTMENT" && entry.countsInDebt && entry.amount <= 0;
+      const invalidReferenceAmount = entry.entryType !== "ADJUSTMENT" && !entry.countsInDebt && entry.amount < 0;
+      if (invalidAdjustment || invalidCountedAmount || invalidReferenceAmount) {
         issues.push(issue("error", "source.partner_invalid_amount", `Giao dịch ${entry.sourceCode} có số tiền không hợp lệ.`));
       }
     }
@@ -260,7 +271,10 @@ export function auditDatabaseFinancialSnapshot(snapshot: DatabaseAuditSnapshot):
   addCheck(checks, issues, "Partner ledger signed balance", signedPartnerTotal, partnerBalance, "db.partner.balance_formula");
 
   for (const entry of snapshot.partnerEntries) {
-    if (entry.amount <= 0 && entry.entryType !== "ADJUSTMENT") {
+    const invalidAdjustment = entry.entryType === "ADJUSTMENT" && entry.amount === 0;
+    const invalidCountedAmount = entry.entryType !== "ADJUSTMENT" && entry.countsInDebt && entry.amount <= 0;
+    const invalidReferenceAmount = entry.entryType !== "ADJUSTMENT" && !entry.countsInDebt && entry.amount < 0;
+    if (invalidAdjustment || invalidCountedAmount || invalidReferenceAmount) {
       issues.push(issue("error", "db.partner_invalid_amount", `Giao dịch ${entry.id} có số tiền không hợp lệ.`));
     }
   }

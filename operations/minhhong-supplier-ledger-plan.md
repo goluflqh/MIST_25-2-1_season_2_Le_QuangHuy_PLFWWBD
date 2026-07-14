@@ -1,5 +1,9 @@
 # Kế hoạch chuẩn hóa đơn hàng và công nợ Minh Hồng
 
+> Cập nhật 2026-07-13: phần số liệu chốt ngày 2026-05-26 bên dưới là lịch sử và đã được thay thế. Số dư đầu kỳ Long chính thức là `12.730.000đ`; đơn `300 cell EVE 25P` giữ nguyên `7.500.000đ` như một dòng đối chiếu đã nằm trong số dư đầu kỳ. Các phát sinh sau đó là đèn NLMT `3.900.000đ` và thanh toán tương ứng, đèn pha NLMT `1.250.000đ`, bốn sạc `440.000đ`, thanh toán tiền mặt + chuyển khoản `3.420.000đ`. Số Minh Hồng còn phải trả Long hiện tại là đúng `11.000.000đ`.
+
+> Dữ liệu đối tác mới dùng tab `Đơn đối tác` trong spreadsheet chung. Mỗi biến động là một dòng; dữ liệu lịch sử vẫn hiển thị để tra cứu nhưng các dòng đã gộp vào số dư đầu kỳ không được cộng nợ lần hai.
+
 Cập nhật ngày 2026-05-26.
 
 Tài liệu này gom hai phần vào cùng một hướng làm:

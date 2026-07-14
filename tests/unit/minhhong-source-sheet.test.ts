@@ -39,6 +39,36 @@ function buildSourceExports(
   ];
 }
 
+async function buildUnifiedPartnerSourceWorkbook() {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(readFileSync(legacyWorkbookPath) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  const sheet = workbook.addWorksheet("Đơn đối tác");
+  sheet.addRow([
+    "Ngày",
+    "Đối tác",
+    "Loại giao dịch",
+    "Nội dung / mặt hàng",
+    "Số lượng",
+    "Đơn giá",
+    "Số tiền",
+    "Phương thức thanh toán",
+    "Ghi chú",
+    "Còn phải trả",
+    "Tính công nợ",
+    "source_id",
+  ]);
+  sheet.addRow(["", "Long", "Mua hàng", "Đơn cũ thiếu giá", 5, "", "", "", "Đối chiếu lịch sử", "", "Không", `MH_${"1".repeat(32)}`]);
+  sheet.addRow(["08/05/2026", "Long", "Số dư đầu kỳ", "Số dư Long đã chốt", "", "", 12_730_000, "", "", 12_730_000, "Có", `MH_${"2".repeat(32)}`]);
+  sheet.addRow(["26/05/2026", "Long", "Mua hàng", "Đèn NLMT bc", 3, 1_300_000, 3_900_000, "", "", 16_630_000, "Có", `MH_${"3".repeat(32)}`]);
+  sheet.addRow(["26/05/2026", "Long", "Thanh toán", "Thanh toán đèn NLMT bc", "", "", 3_900_000, "Chuyển khoản", "", 12_730_000, "Có", `MH_${"4".repeat(32)}`]);
+  sheet.addRow(["26/05/2026", "Long", "Mua hàng", "Đèn pha NLMT", 1, 1_250_000, 1_250_000, "", "", 13_980_000, "Có", `MH_${"5".repeat(32)}`]);
+  sheet.addRow(["24/06/2026", "Long", "Mua hàng", "Sạc 21V có quạt", 4, 110_000, 440_000, "", "", 14_420_000, "Có", `MH_${"6".repeat(32)}`]);
+  sheet.addRow(["24/06/2026", "Long", "Thanh toán", "Thanh toán cho Long", "", "", 3_420_000, "Tiền mặt + chuyển khoản", "", 11_000_000, "Có", `MH_${"7".repeat(32)}`]);
+  sheet.addRow(["25/06/2026", "Long", "Điều chỉnh", "Điều chỉnh tăng kiểm thử", "", "", 10_000, "", "", 11_010_000, "Có", `MH_${"8".repeat(32)}`]);
+  sheet.addRow(["25/06/2026", "Long", "Điều chỉnh", "Điều chỉnh giảm kiểm thử", "", "", -10_000, "", "", 11_000_000, "Có", `MH_${"9".repeat(32)}`]);
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
 async function buildSourceWorkbooksWithAssignedIds() {
   const exports = buildSourceExports();
   const plan = await buildMinhHongSourceIdPlanFromExports(exports);
@@ -176,7 +206,7 @@ test("builds page-specific source Sheet link targets for admins", () => {
   );
   assert.deepEqual(
     getMinhHongSourceSheetLinkTargets("partners").map((target) => target.id),
-    ["partners-current", "partners-legacy-purchases"]
+    ["partners-current"]
   );
   assert.equal(
     buildMinhHongSourceSheetEditUrl("sheet-id", 123),
@@ -226,6 +256,32 @@ test("builds raw Google Sheet XLSX export URLs", () => {
   assert.equal(
     buildSourceSheetExportUrl("sheet-id-123"),
     "https://docs.google.com/spreadsheets/d/sheet-id-123/export?format=xlsx"
+  );
+});
+
+test("imports the unified partner event sheet with full history and an exact 11 million payable", async () => {
+  const preview = await buildMinhHongSourceImportPreviewFromExports([
+    {
+      buffer: await buildUnifiedPartnerSourceWorkbook(),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    },
+  ], "partners");
+  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const reconciliation = reconcileMinhHongWorkbook(parsed, { scope: "partners" });
+  const missingAmount = parsed.partnerEntries.find((entry) => entry.description === "Đơn cũ thiếu giá");
+
+  assert.deepEqual(preview.sourceIdPlan.targets.map((target) => target.id), ["partner-ledger"]);
+  assert.equal(reconciliation.ok, true);
+  assert.deepEqual(parsed.partners.map((partner) => partner.partnerName), ["Long"]);
+  assert.equal(parsed.partnerEntries.length, 9);
+  assert.equal(parsed.partnerTotals.longOpeningBalance, 12_730_000);
+  assert.equal(parsed.partnerTotals.longPayable, 11_000_000);
+  assert.equal(missingAmount?.amount, 0);
+  assert.equal(missingAmount?.countsInDebt, false);
+  assert.deepEqual(
+    parsed.partnerEntries.filter((entry) => entry.entryType === "ADJUSTMENT").map((entry) => entry.amount),
+    [10_000, -10_000]
   );
 });
 
@@ -303,12 +359,12 @@ test("uses service account authorization for private raw source Sheet exports wh
     const exports = await fetchMinhHongSourceSheetExports(fetchImpl as typeof fetch);
     const exportRequests = requested.filter((request) => request.url.includes("docs.google.com/spreadsheets"));
 
-    assert.equal(exports.length, 2);
+    assert.equal(exports.length, 1);
     assert.equal(requested.some((request) => request.url.includes("oauth2.googleapis.com/token")), true);
-    assert.equal(exportRequests.length, 2);
+    assert.equal(exportRequests.length, 1);
     assert.deepEqual(
       exportRequests.map((request) => (request.init?.headers as Record<string, string>)?.Authorization),
-      ["Bearer private-sheet-token", "Bearer private-sheet-token"]
+      ["Bearer private-sheet-token"]
     );
   } finally {
     if (originalEmail === undefined) delete process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -324,15 +380,17 @@ test("plans source_id headers and missing business-row IDs with the stable forma
   const rowAssignments = plan.assignments.filter((assignment) => assignment.value !== "source_id");
 
   assert.equal(plan.canApply, true);
-  assert.equal(plan.headerWrites, MINHHONG_SOURCE_ID_TARGETS.length);
-  assert.equal(headerAssignments.length, MINHHONG_SOURCE_ID_TARGETS.length);
+  assert.equal(plan.headerWrites, plan.targets.length);
+  assert.equal(headerAssignments.length, plan.targets.length);
   assert.equal(rowAssignments.length, plan.missingRows);
   assert.equal(plan.assignments.length, plan.headerWrites + plan.missingRows);
   assert.ok(plan.missingRows > 0, "fixture should contain source business rows without source_id");
   assert.equal(new Set(rowAssignments.map((assignment) => assignment.value)).size, rowAssignments.length);
   assert.ok(rowAssignments.every((assignment) => MINHHONG_SOURCE_ID_PATTERN.test(assignment.value)));
 
-  for (const target of MINHHONG_SOURCE_ID_TARGETS) {
+  for (const target of MINHHONG_SOURCE_ID_TARGETS.filter((candidate) =>
+    plan.targets.some((summary) => summary.id === candidate.id)
+  )) {
     assert.ok(
       headerAssignments.some((assignment) =>
         assignment.kind === target.kind

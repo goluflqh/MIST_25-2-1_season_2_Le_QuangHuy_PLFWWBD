@@ -643,6 +643,7 @@ test.describe("Auth, account and dashboard smoke", () => {
     await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
     await expect(page).toHaveURL(/\/dashboard/, { timeout: AUTH_REDIRECT_TIMEOUT });
 
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/dashboard/users");
     await expect(page.getByTestId("dashboard-users-crm")).toBeVisible();
     await expect(page.getByTestId("dashboard-users-metrics")).toBeVisible();
@@ -654,11 +655,16 @@ test.describe("Auth, account and dashboard smoke", () => {
     await page.getByTestId("dashboard-users-search").fill(ADMIN_PHONE);
     await page.getByTestId("dashboard-users-role-filter").selectOption("ADMIN");
     await expect(page.getByTestId("dashboard-users-result-count")).toContainText("1 /");
-    await expect(page.getByTestId("dashboard-user-row")).toHaveCount(1);
-    await expect(page.getByTestId("dashboard-user-row")).toContainText(ADMIN_PHONE);
+    const customerCard = page.getByTestId("dashboard-user-card");
+    await expect(customerCard).toHaveCount(1);
+    await expect(customerCard).toContainText(ADMIN_PHONE);
+    await expect(customerCard).toHaveAttribute("data-customer-state", /^(new|active|warranty|debt)$/);
+    await expect(customerCard.getByTestId("dashboard-user-card-signal")).toBeVisible();
+    await expect(customerCard.getByTestId("dashboard-user-card-toggle")).toBeVisible();
 
     await page.getByTestId("dashboard-users-sort").selectOption("points");
-    await expect(page.getByTestId("dashboard-user-row")).toContainText(ADMIN_PHONE);
+    await expect(customerCard).toContainText(ADMIN_PHONE);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2)).toBe(true);
   });
 
   test("admin can triage the warranty CRM list", async ({ page, request }) => {
@@ -686,6 +692,7 @@ test.describe("Auth, account and dashboard smoke", () => {
       await login(page, ADMIN_PHONE, ADMIN_PASSWORD);
       await expect(page).toHaveURL(/\/dashboard/, { timeout: AUTH_REDIRECT_TIMEOUT });
 
+      await page.setViewportSize({ width: 390, height: 844 });
       await page.goto("/dashboard/warranty");
       await expect(page.getByTestId("dashboard-warranty-crm")).toBeVisible();
       await expect(page.getByTestId("dashboard-warranty-metrics")).toBeVisible();
@@ -696,9 +703,14 @@ test.describe("Auth, account and dashboard smoke", () => {
       await expect(page.getByTestId("dashboard-warranty-result-count")).toContainText("1 /");
       await expect(page.getByTestId("dashboard-warranty-card")).toHaveCount(1);
       await expect(page.getByTestId("dashboard-warranty-card")).toContainText(generatedSerialNo);
+      await expect(page.getByTestId("dashboard-warranty-card")).toHaveAttribute("data-warranty-state", "expiring");
+      await expect(page.getByTestId("dashboard-warranty-card-status")).toContainText("Sắp hết hạn");
+      await expect(page.getByTestId("dashboard-warranty-card-customer")).toContainText("Khách Warranty CRM E2E");
+      await expect(page.getByTestId("dashboard-warranty-card-actions")).toBeVisible();
 
       await page.getByTestId("dashboard-warranty-sort").selectOption("customer");
       await expect(page.getByTestId("dashboard-warranty-card")).toContainText("Pin CRM warranty E2E");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2)).toBe(true);
     } finally {
       if (warrantyId) {
         await request.delete("/api/admin/warranty", { data: { id: warrantyId } });

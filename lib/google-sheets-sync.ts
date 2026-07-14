@@ -19,14 +19,11 @@ const GOOGLE_SERVICE_ACCOUNT_SCOPES = [
 export const DEFAULT_MINHHONG_SHEET_ID = "1O3lM52KoombirF657zMMEJhFdYEqXOCKXsIrtgIWLwA";
 export const MINHHONG_RAW_SOURCE_SHEET_IDS = [
   "1O3lM52KoombirF657zMMEJhFdYEqXOCKXsIrtgIWLwA",
-  "1JHIFHgbUnTcDCqqysmh6D6DN8fMqQl5tUNdI7uVsoOw",
 ] as const;
 
 export const MINHHONG_WEB_EXPORT_TAB_TITLES = [
   "WEB_Đơn hàng",
-  "WEB_Công nợ đối tác",
-  "WEB_Giao dịch đối tác",
-  "WEB_Đối tác",
+  "WEB_Đơn đối tác",
   "WEB_Đối soát",
 ] as const;
 export const MINHHONG_TECHNICAL_COLUMN_HEADERS = ["web_id", "source_code", "source_row", "updated_at", "sync_hash"] as const;
@@ -197,13 +194,7 @@ export function assertSafeMinhHongSheetSyncTarget(spreadsheetId: string) {
 
 export function getMinhHongWebExportTabTitlesForScope(scope: MinhHongSheetSyncScope = "all") {
   if (scope === "service-orders") return ["WEB_Đơn hàng"] satisfies MinhHongWebExportTabTitle[];
-  if (scope === "partners") {
-    return [
-      "WEB_Công nợ đối tác",
-      "WEB_Giao dịch đối tác",
-      "WEB_Đối tác",
-    ] satisfies MinhHongWebExportTabTitle[];
-  }
+  if (scope === "partners") return ["WEB_Đơn đối tác"] satisfies MinhHongWebExportTabTitle[];
   return [...targetTabs];
 }
 
@@ -309,9 +300,6 @@ export function buildPrepareSpreadsheetRequests(
 
 const technicalColumnStartIndexes: Partial<Record<MinhHongWebExportTabTitle, number>> = {
   "WEB_Đơn hàng": 22,
-  "WEB_Công nợ đối tác": 15,
-  "WEB_Giao dịch đối tác": 20,
-  "WEB_Đối tác": 8,
 };
 
 const moneyColumnRanges: Partial<Record<MinhHongWebExportTabTitle, Array<{ end: number; start: number }>>> = {
@@ -320,24 +308,15 @@ const moneyColumnRanges: Partial<Record<MinhHongWebExportTabTitle, Array<{ end: 
     { start: 8, end: 9 },
     { start: 16, end: 18 },
   ],
-  "WEB_Công nợ đối tác": [
-    { start: 5, end: 12 },
-  ],
-  "WEB_Giao dịch đối tác": [
-    { start: 8, end: 10 },
-    { start: 11, end: 12 },
+  "WEB_Đơn đối tác": [
+    { start: 5, end: 7 },
+    { start: 9, end: 10 },
   ],
 };
 
 const textColumnRanges: Partial<Record<MinhHongWebExportTabTitle, Array<{ end: number; start: number }>>> = {
   "WEB_Đơn hàng": [
     { start: 3, end: 4 },
-  ],
-  "WEB_Công nợ đối tác": [
-    { start: 2, end: 3 },
-  ],
-  "WEB_Đối tác": [
-    { start: 2, end: 3 },
   ],
 };
 
@@ -690,67 +669,37 @@ export function buildMinhHongSheetTabsFromData(
       webId: order.id || order.orderCode,
     });
   });
-  const partnerRows = visiblePartners.map((partner, index) => {
-    const row: SheetCellValue[] = [
-      partner.code,
-      partner.name,
-      partner.phone || "",
-      partner.type,
-      partner.active ? "Đang dùng" : "Tạm dừng",
-      "",
-      partner.totals.purchased,
-      partner.totals.paid,
-      partner.totals.returned,
-      partner.totals.openingBalance,
-      partner.totals.adjusted,
-      partner.totals.referenceOnly,
-      partner.ledgerEntries.length,
-      partner.notes || "",
-      formatVietnamDateTime(partner.updatedAt),
-    ];
-
-    const safeRow = escapeGoogleSheetsUserRow(row);
-    safeRow[5] = `=MAX(G${index + 2}+J${index + 2}+K${index + 2}-H${index + 2}-I${index + 2};0)`;
-
-    return appendTechnicalColumns(safeRow, {
-      sourceCode: partner.code,
-      updatedAt: partner.updatedAt,
-      webId: partner.id || partner.code,
-    });
-  });
-  const ledgerRows = visiblePartners.flatMap((partner) =>
-    partner.ledgerEntries.map((entry) => {
-      const row: SheetCellValue[] = [
-        formatVietnamDate(entry.entryDate),
-        partner.code,
-        partner.name,
-        formatEntryType(entry.entryType),
-        entry.description,
-        entry.category || "",
-        entry.quantity ?? "",
-        entry.unit || "",
-        entry.unitPrice ?? "",
-        entry.amount,
-        entry.receivedGoods === null || entry.receivedGoods === undefined ? "" : entry.receivedGoods ? "Có" : "Không",
-        entry.signedAmount,
-        entry.countsInDebt ? "Có" : "Không",
-        entry.sourceName || "",
-        entry.sourceCode || "",
-        entry.sourceRow || "",
-        entry.paymentMethod || "",
-        entry.reference || "",
-        entry.notes || "",
-        formatVietnamDateTime(entry.createdAt),
-      ];
-
-      return appendTechnicalColumns(escapeGoogleSheetsUserRow(row), {
-        sourceCode: entry.sourceCode,
-        sourceRow: entry.sourceRow,
-        updatedAt: entry.updatedAt || entry.createdAt,
-        webId: entry.id || entry.sourceCode || `${partner.code}:${entry.entryDate}:${entry.description}`,
+  const partnerRows = visiblePartners.flatMap((partner) => {
+    let runningBalance = 0;
+    return [...partner.ledgerEntries]
+      .sort((left, right) => {
+        const dateDiff = new Date(left.entryDate).getTime() - new Date(right.entryDate).getTime();
+        if (dateDiff) return dateDiff;
+        const sourceRowDiff = (left.sourceRow ?? Number.MAX_SAFE_INTEGER) - (right.sourceRow ?? Number.MAX_SAFE_INTEGER);
+        if (sourceRowDiff) return sourceRowDiff;
+        return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+      })
+      .map((entry) => {
+        if (entry.countsInDebt) runningBalance += entry.signedAmount;
+        const entryDate = new Date(entry.entryDate);
+        const formattedDate = Number.isFinite(entryDate.getTime()) && entryDate.getUTCFullYear() > 1900
+          ? formatVietnamDate(entry.entryDate)
+          : "";
+        return escapeGoogleSheetsUserRow([
+          formattedDate,
+          partner.name,
+          formatEntryType(entry.entryType),
+          entry.description,
+          entry.quantity ?? "",
+          entry.unitPrice ?? "",
+          !entry.countsInDebt && entry.amount === 0 ? "" : entry.amount,
+          entry.paymentMethod || "",
+          entry.notes || "",
+          entry.countsInDebt ? runningBalance : "",
+        ]);
       });
-    })
-  );
+  });
+  const totalPartnerPayable = visiblePartners.reduce((sum, partner) => sum + partner.balance, 0);
 
   return [
     {
@@ -761,7 +710,7 @@ export function buildMinhHongSheetTabsFromData(
         ["Tổng đơn hàng", "=COUNTA('WEB_Đơn hàng'!A2:A)", "Đếm mã đơn trên tab WEB_Đơn hàng"],
         ["Tổng đã thu", "=SUM('WEB_Đơn hàng'!G2:G)", "Tự tính từ cột Đã thu"],
         ["Tổng còn phải thu khách", "=SUM('WEB_Đơn hàng'!I2:I)", "Tự tính từ cột Còn nợ"],
-        ["Tổng Minh Hồng phải trả đối tác", "=SUM('WEB_Công nợ đối tác'!F2:F)", "Tự tính từ cột Minh Hồng phải trả"],
+        ["Tổng Minh Hồng phải trả đối tác", totalPartnerPayable, "Tính từ sổ đối tác trên web"],
       ],
     },
     {
@@ -797,40 +746,10 @@ export function buildMinhHongSheetTabsFromData(
       ],
     },
     {
-      title: "WEB_Công nợ đối tác",
+      title: "WEB_Đơn đối tác",
       rows: [
-        ["Mã", "Đối tác", "SĐT", "Loại", "Trạng thái", "Minh Hồng phải trả", "Đã mua", "Đã thanh toán", "Đã trả hàng", "Số dư chốt", "Điều chỉnh", "Dòng đối chiếu không tính nợ", "Số giao dịch", "Ghi chú", "Cập nhật", ...MINHHONG_TECHNICAL_COLUMN_HEADERS],
+        ["Ngày", "Đối tác", "Loại giao dịch", "Nội dung / mặt hàng", "Số lượng", "Đơn giá", "Số tiền", "Phương thức thanh toán", "Ghi chú", "Còn phải trả"],
         ...partnerRows,
-      ],
-    },
-    {
-      title: "WEB_Giao dịch đối tác",
-      rows: [
-        ["Ngày nhập", "Mã đối tác", "Đối tác công nợ", "Loại giao dịch", "Tên hàng/Nội dung", "Loại", "Số lượng", "Đơn vị", "Đơn giá", "Thành tiền", "Đã nhận hàng", "Tác động công nợ", "Tính công nợ", "Người bán/nguồn gốc", "Mã dòng cũ", "Dòng gốc", "Phương thức", "Chứng từ", "Ghi chú", "Tạo lúc", ...MINHHONG_TECHNICAL_COLUMN_HEADERS],
-        ...ledgerRows,
-      ],
-    },
-    {
-      title: "WEB_Đối tác",
-      rows: [
-        ["Mã", "Tên", "SĐT", "Loại", "Trạng thái", "Ghi chú", "Tạo lúc", "Cập nhật", ...MINHHONG_TECHNICAL_COLUMN_HEADERS],
-        ...visiblePartners.map((partner) => appendTechnicalColumns(
-          escapeGoogleSheetsUserRow([
-            partner.code,
-            partner.name,
-            partner.phone || "",
-            partner.type,
-            partner.active ? "Đang dùng" : "Tạm dừng",
-            partner.notes || "",
-            formatVietnamDateTime(partner.createdAt),
-            formatVietnamDateTime(partner.updatedAt),
-          ]),
-          {
-            sourceCode: partner.code,
-            updatedAt: partner.updatedAt,
-            webId: partner.id || partner.code,
-          }
-        )),
       ],
     },
   ];

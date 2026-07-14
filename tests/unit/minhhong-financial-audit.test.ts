@@ -34,6 +34,51 @@ test("fails when workbook reconciliation rows do not match parsed totals", async
   assert.match(audit.issues.map((issue) => issue.code).join("\n"), /source\.reconciliation\.long_payable/);
 });
 
+test("accepts blank reference history and applies signed partner adjustments", async () => {
+  const parsed = await parseMinhHongAdminWorkbook(await readCleanMinhHongAdminWorkbookBuffer());
+  const adjustedPayable = parsed.partnerTotals.longPayable - 10_000;
+  const audited = {
+    ...parsed,
+    partnerEntries: [
+      ...parsed.partnerEntries,
+      {
+        ...parsed.partnerEntries[0],
+        amount: 0,
+        countsInDebt: false,
+        description: "Đơn cũ thiếu giá",
+        entryType: "PURCHASE" as const,
+        sourceCode: "NHAP_HANG:REFERENCE-WITHOUT-AMOUNT",
+      },
+      {
+        ...parsed.partnerEntries[0],
+        amount: -10_000,
+        countsInDebt: true,
+        description: "Điều chỉnh giảm công nợ",
+        entryType: "ADJUSTMENT" as const,
+        sourceCode: "NHAP_HANG:NEGATIVE-ADJUSTMENT",
+      },
+    ],
+    partnerTotals: {
+      ...parsed.partnerTotals,
+      longCountedAdjustment: -10_000,
+      longPayable: adjustedPayable,
+    },
+    reconciliation: {
+      ...parsed.reconciliation,
+      long_payable: adjustedPayable,
+    },
+  };
+
+  const audit = auditParsedMinhHongWorkbookFinancials(audited, {
+    reconciliation: reconcileMinhHongWorkbook(audited, { scope: "partners" }),
+    scope: "partners",
+  });
+
+  assert.equal(audit.ok, true, JSON.stringify(audit.issues, null, 2));
+  assert.equal(audit.summary.longPayable, adjustedPayable);
+  assert.equal(audit.issues.filter((item) => item.severity === "error").length, 0);
+});
+
 test("database audit fails closed on impossible money states", () => {
   const audit = auditDatabaseFinancialSnapshot({
     partnerEntries: [
@@ -71,4 +116,46 @@ test("database audit fails closed on impossible money states", () => {
   assert.equal(audit.ok, false);
   assert.match(audit.issues.map((issue) => issue.code).join("\n"), /db\.order_overpaid/);
   assert.match(audit.issues.map((issue) => issue.code).join("\n"), /db\.discount_exceeds_price/);
+});
+
+test("database audit allows reference blanks and signed adjustments but rejects zero adjustments", () => {
+  const validAudit = auditDatabaseFinancialSnapshot({
+    partnerEntries: [
+      {
+        amount: 0,
+        countsInDebt: false,
+        entryType: "PURCHASE",
+        id: "reference-without-amount",
+        partnerCode: "LONG",
+        sourceCode: "NHAP_HANG:REFERENCE-WITHOUT-AMOUNT",
+      },
+      {
+        amount: -10_000,
+        countsInDebt: true,
+        entryType: "ADJUSTMENT",
+        id: "negative-adjustment",
+        partnerCode: "LONG",
+        sourceCode: "NHAP_HANG:NEGATIVE-ADJUSTMENT",
+      },
+    ],
+    serviceOrders: [],
+  });
+  const invalidAudit = auditDatabaseFinancialSnapshot({
+    partnerEntries: [
+      {
+        amount: 0,
+        countsInDebt: true,
+        entryType: "ADJUSTMENT",
+        id: "zero-adjustment",
+        partnerCode: "LONG",
+        sourceCode: "NHAP_HANG:ZERO-ADJUSTMENT",
+      },
+    ],
+    serviceOrders: [],
+  });
+
+  assert.equal(validAudit.ok, true, JSON.stringify(validAudit.issues, null, 2));
+  assert.equal(validAudit.summary.partnerBalance, -10_000);
+  assert.equal(invalidAudit.ok, false);
+  assert.match(invalidAudit.issues.map((item) => item.code).join("\n"), /db\.partner_invalid_amount/);
 });
