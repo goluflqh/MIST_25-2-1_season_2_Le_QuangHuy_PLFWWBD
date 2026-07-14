@@ -30,6 +30,8 @@ test("locks partner ledger import columns", () => {
     "Số lượng",
     "Đơn vị",
     "Đơn giá",
+    "Chiết khấu (%)",
+    "Tiền chiết khấu",
     "Thành tiền",
     "Đã nhận hàng",
     "Tính công nợ",

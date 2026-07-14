@@ -51,6 +51,21 @@ export default function LoginPage() {
   const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const nativeError = params.get("loginError");
+    if (nativeError === "rate-limited") {
+      const retryAfter = Number(params.get("retryAfterSec"));
+      setError("Bạn đã thử đăng nhập hơi nhiều lần liên tiếp.");
+      setRetryAfterSec(Number.isFinite(retryAfter) && retryAfter > 0 ? Math.floor(retryAfter) : 0);
+      setShowForgot(true);
+    } else if (nativeError === "system") {
+      setError("Lỗi hệ thống. Vui lòng thử lại.");
+    } else if (nativeError === "invalid") {
+      setError("Số điện thoại hoặc mật khẩu chưa đúng.");
+    }
+  }, []);
+
+  useEffect(() => {
     if (!user) {
       return;
     }
@@ -177,7 +192,13 @@ export default function LoginPage() {
           </div>
         )}
 
-        <form data-testid="login-form" onSubmit={handleSubmit} className="space-y-6 relative z-10">
+        <form
+          action="/api/auth/login"
+          data-testid="login-form"
+          method="post"
+          onSubmit={handleSubmit}
+          className="space-y-6 relative z-10"
+        >
           <div>
             <label htmlFor="login-phone" className="block text-sm font-semibold text-slate-700 mb-2 font-body">
               Số Điện Thoại

@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
 
+const ADMIN_PHONE = process.env.PLAYWRIGHT_ADMIN_PHONE ?? "0987443258";
+const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD ?? "admin123";
+
 test.describe("Public accessibility", () => {
   test("provides a skip link, labelled auth fields, and keyboard-safe disclosures", async ({
     page,
@@ -52,5 +55,30 @@ test.describe("Public accessibility", () => {
     await page.keyboard.press("Escape");
     await expect(menuButton).toBeFocused();
     await expect(menuButton).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+test.describe("Login native fallback", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("never places credentials in the URL when JavaScript is unavailable", async ({ page }) => {
+    await page.goto("/dang-nhap");
+    await page.getByTestId("login-phone").fill("0912345678");
+    await page.getByTestId("login-password").fill("throwaway-secret");
+    await page.getByTestId("login-submit").click();
+
+    await expect(page).toHaveURL(/\/dang-nhap\?loginError=invalid$/);
+    await expect(page.getByTestId("login-form")).toBeVisible();
+    await expect(page).not.toHaveURL(/phone|password|0912345678|throwaway-secret/);
+  });
+
+  test("authenticates through the native POST when JavaScript is unavailable", async ({ page }) => {
+    await page.goto("/dang-nhap");
+    await page.getByTestId("login-phone").fill(ADMIN_PHONE);
+    await page.getByTestId("login-password").fill(ADMIN_PASSWORD);
+    await page.getByTestId("login-submit").click();
+
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 });
+    await expect(page).not.toHaveURL(/phone|password/);
   });
 });

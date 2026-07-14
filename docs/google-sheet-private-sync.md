@@ -35,7 +35,7 @@ Service account không tự thấy Sheet chỉ vì tài khoản Google cá nhân
 
 Nút **Xuất sang Sheet** trong admin ghi `WEB_Đơn hàng` hoặc `WEB_Đơn đối tác` theo đúng trang đang mở. Luồng này không ghi đè tab nhập `Đơn hàng đã bán` hoặc `Đơn đối tác`.
 
-Tab nhập đối tác chuẩn là `Đơn đối tác` trong cùng spreadsheet với đơn dịch vụ. Mỗi dòng là một biến động: số dư đầu kỳ, mua hàng, thanh toán hoặc trả hàng. Cột `Còn phải trả` là kết quả tính; web không dùng cột này làm số nhập có thẩm quyền. Cột `Tính công nợ` và `source_id` được ẩn để giữ lịch sử đối chiếu và danh tính dòng ổn định.
+Tab nhập đối tác chuẩn là `Đơn đối tác` trong cùng spreadsheet với đơn dịch vụ. Mỗi dòng là một biến động: số dư đầu kỳ, mua hàng, thanh toán hoặc trả hàng. Cột `Còn phải trả` là kết quả tính; web không dùng cột này làm số nhập có thẩm quyền. `source_id` giữ nguyên ở cột L; cột M `Chiết khấu (%)` là tùy chọn cho dòng mua hàng, để trống hoặc nhập `0` nếu không giảm, và chỉ nhận từ `0` đến `100`. Khi có chiết khấu, web tính số tiền công nợ từ số lượng × đơn giá sau giảm. Cột `Tính công nợ` và `source_id` được ẩn để giữ lịch sử đối chiếu và danh tính dòng ổn định.
 
 Nút chính dùng chung cho đơn dịch vụ và đối tác đổi trạng thái theo quy trình: **Kiểm tra dữ liệu từ Sheet** → **Cập nhật ... lên web**. Lần bấm đầu chỉ đọc và tạo báo cáo; lần bấm xác nhận mới ghi database. Nếu Sheet thay đổi sau khi xem trước, web bắt buộc kiểm tra lại.
 

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getPartnerBalance, getPartnerEntrySignedAmount, serializePartner } from "../../lib/partner-ledger";
+import {
+  getPartnerBalance,
+  getPartnerEntrySignedAmount,
+  normalizePartnerEntryPayload,
+  serializePartner,
+} from "../../lib/partner-ledger";
 
 const now = new Date("2026-05-26T00:00:00.000Z");
 
@@ -23,6 +28,50 @@ test("calculates partner balance without double-counting reference-only legacy r
   ]);
 
   assert.equal(balance, 12_720_000);
+});
+
+test("normalizes an optional purchase discount and stores the net debt amount", () => {
+  const entry = normalizePartnerEntryPayload({
+    amount: 495_000,
+    description: "Hóa đơn BH260714-001",
+    discountPercent: 15,
+    entryType: "PURCHASE",
+    partnerId: "partner_long",
+    quantity: 9,
+    unitPrice: 55_000,
+  });
+
+  assert.equal(entry.amount, 420_750);
+  assert.equal(entry.discountAmount, 74_250);
+  assert.equal(entry.discountPercent, 15);
+});
+
+test("keeps legacy partner entries unchanged when discount is blank", () => {
+  const entry = normalizePartnerEntryPayload({
+    amount: 840_000,
+    description: "Pin 35E",
+    discountPercent: "",
+    entryType: "PURCHASE",
+    partnerId: "partner_long",
+    quantity: 28,
+    unitPrice: 30_000,
+  });
+
+  assert.equal(entry.amount, 840_000);
+  assert.equal(entry.discountAmount, 0);
+  assert.equal(entry.discountPercent, null);
+});
+
+test("rejects a discount percentage with trailing text", () => {
+  assert.throws(() => normalizePartnerEntryPayload({
+    amount: 495_000,
+    description: "Hóa đơn sai chiết khấu",
+    discountPercent: "15abc",
+    entryType: "PURCHASE",
+    partnerId: "partner_long",
+    quantity: 9,
+    unitPrice: 55_000,
+  }), /0.*100/);
 });
 
 test("serializes partner totals with purchase, payment, return and reference buckets", () => {

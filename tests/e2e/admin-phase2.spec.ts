@@ -176,6 +176,90 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page).toHaveURL(/\/dashboard\/orders$/, { timeout: AUTH_REDIRECT_TIMEOUT });
   });
 
+  test("partner purchase persists an optional discount as net debt", async ({ request }) => {
+    await loginAdminRequest(request);
+    const suffix = `${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
+    const partnerResponse = await request.post("/api/admin/partner-ledger", {
+      data: {
+        kind: "partner",
+        code: `E2E_DISCOUNT_${suffix}`,
+        name: `E2E đối tác chiết khấu ${suffix}`,
+        type: "SUPPLIER",
+      },
+    });
+    expect(partnerResponse.ok()).toBeTruthy();
+    const partner = (await partnerResponse.json()).partner as { id: string };
+
+    const entryResponse = await request.post("/api/admin/partner-ledger", {
+      data: {
+        description: `E2E hóa đơn chiết khấu ${suffix}`,
+        discountPercent: 15,
+        entryDate: "26/05/2026",
+        entryType: "PURCHASE",
+        partnerId: partner.id,
+        quantity: 9,
+        unit: "món",
+        unitPrice: 55_000,
+      },
+    });
+    expect(entryResponse.ok()).toBeTruthy();
+    const savedPartner = (await entryResponse.json()).partner as {
+      balance: number;
+      ledgerEntries: Array<{
+        amount: number;
+        discountAmount: number;
+        discountPercent: number | null;
+        description: string;
+      }>;
+    };
+    const savedEntry = savedPartner.ledgerEntries.find((entry) => entry.description.includes(suffix));
+
+    expect(savedEntry).toMatchObject({
+      amount: 420_750,
+      discountAmount: 74_250,
+      discountPercent: 15,
+    });
+    expect(savedPartner.balance).toBe(420_750);
+
+    const invalidResponse = await request.post("/api/admin/partner-ledger", {
+      data: {
+        description: `E2E chiết khấu lỗi ${suffix}`,
+        discountPercent: "15abc",
+        entryDate: "26/05/2026",
+        entryType: "PURCHASE",
+        partnerId: partner.id,
+        quantity: 9,
+        unitPrice: 55_000,
+      },
+    });
+    expect(invalidResponse.status()).toBe(400);
+  });
+
+  test("partner purchase accepts a full discount with zero net debt", async ({ page, request }) => {
+    const partner = await seedPartnerLedger(request, 0);
+    const description = `E2E mua hàng giảm toàn bộ ${Date.now()}`;
+
+    await login(page);
+    await page.goto("/dashboard/partners");
+    await page.getByTestId("partner-search-input").fill(partner.code);
+    await expect(page.getByTestId("partner-select")).toHaveValue(partner.id);
+    await page.getByTestId("partner-open-entry-selected").click();
+    await page.getByTestId("partner-entry-product").fill(description);
+    await page.getByTestId("partner-entry-quantity").fill("1");
+    await page.getByTestId("partner-entry-unit-price").fill("495k");
+    await page.getByTestId("partner-entry-discount").fill("15abc");
+    await page.getByTestId("partner-entry-submit").click();
+    await expect(page.getByText("Chiết khấu phải nằm trong khoảng 0 đến 100%.")).toBeVisible();
+    await expect(page.getByTestId("partner-entry-dialog")).toBeVisible();
+    await page.getByTestId("partner-entry-discount").fill("100");
+    await expect(page.getByTestId("partner-entry-total")).toContainText("0đ");
+    await page.getByTestId("partner-entry-submit").click();
+
+    await expect(page.getByTestId("partner-entry-dialog")).toBeHidden({ timeout: 10_000 });
+    await expect(page.getByTestId("partner-recent-entries")).toContainText(description);
+    await expect(page.getByTestId("partner-recent-entries")).toContainText("CK 100% (-495.000đ)");
+  });
+
   test("partners page uses contextual entry dialog and paginated full history", async ({ page, request }) => {
     const partner = await seedPartnerLedger(request, 15);
 
@@ -199,6 +283,19 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(entryDialog).toBeVisible();
     await expect(entryDialog.getByText("Tên mặt hàng")).toBeVisible();
     await expect(page.getByTestId("partner-entry-product")).toBeFocused();
+    await page.getByTestId("partner-entry-product").fill("Hóa đơn có chiết khấu");
+    await page.getByTestId("partner-entry-quantity").fill("9");
+    await page.getByTestId("partner-entry-unit-price").fill("55k");
+    await expect(page.getByTestId("partner-entry-gross-total")).toContainText("495.000đ");
+    await expect(page.getByTestId("partner-entry-discount-amount")).toContainText("0đ");
+    await expect(page.getByTestId("partner-entry-total")).toContainText("495.000đ");
+    await page.getByTestId("partner-entry-discount").fill("15");
+    await expect(page.getByTestId("partner-entry-gross-total")).toContainText("495.000đ");
+    await expect(page.getByTestId("partner-entry-discount-amount")).toContainText("74.250đ");
+    await expect(page.getByTestId("partner-entry-total")).toContainText("420.750đ");
+    await page.getByTestId("partner-entry-discount").fill("100");
+    await expect(page.getByTestId("partner-entry-total")).toContainText("0đ");
+    await page.getByTestId("partner-entry-discount").fill("15");
     await page.getByTestId("partner-entry-mode-PAYMENT").click();
     await expect(entryDialog.getByText("Nội dung thanh toán")).toBeVisible();
     await page.getByTestId("partner-entry-mode-RETURN").click();

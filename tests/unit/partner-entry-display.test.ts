@@ -28,6 +28,32 @@ test("uses plain business labels for each transaction amount", () => {
   assert.equal(getPartnerEntryAmountLabel("OPENING_BALANCE"), "Số dư đầu kỳ");
 });
 
+test("shows optional partner discounts without exposing technical metadata", () => {
+  const details = getPartnerEntryDisplayDetails({
+    discountAmount: 74_250,
+    discountPercent: 15,
+    paymentMethod: null,
+    quantity: 9,
+    unit: "món",
+    unitPrice: 55_000,
+  });
+
+  assert.equal(details, "9 món × 55.000đ · CK 15% (-74.250đ)");
+});
+
+test("shows a non-zero discount even when VND rounding produces zero discount amount", () => {
+  const details = getPartnerEntryDisplayDetails({
+    discountAmount: 0,
+    discountPercent: 1,
+    paymentMethod: null,
+    quantity: 1,
+    unit: "món",
+    unitPrice: 1,
+  });
+
+  assert.equal(details, "1 món × 1đ · CK 1% (0đ)");
+});
+
 test("explains historical rows without exposing reconciliation wording", () => {
   const note = getPartnerEntryHistoryNote(false);
 

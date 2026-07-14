@@ -168,6 +168,7 @@ export async function PATCH(request: Request) {
       category: previous.category || "",
       countsInDebt: previous.countsInDebt,
       description: previous.description,
+      discountPercent: previous.discountPercent ?? "",
       entryDate: previous.entryDate,
       entryType: previous.entryType,
       notes: previous.notes || "",

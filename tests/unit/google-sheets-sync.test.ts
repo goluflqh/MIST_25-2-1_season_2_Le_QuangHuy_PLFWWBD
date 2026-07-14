@@ -466,6 +466,9 @@ test("partner exports keep only useful business fields and hide legacy source-on
     "Nội dung / mặt hàng",
     "Số lượng",
     "Đơn giá",
+    "Tạm tính",
+    "Chiết khấu (%)",
+    "Tiền chiết khấu",
     "Số tiền",
     "Phương thức thanh toán",
     "Ghi chú",
@@ -473,9 +476,40 @@ test("partner exports keep only useful business fields and hide legacy source-on
   ]);
   assert.deepEqual(partnerTab?.rows.slice(1).map((row) => row[1]), ["Long", "Long"]);
   assert.equal(partnerTab?.rows[1][0], "");
-  assert.equal(partnerTab?.rows[1][6], "");
   assert.equal(partnerTab?.rows[1][9], "");
-  assert.equal(partnerTab?.rows[2][9], 12_730_000);
+  assert.equal(partnerTab?.rows[1][12], "");
+  assert.equal(partnerTab?.rows[2][12], 12_730_000);
+});
+
+test("partner exports show optional discount details and keep debt on the net amount", () => {
+  const tabs = buildMinhHongSheetTabsFromData([], [{
+    active: true,
+    balance: 420_750,
+    code: "LONG",
+    createdAt: "2026-07-14T00:00:00.000Z",
+    id: "partner-long",
+    ledgerEntries: [{
+      amount: 420_750,
+      countsInDebt: true,
+      createdAt: "2026-07-14T00:00:00.000Z",
+      description: "Hóa đơn BH260714-001",
+      discountAmount: 74_250,
+      discountPercent: 15,
+      entryDate: "2026-07-14T00:00:00.000Z",
+      entryType: "PURCHASE",
+      quantity: 9,
+      signedAmount: 420_750,
+      unitPrice: 55_000,
+    }],
+    name: "Long",
+    totals: { adjusted: 0, openingBalance: 0, paid: 0, purchased: 420_750, referenceOnly: 0, returned: 0 },
+    type: "SUPPLIER",
+    updatedAt: "2026-07-14T00:00:00.000Z",
+  }]);
+  const row = tabs.find((tab) => tab.title === "WEB_Đơn đối tác")?.rows[1];
+
+  assert.deepEqual(row?.slice(4, 10), [9, 55_000, 495_000, 15, 74_250, 420_750]);
+  assert.equal(row?.[12], 420_750);
 });
 
 test("can scope web-to-sheet sync to service orders or partner ledger tabs", () => {

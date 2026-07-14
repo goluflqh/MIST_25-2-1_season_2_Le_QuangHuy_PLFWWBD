@@ -13,6 +13,8 @@ export const MINHHONG_PURCHASE_COLUMNS = [
   "Số lượng",
   "Đơn vị",
   "Đơn giá",
+  "Chiết khấu (%)",
+  "Tiền chiết khấu",
   "Thành tiền",
   "Đã nhận hàng",
   "Tính công nợ",
@@ -104,6 +106,8 @@ export interface MinhHongPurchaseRow {
   quantity: number;
   unit: string;
   unitPrice: number;
+  discountPercent: number;
+  discountAmount: number;
   amount: number;
   receivedGoods: boolean;
   countsInDebt: MinhHongDebtFlag;

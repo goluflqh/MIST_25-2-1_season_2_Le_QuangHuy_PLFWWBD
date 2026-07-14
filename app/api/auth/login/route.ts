@@ -9,6 +9,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { generateSessionToken, verifyPassword } from "@/lib/auth";
 import { shouldUseSecureSessionCookie } from "@/lib/session";
+import { hasSameOrigin } from "@/lib/request-origin";
 import {
   consumeRateLimitForRequest,
   formatDurationVi,
@@ -21,6 +22,38 @@ import {
 import { isValidPhone, normalizePhone, sanitizeText } from "@/lib/sanitize";
 
 const INVALID_MSG = "Số điện thoại hoặc mật khẩu chưa đúng.";
+
+function isNativeLoginForm(request: Request) {
+  const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+  return contentType.startsWith("application/x-www-form-urlencoded")
+    || contentType.startsWith("multipart/form-data");
+}
+
+function createNativeLoginRedirect(errorCode: "invalid" | "rate-limited" | "system", retryAfterSec?: number) {
+  const params = new URLSearchParams({ loginError: errorCode });
+  if (retryAfterSec && retryAfterSec > 0) {
+    params.set("retryAfterSec", String(retryAfterSec));
+  }
+
+  return new NextResponse(null, {
+    status: 303,
+    headers: { Location: `/dang-nhap?${params.toString()}` },
+  });
+}
+
+async function readLoginBody(request: Request, nativeForm: boolean) {
+  if (!nativeForm) return readJsonBody(request);
+
+  try {
+    const formData = await request.formData();
+    return {
+      password: formData.get("password"),
+      phone: formData.get("phone"),
+    };
+  } catch {
+    return null;
+  }
+}
 
 function createRateLimitedResponse(message: string, result: RateLimitResult) {
   return createRateLimitResponse(message, result, {
@@ -46,17 +79,28 @@ function getLoginWarning(remaining: number) {
 }
 
 export async function POST(request: Request) {
+  const nativeForm = isNativeLoginForm(request);
+
   try {
+    if (nativeForm && !hasSameOrigin(request)) {
+      return createErrorResponse({
+        status: 403,
+        message: "Yêu cầu đăng nhập không hợp lệ.",
+      });
+    }
+
     const ip = getClientIP(request);
     const identifier = `login:${ip}`;
     const currentLimit = await getRateLimitStatusForRequest(identifier, RATE_LIMITS.login);
 
     if (!currentLimit.allowed) {
+      if (nativeForm) return createNativeLoginRedirect("rate-limited", currentLimit.retryAfterSec);
       return createRateLimitedResponse(getBlockedMessage(currentLimit.retryAfterSec), currentLimit);
     }
 
-    const body = await readJsonBody(request);
+    const body = await readLoginBody(request, nativeForm);
     if (!body) {
+      if (nativeForm) return createNativeLoginRedirect("invalid");
       return createInvalidJsonResponse();
     }
 
@@ -64,6 +108,7 @@ export async function POST(request: Request) {
     const password = typeof body.password === "string" ? body.password : "";
 
     if (!phone || !password) {
+      if (nativeForm) return createNativeLoginRedirect("invalid");
       return createErrorResponse({
         status: 400,
         message: "Vui lòng nhập đầy đủ số điện thoại và mật khẩu.",
@@ -71,6 +116,7 @@ export async function POST(request: Request) {
     }
 
     if (!isValidPhone(phone)) {
+      if (nativeForm) return createNativeLoginRedirect("invalid");
       return createErrorResponse({
         status: 400,
         message: "Số điện thoại không hợp lệ.",
@@ -84,9 +130,11 @@ export async function POST(request: Request) {
       const failedAttempt = await consumeRateLimitForRequest(identifier, RATE_LIMITS.login);
 
       if (!failedAttempt.allowed) {
+        if (nativeForm) return createNativeLoginRedirect("rate-limited", failedAttempt.retryAfterSec);
         return createRateLimitedResponse(getBlockedMessage(failedAttempt.retryAfterSec), failedAttempt);
       }
 
+      if (nativeForm) return createNativeLoginRedirect("invalid");
       return createErrorResponse({
         status: 401,
         message: INVALID_MSG,
@@ -118,14 +166,19 @@ export async function POST(request: Request) {
       data: { userId: user.id, token, expiresAt },
     });
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        message: "Đăng nhập thành công!",
-        user: { id: user.id, name: user.name, phone: user.phone, role: user.role },
-      },
-      { status: 200 }
-    );
+    const response = nativeForm
+      ? new NextResponse(null, {
+          status: 303,
+          headers: { Location: user.role === "ADMIN" ? "/dashboard" : "/tai-khoan" },
+        })
+      : NextResponse.json(
+          {
+            success: true,
+            message: "Đăng nhập thành công!",
+            user: { id: user.id, name: user.name, phone: user.phone, role: user.role },
+          },
+          { status: 200 }
+        );
 
     response.cookies.set("session_token", token, {
       httpOnly: true,
@@ -138,6 +191,7 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     logApiError("Login API Error", error);
+    if (nativeForm) return createNativeLoginRedirect("system");
     return createErrorResponse({
       status: 500,
       message: "Lỗi hệ thống. Vui lòng thử lại.",
