@@ -29,6 +29,8 @@ PURCHASE_HEADERS = [
     "Số lượng",
     "Đơn vị",
     "Đơn giá",
+    "Chiết khấu (%)",
+    "Tiền chiết khấu",
     "Thành tiền",
     "Đã nhận hàng",
     "Tính công nợ",
@@ -125,6 +127,12 @@ def business_date(value: Any) -> str:
         return value.strftime("%d/%m/%Y")
 
     text = clean(value)
+    known_repairs = {
+        "37/1/2026": "27/01/2026",
+        "28/012026": "28/01/2026",
+    }
+    if text in known_repairs:
+        return known_repairs[text]
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
         try:
             return datetime.strptime(text, fmt).strftime("%d/%m/%Y")
@@ -251,6 +259,8 @@ def build_purchase_rows(source_wb, partner_codes: dict[str, str]) -> tuple[list[
                 number_or_blank(row[6]),
                 clean(row[7]),
                 money(row[8]) or "",
+                "",
+                0,
                 amount,
                 clean(row[10]) or "Có",
                 counts_flag,
@@ -455,20 +465,20 @@ def build_workbook() -> Path:
     wb = Workbook()
     del wb[wb.sheetnames[0]]
     write_sheet(wb, "Đối tác", PARTNER_HEADERS, partners)
-    write_sheet(wb, "Nhập hàng", PURCHASE_HEADERS, purchases, {10, 11})
+    write_sheet(wb, "Nhập hàng", PURCHASE_HEADERS, purchases, {10, 12, 13})
     write_sheet(wb, "Thanh toán", PAYMENT_HEADERS, payments, {5})
     write_sheet(wb, "Trả hàng", RETURN_HEADERS, returns, {8, 9})
     write_sheet(wb, "Đơn khách", CUSTOMER_ORDER_HEADERS, customer_orders, {6, 7, 8})
     write_sheet(wb, "Đối soát", RECONCILIATION_HEADERS, build_reconciliation_rows(totals), {3})
 
     wb["Nhập hàng"].column_dimensions["F"].width = 38
-    wb["Nhập hàng"].column_dimensions["O"].width = 28
+    wb["Nhập hàng"].column_dimensions["Q"].width = 28
     wb["Đơn khách"].column_dimensions["E"].width = 36
     wb["Đơn khách"].column_dimensions["J"].width = 34
     wb["Đối soát"].column_dimensions["B"].width = 38
     wb["Đối soát"].column_dimensions["D"].width = 56
 
-    add_dropdown(wb["Nhập hàng"], ["Có", "Không"], "M2:M500")
+    add_dropdown(wb["Nhập hàng"], ["Có", "Không"], "O2:O500")
     add_dropdown(wb["Thanh toán"], ["Có", "Không"], "G2:G500")
     add_dropdown(wb["Trả hàng"], ["Có", "Không"], "J2:J500")
     add_dropdown(wb["Đơn khách"], ["Đã có giá", "Quên giá", "Chưa rõ"], "I2:I500")

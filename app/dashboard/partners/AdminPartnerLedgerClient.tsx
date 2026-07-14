@@ -9,6 +9,7 @@ import PaginationControls from "@/components/PaginationControls";
 import { adminTimePresetLabels, matchesAdminTimePreset, type AdminTimePreset } from "@/lib/admin-time-filter";
 import { summarizePartnerLedgerEntries } from "@/lib/financial-calculations";
 import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
+import { calculatePartnerPurchaseAmounts, parsePartnerDiscountPercent } from "@/lib/partner-discounts";
 import { getPartnerEntryAmountLabel, getPartnerEntryDisplayDetails, getPartnerEntryHistoryNote } from "@/lib/partner-entry-display";
 import { getVisibleDebtPartners } from "@/lib/partner-legacy";
 import { formatVietnamDate, getVietnamDateKey, todayVietnamText } from "@/lib/vietnam-time";
@@ -19,6 +20,8 @@ interface PartnerEntryData {
   entryType: string;
   entryDate: string;
   amount: number;
+  discountAmount: number;
+  discountPercent: number | null;
   signedAmount: number;
   description: string;
   reference: string | null;
@@ -71,6 +74,7 @@ type VisibleEntry = PartnerEntryData & {
 };
 
 interface EntryFormState {
+  discountPercent: string;
   entryDate: string;
   entryMode: EntryMode;
   notes: string;
@@ -109,6 +113,7 @@ const partnerTypeLabels: Record<string, string> = {
 
 function createEmptyEntryForm(mode: EntryMode = "PURCHASE"): EntryFormState {
   return {
+    discountPercent: "",
     entryDate: todayVietnamText(),
     entryMode: mode,
     notes: "",
@@ -214,7 +219,17 @@ export default function AdminPartnerLedgerClient({
   const selectedStats = selectedPartner ? getPartnerStats(selectedPartner) : null;
   const entryQuantity = parseQuantityText(entryForm.quantity);
   const entryUnitPrice = parseMoneyText(entryForm.unitPrice);
-  const entryLineTotal = Math.round(entryQuantity * entryUnitPrice);
+  const entryDiscountPercent = parsePartnerDiscountPercent(entryForm.discountPercent);
+  const isEntryDiscountValid = entryDiscountPercent === null
+    || (entryDiscountPercent >= 0 && entryDiscountPercent <= 100);
+  const entryPurchaseAmounts = calculatePartnerPurchaseAmounts(
+    entryQuantity,
+    entryUnitPrice,
+    isEntryDiscountValid ? entryDiscountPercent : null
+  );
+  const entryLineTotal = entryForm.entryMode === "PURCHASE"
+    ? entryPurchaseAmounts.netAmount
+    : entryPurchaseAmounts.grossAmount;
   const isPaymentMode = entryForm.entryMode === "PAYMENT";
 
   const focusPanel = useCallback((panel: HTMLElement | null, target: HTMLElement | null) => {
@@ -424,7 +439,13 @@ export default function AdminPartnerLedgerClient({
       return;
     }
 
-    if (amount <= 0) {
+    if (entryForm.entryMode === "PURCHASE" && !isEntryDiscountValid) {
+      showToast("Chiết khấu phải nằm trong khoảng 0 đến 100%.", "error");
+      return;
+    }
+
+    const hasValidLineInputs = entryPurchaseAmounts.grossAmount > 0;
+    if ((isPaymentMode && amount <= 0) || (!isPaymentMode && !hasValidLineInputs)) {
       showToast(isPaymentMode ? "Vui lòng nhập số tiền thanh toán." : "Vui lòng nhập số lượng và đơn giá hợp lệ.", "error");
       return;
     }
@@ -438,6 +459,7 @@ export default function AdminPartnerLedgerClient({
           amount,
           countsInDebt: true,
           description: isPaymentMode ? paymentDescription || `Thanh toán cho ${selectedPartner.name}` : productName,
+          discountPercent: entryForm.entryMode === "PURCHASE" ? entryDiscountPercent ?? "" : "",
           entryDate: entryForm.entryDate,
           entryType: entryForm.entryMode,
           notes: entryForm.notes.trim(),
@@ -963,8 +985,27 @@ export default function AdminPartnerLedgerClient({
                       className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
                     />
                   </label>
+                  {entryForm.entryMode === "PURCHASE" ? (
+                    <label className="space-y-1.5 md:col-span-1 lg:col-span-2">
+                      <span className="font-body text-xs font-bold text-slate-700">Chiết khấu (%)</span>
+                      <input
+                        inputMode="decimal"
+                        data-testid="partner-entry-discount"
+                        value={entryForm.discountPercent}
+                        onChange={(event) => setEntryForm({ ...entryForm, discountPercent: event.target.value })}
+                        placeholder="Không có thì để trống"
+                        className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
+                      />
+                    </label>
+                  ) : null}
                   <div className={`rounded-lg border px-4 py-3 md:col-span-3 lg:col-span-4 ${entryForm.entryMode === "RETURN" ? "border-amber-100 bg-amber-50" : "border-red-100 bg-red-50"}`}>
-                    <p className={`font-body text-xs font-bold uppercase tracking-wider ${entryForm.entryMode === "RETURN" ? "text-amber-700" : "text-red-700"}`}>{entryForm.entryMode === "RETURN" ? "Tổng tiền trả hàng" : "Tổng tiền mua"}</p>
+                    {entryForm.entryMode === "PURCHASE" ? (
+                      <div className="mb-2 space-y-1 border-b border-red-100 pb-2 font-body text-xs text-slate-600">
+                        <p>Tạm tính: <strong data-testid="partner-entry-gross-total">{formatMoney(entryPurchaseAmounts.grossAmount)}</strong></p>
+                        <p>Chiết khấu: <strong className="text-emerald-700" data-testid="partner-entry-discount-amount">{entryPurchaseAmounts.discountAmount > 0 ? "-" : ""}{formatMoney(entryPurchaseAmounts.discountAmount)}</strong></p>
+                      </div>
+                    ) : null}
+                    <p className={`font-body text-xs font-bold uppercase tracking-wider ${entryForm.entryMode === "RETURN" ? "text-amber-700" : "text-red-700"}`}>{entryForm.entryMode === "RETURN" ? "Tổng tiền trả hàng" : "Phải trả sau chiết khấu"}</p>
                     <p className={`mt-1 font-heading text-2xl font-extrabold ${entryForm.entryMode === "RETURN" ? "text-amber-700" : "text-red-700"}`} data-testid="partner-entry-total">{formatMoney(entryLineTotal)}</p>
                   </div>
                 </>

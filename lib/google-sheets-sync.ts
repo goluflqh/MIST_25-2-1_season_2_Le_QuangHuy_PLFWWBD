@@ -73,6 +73,8 @@ interface SheetPartnerEntryForExport {
   countsInDebt?: boolean | null;
   createdAt: Date | string;
   description: string;
+  discountAmount?: number | null;
+  discountPercent?: number | null;
   entryDate: Date | string;
   entryType: string;
   id?: string;
@@ -310,7 +312,8 @@ const moneyColumnRanges: Partial<Record<MinhHongWebExportTabTitle, Array<{ end: 
   ],
   "WEB_Đơn đối tác": [
     { start: 5, end: 7 },
-    { start: 9, end: 10 },
+    { start: 8, end: 10 },
+    { start: 12, end: 13 },
   ],
 };
 
@@ -685,6 +688,8 @@ export function buildMinhHongSheetTabsFromData(
         const formattedDate = Number.isFinite(entryDate.getTime()) && entryDate.getUTCFullYear() > 1900
           ? formatVietnamDate(entry.entryDate)
           : "";
+        const hasAmount = entry.countsInDebt || entry.amount !== 0;
+        const discountAmount = entry.discountAmount || 0;
         return escapeGoogleSheetsUserRow([
           formattedDate,
           partner.name,
@@ -692,7 +697,10 @@ export function buildMinhHongSheetTabsFromData(
           entry.description,
           entry.quantity ?? "",
           entry.unitPrice ?? "",
-          !entry.countsInDebt && entry.amount === 0 ? "" : entry.amount,
+          hasAmount ? entry.amount + discountAmount : "",
+          entry.discountPercent ?? "",
+          discountAmount || "",
+          hasAmount ? entry.amount : "",
           entry.paymentMethod || "",
           entry.notes || "",
           entry.countsInDebt ? runningBalance : "",
@@ -748,7 +756,7 @@ export function buildMinhHongSheetTabsFromData(
     {
       title: "WEB_Đơn đối tác",
       rows: [
-        ["Ngày", "Đối tác", "Loại giao dịch", "Nội dung / mặt hàng", "Số lượng", "Đơn giá", "Số tiền", "Phương thức thanh toán", "Ghi chú", "Còn phải trả"],
+        ["Ngày", "Đối tác", "Loại giao dịch", "Nội dung / mặt hàng", "Số lượng", "Đơn giá", "Tạm tính", "Chiết khấu (%)", "Tiền chiết khấu", "Số tiền", "Phương thức thanh toán", "Ghi chú", "Còn phải trả"],
         ...partnerRows,
       ],
     },

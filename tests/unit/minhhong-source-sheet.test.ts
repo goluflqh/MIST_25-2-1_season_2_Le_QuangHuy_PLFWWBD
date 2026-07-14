@@ -69,6 +69,35 @@ async function buildUnifiedPartnerSourceWorkbook() {
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
+async function buildUnifiedPartnerDiscountSourceWorkbook(discountPercent = 15, discountNumberFormat?: string) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  const displayedDiscountPercent = discountNumberFormat?.includes("%") ? discountPercent * 100 : discountPercent;
+  const netAmount = 495_000 - Math.round(495_000 * displayedDiscountPercent / 100);
+  sheet.getRow(1).getCell(13).value = "Chiết khấu (%)";
+  sheet.addRow([
+    "14/07/2026",
+    "Long",
+    "Mua hàng",
+    "Hóa đơn BH260714-001",
+    9,
+    55_000,
+    495_000,
+    "",
+    "",
+    11_000_000 + netAmount,
+    "Có",
+    `MH_${"A".repeat(32)}`,
+    discountPercent,
+  ]);
+  if (discountNumberFormat) {
+    sheet.getRow(sheet.rowCount).getCell(13).numFmt = discountNumberFormat;
+  }
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
 async function buildSourceWorkbooksWithAssignedIds() {
   const exports = buildSourceExports();
   const plan = await buildMinhHongSourceIdPlanFromExports(exports);
@@ -99,10 +128,11 @@ async function buildSourceWorkbooksWithAssignedIds() {
 type SourceIdAssignment = Awaited<ReturnType<typeof buildMinhHongSourceIdPlanFromExports>>["assignments"][number];
 
 function sourceIdPreflightRow(assignment: SourceIdAssignment) {
-  return sourceIdPreflightValues(assignment.rowFingerprint, "", assignment.range);
+  const target = sourceIdTarget(assignment);
+  return sourceIdPreflightValues(assignment.rowFingerprint, "", assignment.range, target.sourceIdColumn);
 }
 
-function sourceIdPreflightValues(rowFingerprint: string, sourceId: string, label: string) {
+function sourceIdPreflightValues(rowFingerprint: string, sourceId: string, label: string, sourceIdColumn: number) {
   assert.ok(rowFingerprint, `missing row fingerprint for ${label}`);
   const cells = JSON.parse(rowFingerprint) as Array<[string, unknown?]>;
   const values = cells.map((cell) => {
@@ -114,15 +144,22 @@ function sourceIdPreflightValues(rowFingerprint: string, sourceId: string, label
     if (cell[0] === "text") return String(cell[1] ?? "");
     assert.fail(`unknown fingerprint type ${cell[0]} for ${label}`);
   });
-  return [...values, sourceId];
+  values.splice(sourceIdColumn - 1, 0, sourceId);
+  return values;
+}
+
+function sourceIdTarget(candidate: Pick<SourceIdAssignment, "kind" | "sheetName">) {
+  const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => (
+    item.kind === candidate.kind && item.sheetName === candidate.sheetName
+  ));
+  assert.ok(target, `missing source_id target for ${candidate.sheetName}`);
+  return target;
 }
 
 function sourceIdPreflightRange(assignment: Pick<SourceIdAssignment, "kind" | "rowNumber" | "sheetName">) {
-  const target = MINHHONG_SOURCE_ID_TARGETS.find((item) => (
-    item.kind === assignment.kind && item.sheetName === assignment.sheetName
-  ));
-  assert.ok(target, `missing source_id target for ${assignment.sheetName}`);
-  const columnLetter = String.fromCharCode(64 + target.sourceIdColumn);
+  const target = sourceIdTarget(assignment);
+  const endColumn = target.id === "partner-ledger" ? 13 : target.sourceIdColumn;
+  const columnLetter = String.fromCharCode(64 + endColumn);
   const sheetName = `'${assignment.sheetName.replace(/'/g, "''")}'`;
   return `${sheetName}!A${assignment.rowNumber}:${columnLetter}${assignment.rowNumber}`;
 }
@@ -283,6 +320,174 @@ test("imports the unified partner event sheet with full history and an exact 11 
     parsed.partnerEntries.filter((entry) => entry.entryType === "ADJUSTMENT").map((entry) => entry.amount),
     [10_000, -10_000]
   );
+});
+
+test("imports an optional partner discount as the net payable amount", async () => {
+  const preview = await buildMinhHongSourceImportPreviewFromExports([
+    {
+      buffer: await buildUnifiedPartnerDiscountSourceWorkbook(),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    },
+  ], "partners");
+  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const discounted = parsed.partnerEntries.find((entry) => entry.description === "Hóa đơn BH260714-001");
+
+  assert.equal(discounted?.amount, 420_750);
+  assert.equal(discounted?.discountAmount, 74_250);
+  assert.equal(discounted?.discountPercent, 15);
+  assert.equal(parsed.partnerTotals.longPayable, 11_420_750);
+});
+
+test("imports a fully discounted partner purchase with zero net payable", async () => {
+  const preview = await buildMinhHongSourceImportPreviewFromExports([
+    {
+      buffer: await buildUnifiedPartnerDiscountSourceWorkbook(100),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    },
+  ], "partners");
+  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const discounted = parsed.partnerEntries.find((entry) => entry.description === "Hóa đơn BH260714-001");
+
+  assert.deepEqual(parsed.errors, []);
+  assert.equal(discounted?.amount, 0);
+  assert.equal(discounted?.discountAmount, 495_000);
+  assert.equal(discounted?.discountPercent, 100);
+  assert.equal(parsed.partnerTotals.longPayable, 11_000_000);
+});
+
+test("imports a raw Sheet percentage-formatted discount displayed as 100%", async () => {
+  const preview = await buildMinhHongSourceImportPreviewFromExports([{
+    buffer: await buildUnifiedPartnerDiscountSourceWorkbook(1, "0%"),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+
+  assert.deepEqual(parsed.errors, []);
+  assert.equal(parsed.partnerEntries.find((entry) => entry.description === "Hóa đơn BH260714-001")?.discountPercent, 100);
+});
+
+for (const storedPercent of [1.01, 2]) {
+  test(`blocks a raw Sheet percentage-formatted discount stored as ${storedPercent}`, async () => {
+    const preview = await buildMinhHongSourceImportPreviewFromExports([{
+      buffer: await buildUnifiedPartnerDiscountSourceWorkbook(storedPercent, "0%"),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }], "partners");
+    const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+
+    assert.equal(parsed.errors.some((error) => error.message.includes("khoảng 0 đến 100%")), true);
+  });
+}
+
+test("blocks a raw Sheet discount percentage with trailing text", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await buildUnifiedPartnerDiscountSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.getRow(sheet.rowCount).getCell(13).value = "15abc";
+
+  const preview = await buildMinhHongSourceImportPreviewFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+
+  assert.equal(parsed.errors.some((error) => error.message.includes("khoảng 0 đến 100%")), true);
+});
+
+test("excludes source_id column L but includes discount column M in plan fingerprints", async () => {
+  const sourceBuffer = await buildUnifiedPartnerDiscountSourceWorkbook();
+  const baselineExports: SourceExport[] = [{
+    buffer: sourceBuffer,
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }];
+  const baselinePlan = await buildMinhHongSourceIdPlanFromExports(baselineExports, "partners");
+
+  const identityWorkbook = new ExcelJS.Workbook();
+  await identityWorkbook.xlsx.load(sourceBuffer as unknown as Parameters<typeof identityWorkbook.xlsx.load>[0]);
+  const identitySheet = identityWorkbook.getWorksheet("Đơn đối tác");
+  assert.ok(identitySheet);
+  identitySheet.getRow(identitySheet.rowCount).getCell(12).value = `MH_${"B".repeat(32)}`;
+  const identityPlan = await buildMinhHongSourceIdPlanFromExports([{
+    ...baselineExports[0],
+    buffer: Buffer.from(await identityWorkbook.xlsx.writeBuffer()),
+  }], "partners");
+
+  const businessWorkbook = new ExcelJS.Workbook();
+  await businessWorkbook.xlsx.load(sourceBuffer as unknown as Parameters<typeof businessWorkbook.xlsx.load>[0]);
+  const businessSheet = businessWorkbook.getWorksheet("Đơn đối tác");
+  assert.ok(businessSheet);
+  businessSheet.getRow(businessSheet.rowCount).getCell(13).value = 10;
+  const businessPlan = await buildMinhHongSourceIdPlanFromExports([{
+    ...baselineExports[0],
+    buffer: Buffer.from(await businessWorkbook.xlsx.writeBuffer()),
+  }], "partners");
+
+  assert.equal(identityPlan.fingerprint, baselinePlan.fingerprint);
+  assert.notEqual(businessPlan.fingerprint, baselinePlan.fingerprint);
+});
+
+test("treats partner discount column M as business data during source_id preflight", async () => {
+  const sourceExports: SourceExport[] = [{
+    buffer: await buildUnifiedPartnerDiscountSourceWorkbook(),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }];
+  const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+  const discountCheck = plan.rowChecks.find((rowCheck) => rowCheck.sourceId === `MH_${"A".repeat(32)}`);
+  assert.ok(discountCheck);
+  const target = sourceIdTarget(discountCheck);
+  const canonicalRow = sourceIdPreflightValues(
+    discountCheck.rowFingerprint,
+    discountCheck.sourceId,
+    "discount row",
+    target.sourceIdColumn
+  );
+
+  assert.equal(canonicalRow.length, 13);
+  assert.equal(canonicalRow[11], discountCheck.sourceId);
+  assert.equal(canonicalRow[12], 15);
+
+  let attemptedWrite = false;
+  await withGoogleServiceAccountCredentials(async () => {
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href.includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (href.endsWith(":batchGetByDataFilter")) {
+        const ranges = sourceIdDataFilterRanges(init);
+        const rows = ranges.map((range) => {
+          const rowCheck = plan.rowChecks.find((candidate) => sourceIdPreflightRange(candidate) === range);
+          assert.ok(rowCheck, `unexpected preflight range ${range}`);
+          const rowTarget = sourceIdTarget(rowCheck);
+          const values = sourceIdPreflightValues(
+            rowCheck.rowFingerprint,
+            rowCheck.sourceId,
+            range,
+            rowTarget.sourceIdColumn
+          );
+          if (rowCheck === discountCheck) values[12] = 10;
+          return values;
+        });
+        return sourceIdDataFilterResponse(ranges, rows);
+      }
+
+      attemptedWrite = true;
+      throw new Error("unexpected source_id write");
+    };
+
+    await assert.rejects(
+      () => applyMinhHongSourceIdPlan(plan, plan.fingerprint, sourceExports, fetchImpl as typeof fetch, "partners"),
+      MinhHongSourceIdPlanChangedError
+    );
+  });
+  assert.equal(attemptedWrite, false);
 });
 
 test("fails before requesting a private source Sheet when Google credentials are missing", async () => {
@@ -729,7 +934,8 @@ test("revalidates source rows before retrying a failed technical-column hide", a
         const rows = ranges.map((range) => {
           const rowCheck = plan.rowChecks.find((candidate) => sourceIdPreflightRange(candidate) === range);
           assert.ok(rowCheck, `unexpected preflight range ${range}`);
-          const values = sourceIdPreflightValues(rowCheck.rowFingerprint, rowCheck.sourceId, range);
+          const target = sourceIdTarget(rowCheck);
+          const values = sourceIdPreflightValues(rowCheck.rowFingerprint, rowCheck.sourceId, range, target.sourceIdColumn);
           if (rowCheck === changedCheck) values[0] = "Khach da thay doi truoc khi an cot";
           return values;
         });

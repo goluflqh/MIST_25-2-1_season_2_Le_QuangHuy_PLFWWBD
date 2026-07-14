@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { createHash, randomUUID } from "node:crypto";
 import { parseAdminDateInput } from "@/lib/admin-date";
 import { formatVietnamDate } from "@/lib/vietnam-time";
+import { calculatePartnerPurchaseAmounts, parseExcelPartnerDiscountPercent } from "@/lib/partner-discounts";
 import { getGoogleAccessToken, hasGoogleServiceAccountCredentials } from "../google-sheets-sync";
 import {
   MINHHONG_CUSTOMER_ORDER_COLUMNS,
@@ -29,6 +30,7 @@ export const MINHHONG_PARTNER_SHEET_COLUMNS = [
   "Còn phải trả",
   "Tính công nợ",
   "source_id",
+  "Chiết khấu (%)",
 ] as const;
 
 interface SourceWorkbookInput {
@@ -425,7 +427,8 @@ function sourceIdRange(target: MinhHongSourceIdTarget, rowNumber: number) {
 }
 
 function sourceIdRowRange(target: MinhHongSourceIdTarget, rowNumber: number) {
-  return `${quoteSourceSheetName(target.sheetName)}!A${rowNumber}:${sourceIdColumnLetter(target.sourceIdColumn)}${rowNumber}`;
+  const endColumn = target.id === "partner-ledger" ? 13 : target.sourceIdColumn;
+  return `${quoteSourceSheetName(target.sheetName)}!A${rowNumber}:${sourceIdColumnLetter(endColumn)}${rowNumber}`;
 }
 
 function isSourceIdBusinessRow(target: MinhHongSourceIdTarget, row: ExcelJS.Row) {
@@ -439,6 +442,10 @@ function isSourceIdBusinessRow(target: MinhHongSourceIdTarget, row: ExcelJS.Row)
     return Array.from({ length: 11 }, (_, index) => clean(row.getCell(index + 1).value)).some(Boolean);
   }
   return Array.from({ length: 11 }, (_, index) => clean(row.getCell(index + 1).value)).some(Boolean);
+}
+
+function percentage(cell: ExcelJS.Cell) {
+  return parseExcelPartnerDiscountPercent(cell.value, cell.numFmt);
 }
 
 function normalizedSourceIdNumber(value: number) {
@@ -473,15 +480,20 @@ function sourceIdFingerprintValue(value: CellValue): [string, unknown?] {
   return ["empty"];
 }
 
-function sourceIdValuesFingerprint(values: CellValue[], cellCount: number) {
+function sourceIdFingerprintColumns(target: MinhHongSourceIdTarget) {
+  if (target.id === "partner-ledger") return [...Array.from({ length: 11 }, (_, index) => index), 12];
+  return Array.from({ length: target.sourceIdColumn - 1 }, (_, index) => index);
+}
+
+function sourceIdValuesFingerprint(target: MinhHongSourceIdTarget, values: CellValue[]) {
   return JSON.stringify(
-    Array.from({ length: cellCount }, (_, index) => sourceIdFingerprintValue(values[index]))
+    sourceIdFingerprintColumns(target).map((index) => sourceIdFingerprintValue(values[index]))
   );
 }
 
 function sourceIdRowFingerprint(target: MinhHongSourceIdTarget, row: ExcelJS.Row) {
   return JSON.stringify(
-    Array.from({ length: target.sourceIdColumn - 1 }, (_, index) => {
+    sourceIdFingerprintColumns(target).map((index) => {
       const cell = row.getCell(index + 1);
       return cell.formula
         ? sourceIdFormulaFingerprint(cell.formula)
@@ -555,7 +567,7 @@ function inspectMinhHongSourceIds(
     fingerprintRows.push(JSON.stringify({
       rowNumber: target.headerRow,
       target: target.id,
-      values: Array.from({ length: target.sourceIdColumn }, (_, index) => clean(headerRow.getCell(index + 1).value)),
+      values: sourceIdFingerprintColumns(target).map((index) => clean(headerRow.getCell(index + 1).value)),
     }));
     rowChecks.push({
       kind: target.kind,
@@ -593,7 +605,7 @@ function inspectMinhHongSourceIds(
       fingerprintRows.push(JSON.stringify({
         rowNumber,
         target: target.id,
-        values: Array.from({ length: target.sourceIdColumn }, (_, index) => clean(row.getCell(index + 1).value)),
+        values: sourceIdFingerprintColumns(target).map((index) => clean(row.getCell(index + 1).value)),
       }));
       if (!isSourceIdBusinessRow(target, row)) continue;
 
@@ -800,6 +812,10 @@ function buildUnifiedPartnerActivityRows(legacyWorkbook: ExcelJS.Workbook, issue
       pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME}: cột ${index + 1} phải là "${expected}".`);
     }
   });
+  const discountHeader = clean(worksheet.getRow(1).getCell(13).value);
+  if (discountHeader && discountHeader !== MINHHONG_PARTNER_SHEET_COLUMNS[12]) {
+    pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME}: cột 13 phải là "${MINHHONG_PARTNER_SHEET_COLUMNS[12]}".`);
+  }
 
   for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
     const row = worksheet.getRow(rowNumber);
@@ -823,28 +839,46 @@ function buildUnifiedPartnerActivityRows(legacyWorkbook: ExcelJS.Workbook, issue
     const dateText = normalizeSourceDate(row.getCell(1).value, `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}`, issues);
     const quantity = parseQuantity(row.getCell(5).value);
     const unitPrice = money(row.getCell(6).value);
-    const amount = money(row.getCell(7).value);
+    const grossAmount = money(row.getCell(7).value);
+    const discountPercent = percentage(row.getCell(13));
+    let amount = grossAmount;
+    let discountAmount = 0;
     const paymentMethod = clean(row.getCell(8).value);
     const notes = clean(row.getCell(9).value);
     const statedBalanceText = clean(row.getCell(10).value);
     const statedBalance = money(row.getCell(10).value);
     const countsInDebt = isDebtCounted(row.getCell(11).value);
+    const isPurchase = typeText === "mua hàng" || typeText === "mua hang";
     const isAdjustment = typeText === "điều chỉnh" || typeText === "dieu chinh";
     const sourceId = stableSourceId(row, "partner-ledger", String(rowNumber).padStart(4, "0"));
-    const source = sourceReference(`${UNIFIED_PARTNER_SHEET_NAME}!A${rowNumber}:L${rowNumber}`, sourceId);
+    const source = sourceReference(`${UNIFIED_PARTNER_SHEET_NAME}!A${rowNumber}:M${rowNumber}`, sourceId);
 
     if (!partnerName || !description) {
       pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: thiếu đối tác hoặc nội dung giao dịch.`);
       continue;
     }
-    if (countsInDebt && (isAdjustment ? amount === 0 : amount <= 0)) {
+    if (Number.isNaN(discountPercent)) {
+      pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: chiết khấu phải nằm trong khoảng 0 đến 100%.`);
+    } else if (discountPercent !== null) {
+      if (!isPurchase) {
+        pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: chiết khấu chỉ áp dụng cho giao dịch mua hàng.`);
+      } else if (typeof quantity !== "number" || unitPrice <= 0) {
+        pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: cần số lượng và đơn giá để tính chiết khấu.`);
+      } else {
+        const purchaseAmounts = calculatePartnerPurchaseAmounts(quantity, unitPrice, discountPercent);
+        amount = purchaseAmounts.netAmount;
+        discountAmount = purchaseAmounts.discountAmount;
+      }
+    }
+    const isFullyDiscountedPurchase = isPurchase && discountPercent === 100 && grossAmount > 0;
+    if (countsInDebt && (isAdjustment ? amount === 0 : amount <= 0 && !isFullyDiscountedPurchase)) {
       pushIssue(
         issues,
         "blocking",
         `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: giao dịch tính công nợ phải có số tiền ${isAdjustment ? "khác 0" : "lớn hơn 0"}.`
       );
     }
-    if (!isAdjustment && amount > 0 && typeof quantity === "number" && unitPrice > 0 && Math.round(quantity * unitPrice) !== amount) {
+    if (!isAdjustment && grossAmount > 0 && typeof quantity === "number" && unitPrice > 0 && Math.round(quantity * unitPrice) !== grossAmount) {
       pushIssue(issues, "blocking", `${UNIFIED_PARTNER_SHEET_NAME} dòng ${rowNumber}: số lượng × đơn giá không khớp số tiền.`);
     }
 
@@ -863,6 +897,8 @@ function buildUnifiedPartnerActivityRows(legacyWorkbook: ExcelJS.Workbook, issue
         quantity,
         "",
         unitPrice || "",
+        discountPercent ?? "",
+        discountAmount,
         amount,
         "",
         countsInDebt ? "Có" : "Không",
@@ -973,6 +1009,8 @@ function buildManualActivityRows(manualWorkbook: ExcelJS.Workbook, issues: Sourc
         quantity,
         "",
         "",
+        "",
+        0,
         amount,
         "Có",
         "Có",
@@ -1024,6 +1062,8 @@ function buildPurchaseRows(legacyWorkbook: ExcelJS.Workbook, manualWorkbook: Exc
       1,
       "lần",
       manual.openingBalance,
+      "",
+      0,
       manual.openingBalance,
       "Có",
       "Có",
@@ -1041,6 +1081,8 @@ function buildPurchaseRows(legacyWorkbook: ExcelJS.Workbook, manualWorkbook: Exc
       300,
       "cell",
       manual.countedPurchase ? Math.round(manual.countedPurchase / 300) : "",
+      "",
+      0,
       manual.countedPurchase,
       "Có",
       "Có",
@@ -1072,6 +1114,8 @@ function buildPurchaseRows(legacyWorkbook: ExcelJS.Workbook, manualWorkbook: Exc
       clean(row[3]) || "",
       "",
       money(row[4]) || "",
+      "",
+      0,
       amount,
       "Có",
       "Không",
@@ -1243,14 +1287,14 @@ function buildPartnerReconciliationTotals(purchaseRows: CellValue[][], paymentRo
   const longPaymentRows = paymentRows.filter((row) => isLongRow(row, 2, 3));
   const longReturnRows = returnRows.filter((row) => isLongRow(row, 2, 3));
   const openingBalance = longPurchaseRows
-    .filter((row) => isDebtCounted(row[12]) && isOpeningPurchaseRow(row))
-    .reduce((sum, row) => sum + money(row[10]), 0);
+    .filter((row) => isDebtCounted(row[14]) && isOpeningPurchaseRow(row))
+    .reduce((sum, row) => sum + money(row[12]), 0);
   const countedPurchase = longPurchaseRows
-    .filter((row) => isDebtCounted(row[12]) && !isOpeningPurchaseRow(row) && !isAdjustmentPurchaseRow(row))
-    .reduce((sum, row) => sum + money(row[10]), 0);
+    .filter((row) => isDebtCounted(row[14]) && !isOpeningPurchaseRow(row) && !isAdjustmentPurchaseRow(row))
+    .reduce((sum, row) => sum + money(row[12]), 0);
   const countedAdjustment = longPurchaseRows
-    .filter((row) => isDebtCounted(row[12]) && isAdjustmentPurchaseRow(row))
-    .reduce((sum, row) => sum + money(row[10]), 0);
+    .filter((row) => isDebtCounted(row[14]) && isAdjustmentPurchaseRow(row))
+    .reduce((sum, row) => sum + money(row[12]), 0);
   const countedPayment = longPaymentRows
     .filter((row) => isDebtCounted(row[6]))
     .reduce((sum, row) => sum + money(row[4]), 0);
@@ -1613,7 +1657,7 @@ async function assertSourceIdRowsStillCurrent(
     if (!rows) throw new MinhHongSourceIdPlanChangedError();
     if (rows.length > 1) throw new MinhHongSourceIdPlanChangedError();
     const values = rows[0] || [];
-    const currentFingerprint = sourceIdValuesFingerprint(values, target.sourceIdColumn - 1);
+    const currentFingerprint = sourceIdValuesFingerprint(target, values);
     if (
       clean(values[target.sourceIdColumn - 1]) !== rowCheck.sourceId
       || currentFingerprint !== rowCheck.rowFingerprint

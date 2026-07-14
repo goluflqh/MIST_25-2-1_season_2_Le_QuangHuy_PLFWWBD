@@ -1,4 +1,5 @@
 import { parseAdminDateInput } from "@/lib/admin-date";
+import { calculatePartnerPurchaseAmounts, parseExcelPartnerDiscountPercent } from "@/lib/partner-discounts";
 import { formatVietnamDate, getVietnamDateKey } from "@/lib/vietnam-time";
 import ExcelJS from "exceljs";
 import {
@@ -46,6 +47,8 @@ export interface MinhHongParsedPartnerEntry {
   description: string;
   category: string | null;
   amount: number;
+  discountAmount: number;
+  discountPercent: number | null;
   countsInDebt: boolean;
   reference: string | null;
   receivedGoods: boolean | null;
@@ -147,6 +150,10 @@ function parseOptionalNumber(value: CellValue) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   const parsed = Number.parseFloat(String(value).replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseWorkbookDiscountPercent(value: CellValue, numberFormat?: string) {
+  return parseExcelPartnerDiscountPercent(value, numberFormat);
 }
 
 function parseDebtFlag(value: CellValue) {
@@ -262,6 +269,23 @@ function isOpeningBalance(category: string, description: string, seller: string)
   return text.includes("số dư chốt") || text.includes("nợ tạm tính") || text.includes("chốt công nợ");
 }
 
+const knownLegacyPurchaseAmountExceptions = new Set([
+  JSON.stringify(["Đơn hàng nhập từ long!A2:B2", 300, 24_967, 7_490_000]),
+  JSON.stringify(["Sheet1!A13:J13", 1, 1, 8_500_000]),
+  JSON.stringify(["Sheet1!A57:J57", 2, 220, 440_000]),
+  JSON.stringify(["Sheet1!A76:J76", 20, 810_000, 1_620_000]),
+]);
+
+function isKnownLegacyPurchaseAmount(
+  sourceReference: string,
+  quantity: number | null,
+  unitPrice: number | null,
+  amount: number
+) {
+  const sourceRange = sourceReference.split(/\s*\|\s*source_id=/i)[0].trim();
+  return knownLegacyPurchaseAmountExceptions.has(JSON.stringify([sourceRange, quantity, unitPrice, amount]));
+}
+
 export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHongParsedWorkbook> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
@@ -277,6 +301,7 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
 
   const partnerRows = sheetRows(workbook, "Đối tác", errors);
   const purchaseRows = sheetRows(workbook, "Nhập hàng", errors);
+  const purchaseWorksheet = workbook.getWorksheet("Nhập hàng");
   const paymentRows = sheetRows(workbook, "Thanh toán", errors);
   const returnRows = sheetRows(workbook, "Trả hàng", errors);
   const customerRows = sheetRows(workbook, "Đơn khách", errors);
@@ -309,23 +334,86 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
 
   for (const [index, row] of purchaseRows.slice(1).entries()) {
     const workbookRow = index + 2;
-    const amount = parseMoney(row[10]);
+    const workbookAmount = parseMoney(row[12]);
+    const workbookDiscountCell = purchaseWorksheet?.getRow(workbookRow).getCell(11);
+    const workbookDiscountText = clean(row[10]);
+    const workbookDiscountPercent = parseWorkbookDiscountPercent(row[10], workbookDiscountCell?.numFmt);
     const description = clean(row[5]);
-    const countsInDebt = parseDebtFlag(row[12]);
-    if (!description || (!amount && countsInDebt)) continue;
+    const countsInDebt = parseDebtFlag(row[14]);
+    const hasNonZeroOrInvalidDiscount = workbookDiscountPercent !== null && workbookDiscountPercent !== 0;
+    if (!description || (!workbookAmount && countsInDebt && !hasNonZeroOrInvalidDiscount)) continue;
 
     const partnerCode = clean(row[2]);
     const partnerName = clean(row[3]);
     const purchaseCode = clean(row[0]) || `ROW-${workbookRow}`;
-    const stableSourceId = parseStableSourceId(row[14]);
+    const sourceReference = clean(row[16]);
+    const stableSourceId = parseStableSourceId(sourceReference);
     const category = clean(row[6]);
     const seller = clean(row[4]);
     const adjustment = compactKey(`${category} ${seller}`).includes("dieu chinh");
     const entryType = isOpeningBalance(category, description, seller) ? "OPENING_BALANCE" : adjustment ? "ADJUSTMENT" : "PURCHASE";
+    const quantity = parseOptionalNumber(row[7]);
+    const unitPrice = parseMoney(row[9]) || null;
+    const workbookDiscountAmount = parseMoney(row[11]);
+    let amount = workbookAmount;
+    let discountAmount = 0;
+    let discountPercent: number | null = null;
+    const shouldDerivePurchaseAmount = Boolean(workbookDiscountText) || !isKnownLegacyPurchaseAmount(
+      sourceReference,
+      quantity,
+      unitPrice,
+      workbookAmount
+    );
+
+    if (Number.isNaN(workbookDiscountPercent)) {
+      errors.push({
+        sheet: "Nhập hàng",
+        rowNumber: workbookRow,
+        message: "Chiết khấu phải nằm trong khoảng 0 đến 100%.",
+      });
+    } else if (workbookDiscountPercent !== null && entryType !== "PURCHASE") {
+      errors.push({
+        sheet: "Nhập hàng",
+        rowNumber: workbookRow,
+        message: "Chiết khấu chỉ áp dụng cho giao dịch mua hàng.",
+      });
+    } else if (entryType === "PURCHASE" && quantity !== null && quantity > 0 && unitPrice !== null && shouldDerivePurchaseAmount) {
+      const expected = calculatePartnerPurchaseAmounts(quantity, unitPrice, workbookDiscountPercent);
+      amount = expected.netAmount;
+      discountAmount = expected.discountAmount;
+      discountPercent = expected.discountPercent;
+      if (workbookDiscountAmount !== expected.discountAmount) {
+        errors.push({
+          sheet: "Nhập hàng",
+          rowNumber: workbookRow,
+          message: "Tiền chiết khấu không khớp số lượng × đơn giá × phần trăm chiết khấu.",
+        });
+      }
+      if (workbookAmount !== expected.netAmount) {
+        errors.push({
+          sheet: "Nhập hàng",
+          rowNumber: workbookRow,
+          message: "Thành tiền sau chiết khấu không khớp số tiền được tính tự động.",
+        });
+      }
+    } else if (workbookDiscountPercent !== null) {
+      errors.push({
+        sheet: "Nhập hàng",
+        rowNumber: workbookRow,
+        message: "Cần số lượng và đơn giá để tính chiết khấu.",
+      });
+    } else if (workbookDiscountAmount !== 0) {
+      errors.push({
+        sheet: "Nhập hàng",
+        rowNumber: workbookRow,
+        message: "Tiền chiết khấu phải bằng 0 khi không có phần trăm chiết khấu.",
+      });
+    }
+
     const entry: MinhHongParsedPartnerEntry = {
       legacySourceCode: stableSourceId ? `NHAP_HANG:${purchaseCode}` : null,
       sourceCode: stableInternalCode("NHAP_HANG", purchaseCode, stableSourceId),
-      sourceRow: parseSourceRow(row[14], workbookRow),
+      sourceRow: parseSourceRow(sourceReference, workbookRow),
       sourceSheet: "Nhập hàng",
       partnerCode,
       partnerName,
@@ -334,14 +422,16 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
       description,
       category: category || null,
       amount,
+      discountAmount,
+      discountPercent,
       countsInDebt,
       reference: clean(row[0]) || null,
-      receivedGoods: parseReceivedGoods(row[11]),
-      quantity: parseOptionalNumber(row[7]),
+      receivedGoods: parseReceivedGoods(row[13]),
+      quantity,
       unit: clean(row[8]) || null,
-      unitPrice: parseMoney(row[9]) || null,
+      unitPrice,
       paymentMethod: null,
-      notes: clean(row[13]) || null,
+      notes: clean(row[15]) || null,
     };
     partnerEntries.push(entry);
 
@@ -374,6 +464,8 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
       description: clean(row[7]) || "Thanh toán cho đối tác",
       category: null,
       amount,
+      discountAmount: 0,
+      discountPercent: null,
       countsInDebt,
       reference: clean(row[0]) || null,
       receivedGoods: null,
@@ -413,6 +505,8 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
       description,
       category: clean(row[5]) || null,
       amount,
+      discountAmount: 0,
+      discountPercent: null,
       countsInDebt,
       reference: clean(row[0]) || null,
       receivedGoods: null,

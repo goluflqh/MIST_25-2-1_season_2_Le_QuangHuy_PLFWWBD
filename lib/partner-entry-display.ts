@@ -1,4 +1,6 @@
 interface PartnerEntryDisplayInput {
+  discountAmount?: number | null;
+  discountPercent?: number | null;
   quantity: number | null;
   unit: string | null;
   unitPrice: number | null;
@@ -22,8 +24,15 @@ export function getPartnerEntryDisplayDetails(entry: PartnerEntryDisplayInput) {
     : "";
   const unitPrice = entry.unitPrice && entry.unitPrice > 0 ? formatMoney(entry.unitPrice) : "";
   const linePrice = quantity && unitPrice ? `${quantity} × ${unitPrice}` : quantity || unitPrice;
+  const hasDiscount = typeof entry.discountPercent === "number"
+    && entry.discountPercent > 0
+    && typeof entry.discountAmount === "number"
+    && entry.discountAmount >= 0;
+  const discount = hasDiscount
+    ? `CK ${entry.discountPercent!.toLocaleString("vi-VN", { maximumFractionDigits: 2 })}% (${entry.discountAmount! > 0 ? "-" : ""}${formatMoney(entry.discountAmount!)})`
+    : "";
 
-  return [linePrice, entry.paymentMethod].filter(Boolean).join(" · ");
+  return [linePrice, discount, entry.paymentMethod].filter(Boolean).join(" · ");
 }
 
 export function getPartnerEntryAmountLabel(entryType: string) {

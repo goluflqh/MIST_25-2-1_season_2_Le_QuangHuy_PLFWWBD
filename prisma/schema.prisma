@@ -293,6 +293,8 @@ model PartnerLedgerEntry {
   entryType     String
   entryDate     DateTime  @default(now())
   amount        Int
+  discountPercent Float?
+  discountAmount  Int       @default(0)
   description   String
   reference     String?
   category      String?

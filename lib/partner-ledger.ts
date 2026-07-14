@@ -6,6 +6,7 @@ import {
   summarizePartnerLedgerEntries,
 } from "@/lib/financial-calculations";
 import { parseMoneyText } from "@/lib/money";
+import { calculatePartnerPurchaseAmounts, parsePartnerDiscountPercent } from "@/lib/partner-discounts";
 import { prisma } from "@/lib/prisma";
 import { normalizePhone, sanitizeText } from "@/lib/sanitize";
 
@@ -158,9 +159,28 @@ export function normalizePartnerPayload(payload: Record<string, unknown>) {
 
 export function normalizePartnerEntryPayload(payload: Record<string, unknown>) {
   const entryType = normalizePartnerEntryType(payload.entryType);
-  const amount = parseLedgerAmount(payload.amount, entryType === "ADJUSTMENT");
+  let amount = parseLedgerAmount(payload.amount, entryType === "ADJUSTMENT");
   const entryDate = parseAdminDateInput(payload.entryDate) || new Date();
   const description = sanitizeText(String(payload.description || ""));
+  const discountPercent = parsePartnerDiscountPercent(payload.discountPercent);
+  if (Number.isNaN(discountPercent)) {
+    throw new PartnerLedgerValidationError("Chiết khấu phải nằm trong khoảng 0 đến 100%.");
+  }
+  const quantity = parseOptionalQuantity(payload.quantity);
+  const unitPrice = parseLedgerAmount(payload.unitPrice);
+
+  let discountAmount = 0;
+  if (discountPercent !== null) {
+    if (entryType !== "PURCHASE") {
+      throw new PartnerLedgerValidationError("Chiết khấu chỉ áp dụng cho giao dịch mua hàng.");
+    }
+    if (quantity === null || unitPrice === null) {
+      throw new PartnerLedgerValidationError("Cần nhập số lượng và đơn giá để tính chiết khấu.");
+    }
+    const purchaseAmounts = calculatePartnerPurchaseAmounts(quantity, unitPrice, discountPercent);
+    amount = purchaseAmounts.netAmount;
+    discountAmount = purchaseAmounts.discountAmount;
+  }
 
   if (amount === null) {
     throw new PartnerLedgerValidationError("Vui lòng nhập số tiền giao dịch lớn hơn 0đ.");
@@ -175,19 +195,21 @@ export function normalizePartnerEntryPayload(payload: Record<string, unknown>) {
     category: sanitizeText(String(payload.category || "")) || null,
     countsInDebt: parseCountsInDebt(payload.countsInDebt ?? payload.countsInBalance ?? payload.includeInDebt),
     description: description || getDefaultEntryDescription(entryType),
+    discountAmount,
+    discountPercent,
     entryDate,
     entryType,
     notes: sanitizeText(String(payload.notes || "")) || null,
     partnerId: sanitizeText(String(payload.partnerId || "")),
     paymentMethod: sanitizeText(String(payload.paymentMethod || "")) || null,
-    quantity: parseOptionalQuantity(payload.quantity),
+    quantity,
     reference: sanitizeText(String(payload.reference || "")) || null,
     receivedGoods: parseOptionalBoolean(payload.receivedGoods),
     sourceCode: sanitizeText(String(payload.sourceCode || "")) || null,
     sourceName: sanitizeText(String(payload.sourceName || "")) || null,
     sourceRow: parseOptionalPositiveInt(payload.sourceRow),
     unit: sanitizeText(String(payload.unit || "")) || null,
-    unitPrice: parseLedgerAmount(payload.unitPrice),
+    unitPrice,
   };
 }
 
