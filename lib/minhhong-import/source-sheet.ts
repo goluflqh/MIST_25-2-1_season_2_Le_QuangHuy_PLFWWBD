@@ -532,13 +532,12 @@ function inspectPartnerDiscountValueRepairs(worksheet: ExcelJS.Worksheet, startR
   return { conflicts, repairs };
 }
 
-export function buildPartnerPayableSheetArrayFormula(startRow: number, endRow: number, separator = ";") {
-  const rowCount = endRow - startRow + 1;
-  const currentRowCounts = 'OR(flag="",flag="Có",flag="Co",flag="Yes",flag="True",flag="1")';
-  const countedRows = '((($K$2:INDEX($K:$K,r)="")+($K$2:INDEX($K:$K,r)="Có")+($K$2:INDEX($K:$K,r)="Co")+($K$2:INDEX($K:$K,r)="Yes")+($K$2:INDEX($K:$K,r)="True")+($K$2:INDEX($K:$K,r)="1"))>0)';
-  const negativeTypes = '((($C$2:INDEX($C:$C,r)="Thanh toán")+($C$2:INDEX($C:$C,r)="Thanh toan")+($C$2:INDEX($C:$C,r)="Trả hàng")+($C$2:INDEX($C:$C,r)="Tra hang"))>0)';
-  const purchaseTypes = '((($C$2:INDEX($C:$C,r)="Mua hàng")+($C$2:INDEX($C:$C,r)="Mua hang"))>0)';
-  const formula = `=MAKEARRAY(${rowCount},1,LAMBDA(offset,col,LET(r,${startRow - 1}+offset,partner,INDEX($B:$B,r),kind,INDEX($C:$C,r),amount,INDEX($G:$G,r),flag,INDEX($K:$K,r),IF(OR(partner="",kind="",amount=""),"",IF(NOT(${currentRowCounts}),"",SUMPRODUCT(($B$2:INDEX($B:$B,r)=partner)*${countedRows}*$G$2:INDEX($G:$G,r)*(1-2*${negativeTypes}))-SUMPRODUCT(($B$2:INDEX($B:$B,r)=partner)*${countedRows}*${purchaseTypes}*$G$2:INDEX($G:$G,r)*IFERROR($M$2:INDEX($M:$M,r)/100,0)))))))`;
+export function buildPartnerPayableSheetFormula(rowNumber: number, separator = ";") {
+  const currentRowCounts = `OR($K${rowNumber}="",$K${rowNumber}="Có",$K${rowNumber}="Co",$K${rowNumber}="Yes",$K${rowNumber}="True",$K${rowNumber}="1")`;
+  const countedRows = `((($K$2:$K${rowNumber}="")+($K$2:$K${rowNumber}="Có")+($K$2:$K${rowNumber}="Co")+($K$2:$K${rowNumber}="Yes")+($K$2:$K${rowNumber}="True")+($K$2:$K${rowNumber}="1"))>0)`;
+  const negativeTypes = `((($C$2:$C${rowNumber}="Thanh toán")+($C$2:$C${rowNumber}="Thanh toan")+($C$2:$C${rowNumber}="Trả hàng")+($C$2:$C${rowNumber}="Tra hang"))>0)`;
+  const purchaseTypes = `((($C$2:$C${rowNumber}="Mua hàng")+($C$2:$C${rowNumber}="Mua hang"))>0)`;
+  const formula = `=IF(OR($B${rowNumber}="",$C${rowNumber}="",$G${rowNumber}=""),"",IF(NOT(${currentRowCounts}),"",SUMPRODUCT(($B$2:$B${rowNumber}=$B${rowNumber})*${countedRows}*$G$2:$G${rowNumber}*(1-2*${negativeTypes}))-SUMPRODUCT(($B$2:$B${rowNumber}=$B${rowNumber})*${countedRows}*${purchaseTypes}*$G$2:$G${rowNumber}*IFERROR($M$2:$M${rowNumber}/100,0))))`;
   return separator === "," ? formula : formula.replace(/,/g, separator);
 }
 
@@ -569,23 +568,18 @@ function inspectPartnerPayableFormulaRange(worksheet: ExcelJS.Worksheet, firstDa
   if (worksheet.rowCount < PARTNER_PAYABLE_FORMULA_REPAIR_START_ROW) return null;
   const startRow = Math.max(firstDataRow, PARTNER_PAYABLE_FORMULA_REPAIR_START_ROW);
   const endRow = Math.max(startRow, worksheet.rowCount);
-  const anchorCell = worksheet.getRow(startRow).getCell(PARTNER_PAYABLE_COLUMN);
-  const anchorValue = anchorCell.value;
-  const arrayRef = anchorValue && typeof anchorValue === "object" && "ref" in anchorValue
-    ? String(anchorValue.ref || "")
-    : "";
-  const shareType = anchorValue && typeof anchorValue === "object" && "shareType" in anchorValue
-    ? anchorValue.shareType
-    : undefined;
-  const columnLetter = sourceIdColumnLetter(PARTNER_PAYABLE_COLUMN);
-  const expectedRef = `${columnLetter}${startRow}:${columnLetter}${endRow}`;
-  const ready = Boolean(
-    anchorCell.formula
-    && shareType === "array"
-    && arrayRef === expectedRef
-    && normalizedPartnerPayableFormula(anchorCell.formula)
-      === normalizedPartnerPayableFormula(buildPartnerPayableSheetArrayFormula(startRow, endRow, ","))
-  );
+  let ready = true;
+  for (let rowNumber = startRow; rowNumber <= endRow; rowNumber += 1) {
+    const formula = worksheet.getRow(rowNumber).getCell(PARTNER_PAYABLE_COLUMN).formula;
+    if (
+      !formula
+      || normalizedPartnerPayableFormula(formula)
+        !== normalizedPartnerPayableFormula(buildPartnerPayableSheetFormula(rowNumber, ","))
+    ) {
+      ready = false;
+      break;
+    }
+  }
 
   return {
     endRow,
@@ -2362,24 +2356,19 @@ export async function applyMinhHongSourceSheetSetup(
             },
           },
           {
-            updateCells: {
+            repeatCell: {
               range: {
                 endColumnIndex: PARTNER_PAYABLE_COLUMN,
-                endRowIndex: summary.payableFormulaStartRow,
+                endRowIndex: summary.payableFormulaEndRow,
                 sheetId,
                 startColumnIndex: PARTNER_PAYABLE_COLUMN - 1,
                 startRowIndex: summary.payableFormulaStartRow - 1,
               },
-              rows: [{
-                values: [{
-                  userEnteredValue: {
-                    formulaValue: buildPartnerPayableSheetArrayFormula(
-                      summary.payableFormulaStartRow,
-                      summary.payableFormulaEndRow
-                    ),
-                  },
-                }],
-              }],
+              cell: {
+                userEnteredValue: {
+                  formulaValue: buildPartnerPayableSheetFormula(summary.payableFormulaStartRow),
+                },
+              },
               fields: "userEnteredValue",
             },
           }

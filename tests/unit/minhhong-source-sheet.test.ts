@@ -9,7 +9,7 @@ import {
   applyMinhHongSourceIdPlan,
   applyMinhHongSourceSheetSetup,
   applyMinhHongSourceSheetDateRepairs,
-  buildPartnerPayableSheetArrayFormula,
+  buildPartnerPayableSheetFormula,
   buildMinhHongSourceIdPlanFromExports,
   buildMinhHongSourceSheetEditUrl,
   buildMinhHongSourceSheetDateRepairsFromExports,
@@ -104,11 +104,11 @@ function legacyPartnerPayableFormula(rowNumber: number, separator = ",") {
   return `=IF(${join(`OR(${join(`$B${rowNumber}=""`, `$C${rowNumber}=""`, `$G${rowNumber}=""`)})`, `""`, `IF(${join(`$K${rowNumber}="Không"`, `""`, `SUMIFS(${join(`$G$2:$G${rowNumber}`, `$B$2:$B${rowNumber}`, `$B${rowNumber}`, `$K$2:$K${rowNumber}`, `"<>Không"`, `$C$2:$C${rowNumber}`, `"<>Thanh toán"`, `$C$2:$C${rowNumber}`, `"<>Trả hàng"`)})-SUMIFS(${join(`$G$2:$G${rowNumber}`, `$B$2:$B${rowNumber}`, `$B${rowNumber}`, `$K$2:$K${rowNumber}`, `"<>Không"`, `$C$2:$C${rowNumber}`, `"Thanh toán"`)})-SUMIFS(${join(`$G$2:$G${rowNumber}`, `$B$2:$B${rowNumber}`, `$B${rowNumber}`, `$K$2:$K${rowNumber}`, `"<>Không"`, `$C$2:$C${rowNumber}`, `"Trả hàng"`)})`)})`)})`;
 }
 
-const partnerPayableFormulaAtRow89 = '=IF(OR($B89="";$C89="";$G89="");"";IF(NOT(OR($K89="";$K89="Có";$K89="Co";$K89="Yes";$K89="True";$K89="1"));"";SUMPRODUCT(($B$2:$B89=$B89)*((($K$2:$K89="")+($K$2:$K89="Có")+($K$2:$K89="Co")+($K$2:$K89="Yes")+($K$2:$K89="True")+($K$2:$K89="1"))>0)*$G$2:$G89*(1-2*((($C$2:$C89="Thanh toán")+($C$2:$C89="Thanh toan")+($C$2:$C89="Trả hàng")+($C$2:$C89="Tra hang"))>0)))-SUMPRODUCT(($B$2:$B89=$B89)*((($K$2:$K89="")+($K$2:$K89="Có")+($K$2:$K89="Co")+($K$2:$K89="Yes")+($K$2:$K89="True")+($K$2:$K89="1"))>0)*((($C$2:$C89="Mua hàng")+($C$2:$C89="Mua hang"))>0)*$G$2:$G89*IFERROR($M$2:$M89/100;0))))';
-
 interface PartnerPayableSetupRequest {
   repeatCell?: {
-    cell?: Record<string, unknown>;
+    cell?: {
+      userEnteredValue?: { formulaValue?: string };
+    };
     fields?: string;
     range?: Record<string, number>;
   };
@@ -1723,10 +1723,11 @@ test("repairs future partner payable formulas to subtract purchase discounts", a
 
     await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
 
-    const formulaClear = batchBodies[0]?.requests?.find((request) => (
+    const formulaFill = batchBodies[0]?.requests?.find((request) => (
       request.repeatCell?.range?.startColumnIndex === 9
+      && Boolean(request.repeatCell?.cell?.userEnteredValue?.formulaValue)
     ))?.repeatCell;
-    assert.deepEqual(formulaClear, {
+    assert.deepEqual(formulaFill, {
       range: {
         endColumnIndex: 10,
         endRowIndex: 100,
@@ -1734,16 +1735,17 @@ test("repairs future partner payable formulas to subtract purchase discounts", a
         startColumnIndex: 9,
         startRowIndex: 88,
       },
-      cell: {},
+      cell: {
+        userEnteredValue: {
+          formulaValue: buildPartnerPayableSheetFormula(89),
+        },
+      },
       fields: "userEnteredValue",
     });
-    const formulaAnchor = batchBodies[0]?.requests?.find((request) => (
+    assert.doesNotMatch(formulaFill?.cell?.userEnteredValue?.formulaValue || "", /MAKEARRAY/);
+    assert.equal(batchBodies[0]?.requests?.some((request) => (
       request.updateCells?.range?.startColumnIndex === 9
-    ))?.updateCells;
-    assert.equal(
-      formulaAnchor?.rows?.[0]?.values?.[0]?.userEnteredValue?.formulaValue,
-      buildPartnerPayableSheetArrayFormula(89, 100)
-    );
+    )), false);
   });
 });
 
@@ -1756,7 +1758,7 @@ test("repairs one reverted payable formula among otherwise current rows", async 
     const sheet = workbook.getWorksheet("Đơn đối tác");
     assert.ok(sheet);
     sheet.fillFormula("J2:J88", legacyPartnerPayableFormula(2));
-    sheet.fillFormula("J89:J100", partnerPayableFormulaAtRow89.replace(/;/g, ","));
+    sheet.fillFormula("J89:J100", buildPartnerPayableSheetFormula(89, ",").slice(1));
     sheet.getRow(92).getCell(10).value = {
       formula: legacyPartnerPayableFormula(92).replace(/^=/, ""),
       result: 12_335_000,
@@ -1818,23 +1820,23 @@ test("repairs one reverted payable formula among otherwise current rows", async 
 
     await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
 
-    const formulaClear = batchBodies[0]?.requests?.find((request) => (
+    const formulaFill = batchBodies[0]?.requests?.find((request) => (
       request.repeatCell?.range?.startColumnIndex === 9
+      && Boolean(request.repeatCell?.cell?.userEnteredValue?.formulaValue)
     ))?.repeatCell;
-    assert.equal(formulaClear?.range?.startRowIndex, 88);
-    assert.equal(formulaClear?.range?.endRowIndex, 100);
-    assert.deepEqual(formulaClear?.cell, {});
-    const formulaAnchor = batchBodies[0]?.requests?.find((request) => (
-      request.updateCells?.range?.startColumnIndex === 9
-    ))?.updateCells;
+    assert.equal(formulaFill?.range?.startRowIndex, 88);
+    assert.equal(formulaFill?.range?.endRowIndex, 100);
     assert.equal(
-      formulaAnchor?.rows?.[0]?.values?.[0]?.userEnteredValue?.formulaValue,
-      buildPartnerPayableSheetArrayFormula(89, 100)
+      formulaFill?.cell?.userEnteredValue?.formulaValue,
+      buildPartnerPayableSheetFormula(89)
     );
+    assert.equal(batchBodies[0]?.requests?.some((request) => (
+      request.updateCells?.range?.startColumnIndex === 9
+    )), false);
   });
 });
 
-test("treats the canonical payable array formula as ready", async () => {
+test("treats canonical independent payable formulas as ready", async () => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(
     await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
@@ -1843,12 +1845,7 @@ test("treats the canonical payable array formula as ready", async () => {
   assert.ok(sheet);
   sheet.fillFormula("J2:J88", legacyPartnerPayableFormula(2));
   sheet.getRow(100).getCell(13).numFmt = 'General"%"';
-  sheet.getRow(89).getCell(10).value = {
-    formula: buildPartnerPayableSheetArrayFormula(89, 100, ",").slice(1),
-    ref: "J89:J100",
-    result: 11_102_000,
-    shareType: "array",
-  } as unknown as ExcelJS.CellValue;
+  sheet.fillFormula("J89:J100", buildPartnerPayableSheetFormula(89, ",").slice(1));
 
   const sourceExports: SourceExport[] = [{
     buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
