@@ -57,7 +57,7 @@ test("parses both legacy scaling percentages and new literal-percent Sheet numbe
 
 test("keeps decimal discounts consistent between the web parser and Google Sheet setup", () => {
   assert.equal(parsePartnerDiscountPercent("15,5"), 15.5);
-  assert.equal(PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT, '0.##"%"');
+  assert.equal(PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT, 'General"%"');
   assert.match(PARTNER_DISCOUNT_SHEET_INPUT_MESSAGE, /15,5/);
   assert.equal(
     buildPartnerDiscountSheetValidationFormula(2),
