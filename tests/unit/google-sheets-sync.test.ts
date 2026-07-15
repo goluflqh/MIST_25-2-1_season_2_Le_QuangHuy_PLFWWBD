@@ -385,7 +385,7 @@ test("formats WEB partner discounts as literal percentages", () => {
     && request.repeatCell.range.startColumnIndex === 7
     && request.repeatCell.range.endColumnIndex === 8
     && request.repeatCell.cell.userEnteredFormat?.numberFormat?.type === "NUMBER"
-        && request.repeatCell.cell.userEnteredFormat?.numberFormat?.pattern === '0.##"%"'
+        && request.repeatCell.cell.userEnteredFormat?.numberFormat?.pattern === 'General"%"'
   ));
 });
 

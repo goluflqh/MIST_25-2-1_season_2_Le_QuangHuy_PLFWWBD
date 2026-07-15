@@ -8,6 +8,7 @@ import {
   summarizePartnerLedgerEntries,
   summarizeServiceOrderFinancials,
 } from "../../lib/financial-calculations";
+import { calculatePartnerPurchaseAmounts } from "../../lib/partner-discounts";
 
 test("calculates service-order receivables from one shared formula", () => {
   assert.deepEqual(
@@ -65,4 +66,22 @@ test("calculates partner ledger balances from signed business meaning", () => {
   assert.equal(summary.paid, 60_000_000);
   assert.equal(summary.referenceOnly, 46_500_000);
   assert.equal(summary.countedPaid, 15_000_000);
+});
+
+test("keeps partner discounts after payments and later purchases", () => {
+  const discountedPurchases = [
+    calculatePartnerPurchaseAmounts(2, 60_000, 15).netAmount,
+    calculatePartnerPurchaseAmounts(2, 50_000, 15).netAmount,
+    calculatePartnerPurchaseAmounts(5, 55_000, 15).netAmount,
+  ];
+  const entries = [
+    { amount: 11_000_000, countsInDebt: true, entryType: "OPENING_BALANCE" },
+    ...discountedPurchases.map((amount) => ({ amount, countsInDebt: true, entryType: "PURCHASE" })),
+    { amount: 840_000, countsInDebt: true, entryType: "PURCHASE" },
+    { amount: 1_260_000, countsInDebt: true, entryType: "PAYMENT" },
+    { amount: 20_000, countsInDebt: true, entryType: "PURCHASE" },
+  ];
+
+  assert.deepEqual(discountedPurchases, [102_000, 85_000, 233_750]);
+  assert.equal(getPartnerBalance(entries), 11_020_750);
 });

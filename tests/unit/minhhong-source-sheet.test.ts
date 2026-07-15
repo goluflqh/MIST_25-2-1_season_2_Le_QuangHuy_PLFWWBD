@@ -9,6 +9,7 @@ import {
   applyMinhHongSourceIdPlan,
   applyMinhHongSourceSheetSetup,
   applyMinhHongSourceSheetDateRepairs,
+  buildPartnerPayableSheetArrayFormula,
   buildMinhHongSourceIdPlanFromExports,
   buildMinhHongSourceSheetEditUrl,
   buildMinhHongSourceSheetDateRepairsFromExports,
@@ -104,6 +105,22 @@ function legacyPartnerPayableFormula(rowNumber: number, separator = ",") {
 }
 
 const partnerPayableFormulaAtRow89 = '=IF(OR($B89="";$C89="";$G89="");"";IF(NOT(OR($K89="";$K89="Có";$K89="Co";$K89="Yes";$K89="True";$K89="1"));"";SUMPRODUCT(($B$2:$B89=$B89)*((($K$2:$K89="")+($K$2:$K89="Có")+($K$2:$K89="Co")+($K$2:$K89="Yes")+($K$2:$K89="True")+($K$2:$K89="1"))>0)*$G$2:$G89*(1-2*((($C$2:$C89="Thanh toán")+($C$2:$C89="Thanh toan")+($C$2:$C89="Trả hàng")+($C$2:$C89="Tra hang"))>0)))-SUMPRODUCT(($B$2:$B89=$B89)*((($K$2:$K89="")+($K$2:$K89="Có")+($K$2:$K89="Co")+($K$2:$K89="Yes")+($K$2:$K89="True")+($K$2:$K89="1"))>0)*((($C$2:$C89="Mua hàng")+($C$2:$C89="Mua hang"))>0)*$G$2:$G89*IFERROR($M$2:$M89/100;0))))';
+
+interface PartnerPayableSetupRequest {
+  repeatCell?: {
+    cell?: Record<string, unknown>;
+    fields?: string;
+    range?: Record<string, number>;
+  };
+  updateCells?: {
+    range?: Record<string, number>;
+    rows?: Array<{
+      values?: Array<{
+        userEnteredValue?: { formulaValue?: string };
+      }>;
+    }>;
+  };
+}
 
 async function buildSourceWorkbooksWithAssignedIds() {
   const exports = buildSourceExports();
@@ -383,6 +400,55 @@ test("keeps the live row 92 payable at 12.260.750 after an undiscounted 840.000 
   assert.equal(parsed.partnerTotals.longPayable, 12_260_750);
 });
 
+test("keeps discounts in the balance after a later 1.260.000 partner payment", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerDiscountSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.addRow([
+    "14/07/2026",
+    "Long",
+    "Mua hàng",
+    "Pin 35E",
+    28,
+    30_000,
+    840_000,
+    "",
+    "",
+    12_260_750,
+    "Có",
+    `MH_${"B".repeat(32)}`,
+    "",
+  ]);
+  sheet.addRow([
+    "14/07/2026",
+    "Long",
+    "Thanh toán",
+    "Thanh toán cho Long",
+    "",
+    "",
+    1_260_000,
+    "Chuyển khoản",
+    "",
+    11_000_750,
+    "Có",
+    `MH_${"C".repeat(32)}`,
+    "",
+  ]);
+
+  const preview = await buildMinhHongSourceImportPreviewFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+
+  assert.deepEqual(parsed.errors, []);
+  assert.equal(parsed.partnerTotals.longPayable, 11_000_750);
+});
+
 test("imports a fully discounted partner purchase with zero net payable", async () => {
   const preview = await buildMinhHongSourceImportPreviewFromExports([
     {
@@ -571,7 +637,7 @@ test("requires setup when only the first future partner discount cell is prepare
   sheet.getColumn(13).hidden = false;
   sheet.getRow(1).getCell(13).value = "Chiết khấu (%)";
   const setupCell = sheet.getRow(2).getCell(13);
-  setupCell.numFmt = '0.##"%"';
+  setupCell.numFmt = 'General"%"';
   setupCell.dataValidation = {
     allowBlank: true,
     formulae: ["AND(ISNUMBER(M2),M2>=0,M2<=100)"],
@@ -602,7 +668,7 @@ test("treats the fully prepared future partner discount range as ready", async (
   const lastPreparedRow = sheet.rowCount;
   for (let rowNumber = 2; rowNumber <= lastPreparedRow; rowNumber += 1) {
     const setupCell = sheet.getRow(rowNumber).getCell(13);
-    setupCell.numFmt = '0.##"%"';
+    setupCell.numFmt = 'General"%"';
     setupCell.dataValidation = {
       allowBlank: true,
       formulae: [`AND(ISNUMBER(M${rowNumber}),M${rowNumber}>=0,M${rowNumber}<=100)`],
@@ -633,7 +699,7 @@ test("accepts Google-exported discount validation anchored to the first prepared
   sheet.getRow(1).getCell(13).value = "Chiết khấu (%)";
   for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
     const setupCell = sheet.getRow(rowNumber).getCell(13);
-    setupCell.numFmt = '0.##"%"';
+    setupCell.numFmt = 'General"%"';
     setupCell.dataValidation = {
       allowBlank: true,
       formulae: ["AND(ISNUMBER(M2),M2>=0,M2<=100)"],
@@ -1593,7 +1659,7 @@ test("prepares the unified partner discount column as visible validated percenta
               strict: true,
             },
             userEnteredFormat: {
-              numberFormat: { type: "NUMBER", pattern: '0.##"%"' },
+              numberFormat: { type: "NUMBER", pattern: 'General"%"' },
             },
           },
           fields: "dataValidation,userEnteredFormat.numberFormat",
@@ -1624,11 +1690,7 @@ test("repairs future partner payable formulas to subtract purchase discounts", a
       spreadsheetId: "unified-sheet-id",
     }];
     const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
-    const batchBodies: Array<{ requests?: Array<{ repeatCell?: {
-      cell?: { userEnteredValue?: { formulaValue?: string } };
-      fields?: string;
-      range?: Record<string, number>;
-    } }> }> = [];
+    const batchBodies: Array<{ requests?: PartnerPayableSetupRequest[] }> = [];
 
     const fetchImpl = async (url: string | URL, init?: RequestInit) => {
       if (String(url).includes("oauth2.googleapis.com/token")) {
@@ -1661,10 +1723,10 @@ test("repairs future partner payable formulas to subtract purchase discounts", a
 
     await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
 
-    const formulaRepair = batchBodies[0]?.requests?.find((request) => (
+    const formulaClear = batchBodies[0]?.requests?.find((request) => (
       request.repeatCell?.range?.startColumnIndex === 9
     ))?.repeatCell;
-    assert.deepEqual(formulaRepair, {
+    assert.deepEqual(formulaClear, {
       range: {
         endColumnIndex: 10,
         endRowIndex: 100,
@@ -1672,13 +1734,16 @@ test("repairs future partner payable formulas to subtract purchase discounts", a
         startColumnIndex: 9,
         startRowIndex: 88,
       },
-      cell: {
-        userEnteredValue: {
-          formulaValue: partnerPayableFormulaAtRow89,
-        },
-      },
+      cell: {},
       fields: "userEnteredValue",
     });
+    const formulaAnchor = batchBodies[0]?.requests?.find((request) => (
+      request.updateCells?.range?.startColumnIndex === 9
+    ))?.updateCells;
+    assert.equal(
+      formulaAnchor?.rows?.[0]?.values?.[0]?.userEnteredValue?.formulaValue,
+      buildPartnerPayableSheetArrayFormula(89, 100)
+    );
   });
 });
 
@@ -1707,10 +1772,7 @@ test("repairs one reverted payable formula among otherwise current rows", async 
     assert.equal(partnerTarget?.payableFormulaReady, false);
     assert.equal(partnerTarget?.payableFormulaStartRow, 89);
     assert.equal(partnerTarget?.payableFormulaEndRow, 100);
-    const batchBodies: Array<{ requests?: Array<{ repeatCell?: {
-      cell?: { userEnteredValue?: { formulaValue?: string } };
-      range?: Record<string, number>;
-    } }> }> = [];
+    const batchBodies: Array<{ requests?: PartnerPayableSetupRequest[] }> = [];
 
     const fetchImpl = async (url: string | URL, init?: RequestInit) => {
       if (String(url).includes("oauth2.googleapis.com/token")) {
@@ -1756,16 +1818,52 @@ test("repairs one reverted payable formula among otherwise current rows", async 
 
     await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
 
-    const formulaRepair = batchBodies[0]?.requests?.find((request) => (
+    const formulaClear = batchBodies[0]?.requests?.find((request) => (
       request.repeatCell?.range?.startColumnIndex === 9
     ))?.repeatCell;
-    assert.equal(formulaRepair?.range?.startRowIndex, 88);
-    assert.equal(formulaRepair?.range?.endRowIndex, 100);
-    assert.equal(formulaRepair?.cell?.userEnteredValue?.formulaValue, partnerPayableFormulaAtRow89);
+    assert.equal(formulaClear?.range?.startRowIndex, 88);
+    assert.equal(formulaClear?.range?.endRowIndex, 100);
+    assert.deepEqual(formulaClear?.cell, {});
+    const formulaAnchor = batchBodies[0]?.requests?.find((request) => (
+      request.updateCells?.range?.startColumnIndex === 9
+    ))?.updateCells;
+    assert.equal(
+      formulaAnchor?.rows?.[0]?.values?.[0]?.userEnteredValue?.formulaValue,
+      buildPartnerPayableSheetArrayFormula(89, 100)
+    );
   });
 });
 
-test("warns before future partner payable formulas are overwritten", async () => {
+test("treats the canonical payable array formula as ready", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.fillFormula("J2:J88", legacyPartnerPayableFormula(2));
+  sheet.getRow(100).getCell(13).numFmt = 'General"%"';
+  sheet.getRow(89).getCell(10).value = {
+    formula: buildPartnerPayableSheetArrayFormula(89, 100, ",").slice(1),
+    ref: "J89:J100",
+    result: 11_102_000,
+    shareType: "array",
+  } as unknown as ExcelJS.CellValue;
+
+  const sourceExports: SourceExport[] = [{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }];
+  const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+  const partnerTarget = plan.targets.find((target) => target.id === "partner-ledger");
+
+  assert.equal(partnerTarget?.payableFormulaReady, true);
+  assert.equal(partnerTarget?.payableFormulaStartRow, 89);
+  assert.equal(partnerTarget?.payableFormulaEndRow, 100);
+});
+
+test("restricts edits to future partner payable formulas", async () => {
   await withGoogleServiceAccountCredentials(async () => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(
@@ -1793,7 +1891,7 @@ test("warns before future partner payable formulas are overwritten", async () =>
         return {
           json: async () => ({ sheets: [{
             properties: { sheetId: 42, title: "Đơn đối tác" },
-            ...(metadataReads === 2 ? {
+            ...(metadataReads >= 2 ? {
               protectedRanges: [{
                 description: "Minh Hồng: công thức công nợ tự động",
                 protectedRangeId: 17,
@@ -1804,7 +1902,7 @@ test("warns before future partner payable formulas are overwritten", async () =>
                   startColumnIndex: 9,
                   startRowIndex: 88,
                 },
-                warningOnly: true,
+                ...(metadataReads === 2 ? { warningOnly: true } : {}),
               }],
             } : {}),
           }] }),
@@ -1832,6 +1930,7 @@ test("warns before future partner payable formulas are overwritten", async () =>
 
     await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
     await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
 
     const protection = batchBodies[0]?.requests?.find((request) => "addProtectedRange" in request);
     assert.deepEqual(protection, {
@@ -1845,11 +1944,29 @@ test("warns before future partner payable formulas are overwritten", async () =>
             startColumnIndex: 9,
             startRowIndex: 88,
           },
-          warningOnly: true,
+          warningOnly: false,
         },
       },
     });
-    assert.equal(batchBodies[1]?.requests?.some((request) => (
+    const protectionUpdate = batchBodies[1]?.requests?.find((request) => "updateProtectedRange" in request);
+    assert.deepEqual(protectionUpdate, {
+      updateProtectedRange: {
+        fields: "description,range,warningOnly",
+        protectedRange: {
+          description: "Minh Hồng: công thức công nợ tự động",
+          protectedRangeId: 17,
+          range: {
+            endColumnIndex: 10,
+            endRowIndex: 100,
+            sheetId: 42,
+            startColumnIndex: 9,
+            startRowIndex: 88,
+          },
+          warningOnly: false,
+        },
+      },
+    });
+    assert.equal(batchBodies[2]?.requests?.some((request) => (
       "addProtectedRange" in request || "updateProtectedRange" in request
     )), false);
   });

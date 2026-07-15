@@ -6,7 +6,7 @@ export interface PartnerPurchaseAmounts {
 }
 
 export const PARTNER_DISCOUNT_SHEET_INPUT_MESSAGE = "Nhập số từ 0 đến 100, ví dụ 15 hoặc 15,5.";
-export const PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT = '0.##"%"';
+export const PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT = 'General"%"';
 
 export function buildPartnerDiscountSheetValidationFormula(rowNumber: number, separator = ";") {
   return `=AND(ISNUMBER(M${rowNumber})${separator}M${rowNumber}>=0${separator}M${rowNumber}<=100)`;
