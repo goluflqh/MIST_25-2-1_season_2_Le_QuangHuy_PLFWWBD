@@ -376,6 +376,19 @@ test("formats money columns in WEB sheets without converting numbers to text", (
   ));
 });
 
+test("formats WEB partner discounts as literal percentages", () => {
+  const formatRequests = buildGoogleSheetsFormatRequests([{ sheetId: 11, title: "WEB_Đơn đối tác" }], "partners");
+
+  assert.ok(formatRequests.some((request) =>
+    "repeatCell" in request
+    && request.repeatCell.range.sheetId === 11
+    && request.repeatCell.range.startColumnIndex === 7
+    && request.repeatCell.range.endColumnIndex === 8
+    && request.repeatCell.cell.userEnteredFormat?.numberFormat?.type === "NUMBER"
+        && request.repeatCell.cell.userEnteredFormat?.numberFormat?.pattern === '0.##"%"'
+  ));
+});
+
 test("formats service-order phone columns as text so Sheets keeps leading zeroes", () => {
   const formatRequests = buildGoogleSheetsFormatRequests([
     { sheetId: 10, title: "WEB_Đơn hàng" },

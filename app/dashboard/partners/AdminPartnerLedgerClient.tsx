@@ -988,14 +988,24 @@ export default function AdminPartnerLedgerClient({
                   {entryForm.entryMode === "PURCHASE" ? (
                     <label className="space-y-1.5 md:col-span-1 lg:col-span-2">
                       <span className="font-body text-xs font-bold text-slate-700">Chiết khấu (%)</span>
-                      <input
-                        inputMode="decimal"
-                        data-testid="partner-entry-discount"
-                        value={entryForm.discountPercent}
-                        onChange={(event) => setEntryForm({ ...entryForm, discountPercent: event.target.value })}
-                        placeholder="Không có thì để trống"
-                        className="min-h-11 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-body outline-none focus:border-red-400"
-                      />
+                      <div className="relative">
+                        <input
+                          inputMode="decimal"
+                          data-testid="partner-entry-discount"
+                          value={entryForm.discountPercent}
+                          onChange={(event) => setEntryForm({ ...entryForm, discountPercent: event.target.value })}
+                          placeholder="Ví dụ: 15"
+                          className="min-h-11 w-full rounded-lg border border-slate-200 py-3 pl-4 pr-10 text-sm font-body outline-none focus:border-red-400"
+                        />
+                        <span
+                          aria-hidden="true"
+                          data-testid="partner-entry-discount-suffix"
+                          className="pointer-events-none absolute inset-y-0 right-4 flex items-center font-body text-sm font-bold text-slate-500"
+                        >
+                          %
+                        </span>
+                      </div>
+                      <p className="font-body text-xs text-slate-500">Nhập 15 để áp dụng chiết khấu 15%.</p>
                     </label>
                   ) : null}
                   <div className={`rounded-lg border px-4 py-3 md:col-span-3 lg:col-span-4 ${entryForm.entryMode === "RETURN" ? "border-amber-100 bg-amber-50" : "border-red-100 bg-red-50"}`}>

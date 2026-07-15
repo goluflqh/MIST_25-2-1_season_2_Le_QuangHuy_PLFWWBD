@@ -282,6 +282,7 @@ test.describe("Admin phase 2 workflows", () => {
     const entryDialog = page.getByTestId("partner-entry-dialog");
     await expect(entryDialog).toBeVisible();
     await expect(entryDialog.getByText("Tên mặt hàng")).toBeVisible();
+    await expect(entryDialog.getByText("Nhập 15 để áp dụng chiết khấu 15%.")).toBeVisible();
     await expect(page.getByTestId("partner-entry-product")).toBeFocused();
     await page.getByTestId("partner-entry-product").fill("Hóa đơn có chiết khấu");
     await page.getByTestId("partner-entry-quantity").fill("9");
@@ -290,6 +291,7 @@ test.describe("Admin phase 2 workflows", () => {
     await expect(page.getByTestId("partner-entry-discount-amount")).toContainText("0đ");
     await expect(page.getByTestId("partner-entry-total")).toContainText("495.000đ");
     await page.getByTestId("partner-entry-discount").fill("15");
+    await expect(page.getByTestId("partner-entry-discount-suffix")).toHaveText("%");
     await expect(page.getByTestId("partner-entry-gross-total")).toContainText("495.000đ");
     await expect(page.getByTestId("partner-entry-discount-amount")).toContainText("74.250đ");
     await expect(page.getByTestId("partner-entry-total")).toContainText("420.750đ");

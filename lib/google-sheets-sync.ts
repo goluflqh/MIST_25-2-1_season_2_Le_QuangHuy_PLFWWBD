@@ -3,6 +3,7 @@ import { getPayableAmount } from "@/lib/coupon-discounts";
 import { shouldHideImportedFallbackDate } from "@/lib/admin-order-display";
 import { getVisibleDebtPartners } from "@/lib/partner-legacy";
 import { partnerInclude, serializePartner } from "@/lib/partner-ledger";
+import { PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT } from "@/lib/partner-discounts";
 import { prisma } from "@/lib/prisma";
 import {
   normalizeServiceOrderPriceStatus,
@@ -367,6 +368,29 @@ function buildTextFormatRequests(
   }));
 }
 
+function buildPartnerDiscountFormatRequests(
+  sheet: SpreadsheetSheetProperties,
+  title: MinhHongWebExportTabTitle
+): GoogleSheetsFormatRequest[] {
+  if (title !== "WEB_Đơn đối tác") return [];
+  return [{
+    repeatCell: {
+      cell: {
+        userEnteredFormat: {
+          numberFormat: { type: "NUMBER", pattern: PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT },
+        },
+      },
+      fields: "userEnteredFormat.numberFormat",
+      range: {
+        endColumnIndex: 8,
+        sheetId: sheet.sheetId,
+        startColumnIndex: 7,
+        startRowIndex: 1,
+      },
+    },
+  }];
+}
+
 function buildOrderSummaryFormatRequests(
   sheet: SpreadsheetSheetProperties,
   rowCount: number | undefined
@@ -436,6 +460,7 @@ export function buildGoogleSheetsFormatRequests(
           },
         },
         ...buildMoneyFormatRequests(sheet, title),
+        ...buildPartnerDiscountFormatRequests(sheet, title),
         ...buildTextFormatRequests(sheet, title),
         ...(title === "WEB_Đơn hàng" ? buildOrderSummaryFormatRequests(sheet, tabRowCounts[title]) : []),
       ];

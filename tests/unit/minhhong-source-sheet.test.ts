@@ -7,6 +7,7 @@ import ExcelJS from "exceljs";
 import { reconcileMinhHongWorkbook } from "../../lib/minhhong-import/reconciliation";
 import {
   applyMinhHongSourceIdPlan,
+  applyMinhHongSourceSheetSetup,
   applyMinhHongSourceSheetDateRepairs,
   buildMinhHongSourceIdPlanFromExports,
   buildMinhHongSourceSheetEditUrl,
@@ -17,7 +18,6 @@ import {
   buildSourceSheetExportUrl,
   fetchMinhHongSourceSheetExports,
   getMinhHongSourceSheetLinkTargets,
-  hideMinhHongSourceIdColumns,
   MinhHongSourceIdPlanChangedError,
   MINHHONG_SOURCE_ID_PATTERN,
   MINHHONG_SOURCE_ID_TARGETS,
@@ -97,6 +97,13 @@ async function buildUnifiedPartnerDiscountSourceWorkbook(discountPercent = 15, d
   }
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
+
+function legacyPartnerPayableFormula(rowNumber: number, separator = ",") {
+  const join = (...parts: string[]) => parts.join(separator);
+  return `=IF(${join(`OR(${join(`$B${rowNumber}=""`, `$C${rowNumber}=""`, `$G${rowNumber}=""`)})`, `""`, `IF(${join(`$K${rowNumber}="Không"`, `""`, `SUMIFS(${join(`$G$2:$G${rowNumber}`, `$B$2:$B${rowNumber}`, `$B${rowNumber}`, `$K$2:$K${rowNumber}`, `"<>Không"`, `$C$2:$C${rowNumber}`, `"<>Thanh toán"`, `$C$2:$C${rowNumber}`, `"<>Trả hàng"`)})-SUMIFS(${join(`$G$2:$G${rowNumber}`, `$B$2:$B${rowNumber}`, `$B${rowNumber}`, `$K$2:$K${rowNumber}`, `"<>Không"`, `$C$2:$C${rowNumber}`, `"Thanh toán"`)})-SUMIFS(${join(`$G$2:$G${rowNumber}`, `$B$2:$B${rowNumber}`, `$B${rowNumber}`, `$K$2:$K${rowNumber}`, `"<>Không"`, `$C$2:$C${rowNumber}`, `"Trả hàng"`)})`)})`)})`;
+}
+
+const partnerPayableFormulaAtRow89 = '=IF(OR($B89="";$C89="";$G89="");"";IF(NOT(OR($K89="";$K89="Có";$K89="Co";$K89="Yes";$K89="True";$K89="1"));"";SUMPRODUCT(($B$2:$B89=$B89)*((($K$2:$K89="")+($K$2:$K89="Có")+($K$2:$K89="Co")+($K$2:$K89="Yes")+($K$2:$K89="True")+($K$2:$K89="1"))>0)*$G$2:$G89*(1-2*((($C$2:$C89="Thanh toán")+($C$2:$C89="Thanh toan")+($C$2:$C89="Trả hàng")+($C$2:$C89="Tra hang"))>0)))-SUMPRODUCT(($B$2:$B89=$B89)*((($K$2:$K89="")+($K$2:$K89="Có")+($K$2:$K89="Co")+($K$2:$K89="Yes")+($K$2:$K89="True")+($K$2:$K89="1"))>0)*((($C$2:$C89="Mua hàng")+($C$2:$C89="Mua hang"))>0)*$G$2:$G89*IFERROR($M$2:$M89/100;0))))';
 
 async function buildSourceWorkbooksWithAssignedIds() {
   const exports = buildSourceExports();
@@ -339,6 +346,43 @@ test("imports an optional partner discount as the net payable amount", async () 
   assert.equal(parsed.partnerTotals.longPayable, 11_420_750);
 });
 
+test("keeps the live row 92 payable at 12.260.750 after an undiscounted 840.000 purchase", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerDiscountSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.addRow([
+    "14/07/2026",
+    "Long",
+    "Mua hàng",
+    "Pin 35E",
+    28,
+    30_000,
+    840_000,
+    "",
+    "",
+    12_260_750,
+    "Có",
+    `MH_${"B".repeat(32)}`,
+    "",
+  ]);
+
+  const preview = await buildMinhHongSourceImportPreviewFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const pin35e = parsed.partnerEntries.find((entry) => entry.description === "Pin 35E");
+
+  assert.equal(pin35e?.amount, 840_000);
+  assert.equal(pin35e?.discountAmount, 0);
+  assert.equal(pin35e?.discountPercent, null);
+  assert.equal(parsed.partnerTotals.longPayable, 12_260_750);
+});
+
 test("imports a fully discounted partner purchase with zero net payable", async () => {
   const preview = await buildMinhHongSourceImportPreviewFromExports([
     {
@@ -432,6 +476,182 @@ test("excludes source_id column L but includes discount column M in plan fingerp
   assert.notEqual(businessPlan.fingerprint, baselinePlan.fingerprint);
 });
 
+test("requires setup when the unified partner Sheet is missing discount column M", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.getColumn(12).hidden = true;
+
+  const plan = await buildMinhHongSourceIdPlanFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+
+  assert.equal(plan.canApply, true);
+  assert.equal(plan.assignments.some((assignment) => (
+    assignment.range === "'Đơn đối tác'!M1"
+    && assignment.value === "Chiết khấu (%)"
+  )), true);
+  assert.equal(plan.requiresSetup, true);
+});
+
+test("refuses to overwrite an occupied partner discount header cell", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.getColumn(12).hidden = true;
+  sheet.getRow(1).getCell(13).value = "Dữ liệu khác";
+
+  const plan = await buildMinhHongSourceIdPlanFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+
+  assert.equal(plan.canApply, false);
+  assert.equal(plan.headerConflicts.some((issue) => issue.includes("M1")), true);
+  assert.equal(plan.assignments.some((assignment) => assignment.range === "'Đơn đối tác'!M1"), false);
+});
+
+test("requires setup when the partner discount column exists but is hidden", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerDiscountSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.getColumn(12).hidden = true;
+  sheet.getColumn(13).hidden = true;
+
+  const plan = await buildMinhHongSourceIdPlanFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+
+  assert.equal(plan.assignments.length, 0);
+  assert.equal(plan.requiresSetup, true);
+});
+
+test("requires setup when the visible partner discount column lacks format or validation", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerDiscountSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.getColumn(12).hidden = true;
+  sheet.getColumn(13).hidden = false;
+
+  const plan = await buildMinhHongSourceIdPlanFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+
+  assert.equal(plan.assignments.length, 0);
+  assert.equal(plan.requiresSetup, true);
+});
+
+test("requires setup when only the first future partner discount cell is prepared", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.getColumn(12).hidden = true;
+  sheet.getColumn(13).hidden = false;
+  sheet.getRow(1).getCell(13).value = "Chiết khấu (%)";
+  const setupCell = sheet.getRow(2).getCell(13);
+  setupCell.numFmt = '0.##"%"';
+  setupCell.dataValidation = {
+    allowBlank: true,
+    formulae: ["AND(ISNUMBER(M2),M2>=0,M2<=100)"],
+    showErrorMessage: true,
+    type: "custom",
+  };
+
+  const plan = await buildMinhHongSourceIdPlanFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+
+  assert.equal(plan.assignments.length, 0);
+  assert.equal(plan.requiresSetup, true);
+});
+
+test("treats the fully prepared future partner discount range as ready", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.getColumn(12).hidden = true;
+  sheet.getColumn(13).hidden = false;
+  sheet.getRow(1).getCell(13).value = "Chiết khấu (%)";
+  const lastPreparedRow = sheet.rowCount;
+  for (let rowNumber = 2; rowNumber <= lastPreparedRow; rowNumber += 1) {
+    const setupCell = sheet.getRow(rowNumber).getCell(13);
+    setupCell.numFmt = '0.##"%"';
+    setupCell.dataValidation = {
+      allowBlank: true,
+      formulae: [`AND(ISNUMBER(M${rowNumber}),M${rowNumber}>=0,M${rowNumber}<=100)`],
+      showErrorMessage: true,
+      type: "custom",
+    };
+  }
+
+  const plan = await buildMinhHongSourceIdPlanFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+
+  assert.equal(plan.assignments.length, 0);
+  assert.equal(plan.requiresSetup, false);
+});
+
+test("accepts Google-exported discount validation anchored to the first prepared row", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.getColumn(12).hidden = true;
+  sheet.getColumn(13).hidden = false;
+  sheet.getRow(1).getCell(13).value = "Chiết khấu (%)";
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    const setupCell = sheet.getRow(rowNumber).getCell(13);
+    setupCell.numFmt = '0.##"%"';
+    setupCell.dataValidation = {
+      allowBlank: true,
+      formulae: ["AND(ISNUMBER(M2),M2>=0,M2<=100)"],
+      showErrorMessage: true,
+      type: "custom",
+    };
+  }
+
+  const plan = await buildMinhHongSourceIdPlanFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+
+  assert.equal(plan.assignments.length, 0);
+  assert.equal(plan.requiresSetup, false);
+});
+
 test("treats partner discount column M as business data during source_id preflight", async () => {
   const sourceExports: SourceExport[] = [{
     buffer: await buildUnifiedPartnerDiscountSourceWorkbook(),
@@ -488,6 +708,175 @@ test("treats partner discount column M as business data during source_id preflig
     );
   });
   assert.equal(attemptedWrite, false);
+});
+
+test("accepts Google preflight ranges trimmed before an empty partner discount column", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const sourceExports: SourceExport[] = [{
+      buffer: await buildUnifiedPartnerSourceWorkbook(),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    const appendBodies: Array<{ requests?: unknown[] }> = [];
+    const writeBodies: Array<{ data?: Array<{ range?: string; values?: unknown[][] }> }> = [];
+    let preflightReads = 0;
+
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).endsWith(":batchGetByDataFilter")) {
+        preflightReads += 1;
+        const ranges = sourceIdDataFilterRanges(init);
+        return {
+          json: async () => ({
+            valueRanges: ranges.toReversed().map((range) => {
+              const rowCheck = plan.rowChecks.find((candidate) => sourceIdPreflightRange(candidate) === range);
+              assert.ok(rowCheck, `unexpected preflight range ${range}`);
+              const target = sourceIdTarget(rowCheck);
+              const values = sourceIdPreflightValues(
+                rowCheck.rowFingerprint,
+                rowCheck.sourceId,
+                range,
+                target.sourceIdColumn
+              );
+              if (values.at(-1) === "") values.pop();
+              return {
+                dataFilters: [{ a1Range: range }],
+                valueRange: {
+                  range: range.replace(/:M(\d+)$/, ":L$1"),
+                  values: [values],
+                },
+              };
+            }),
+          }),
+          ok: true,
+        } as Response;
+      }
+
+      if (String(url).endsWith("?fields=sheets.properties(sheetId,title,gridProperties(columnCount))")) {
+        return {
+          json: async () => ({
+            sheets: [{
+              properties: {
+                gridProperties: { columnCount: 12 },
+                sheetId: 42,
+                title: "Đơn đối tác",
+              },
+            }],
+          }),
+          ok: true,
+        } as Response;
+      }
+
+      if (String(url) === "https://sheets.googleapis.com/v4/spreadsheets/unified-sheet-id:batchUpdate") {
+        appendBodies.push(JSON.parse(String(init?.body || "{}")));
+        return { json: async () => ({}), ok: true } as Response;
+      }
+
+      const writeBody = JSON.parse(String(init?.body || "{}"));
+      writeBodies.push(writeBody);
+      return { json: async () => ({ totalUpdatedCells: writeBody.data?.length || 0 }), ok: true } as Response;
+    };
+
+    const result = await applyMinhHongSourceIdPlan(
+      plan,
+      plan.fingerprint,
+      sourceExports,
+      fetchImpl as typeof fetch,
+      "partners"
+    );
+
+    assert.equal(result.updatedCells, 1);
+    assert.equal(preflightReads, 2);
+    assert.deepEqual(appendBodies[0]?.requests, [{
+      appendDimension: { dimension: "COLUMNS", length: 1, sheetId: 42 },
+    }]);
+    assert.deepEqual(writeBodies[0]?.data, [{ range: "'Đơn đối tác'!M1", values: [["Chiết khấu (%)"]] }]);
+  });
+});
+
+test("refuses the header write when the Sheet changes after appending column M", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const sourceExports: SourceExport[] = [{
+      buffer: await buildUnifiedPartnerSourceWorkbook(),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    let preflightReads = 0;
+    let attemptedValueWrite = false;
+
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).endsWith(":batchGetByDataFilter")) {
+        preflightReads += 1;
+        const ranges = sourceIdDataFilterRanges(init);
+        return {
+          json: async () => ({
+            valueRanges: ranges.map((range) => {
+              const rowCheck = plan.rowChecks.find((candidate) => sourceIdPreflightRange(candidate) === range);
+              assert.ok(rowCheck, `unexpected preflight range ${range}`);
+              const target = sourceIdTarget(rowCheck);
+              const values = sourceIdPreflightValues(
+                rowCheck.rowFingerprint,
+                rowCheck.sourceId,
+                range,
+                target.sourceIdColumn
+              );
+              if (preflightReads === 2 && rowCheck.rowNumber === 1) values[12] = "Tiêu đề từ người khác";
+              if (values.at(-1) === "") values.pop();
+              return {
+                dataFilters: [{ a1Range: range }],
+                valueRange: {
+                  range: preflightReads === 2 && rowCheck.rowNumber === 1
+                    ? range
+                    : range.replace(/:M(\d+)$/, ":L$1"),
+                  values: [values],
+                },
+              };
+            }),
+          }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).endsWith("?fields=sheets.properties(sheetId,title,gridProperties(columnCount))")) {
+        return {
+          json: async () => ({
+            sheets: [{
+              properties: {
+                gridProperties: { columnCount: 12 },
+                sheetId: 42,
+                title: "Đơn đối tác",
+              },
+            }],
+          }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).endsWith(":batchUpdate")) {
+        return { json: async () => ({}), ok: true } as Response;
+      }
+      attemptedValueWrite = true;
+      throw new Error("unexpected value write");
+    };
+
+    await assert.rejects(
+      () => applyMinhHongSourceIdPlan(
+        plan,
+        plan.fingerprint,
+        sourceExports,
+        fetchImpl as typeof fetch,
+        "partners"
+      ),
+      MinhHongSourceIdPlanChangedError
+    );
+    assert.equal(preflightReads, 2);
+    assert.equal(attemptedValueWrite, false);
+  });
 });
 
 test("fails before requesting a private source Sheet when Google credentials are missing", async () => {
@@ -682,7 +1071,7 @@ test("blocks normalization when an existing source_id column was moved", async (
   assert.ok(plan.headerConflicts.some((issue) => issue.includes("đã bị di chuyển")));
 });
 
-test("applies source_id assignments when batch preflight results are reordered and formulas lack cached results", async () => {
+test("applies source_id assignments when preflight formulas use localized separators and lack cached results", async () => {
   const originalEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const originalKey = process.env.GOOGLE_PRIVATE_KEY;
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -736,7 +1125,7 @@ test("applies source_id assignments when batch preflight results are reordered a
               const values = sourceIdPreflightRow(assignment);
               for (let column = 1; column < target.sourceIdColumn; column += 1) {
                 const formula = worksheet.getRow(assignment.rowNumber).getCell(column).formula;
-                if (formula) values[column - 1] = `=${formula}`;
+                if (formula) values[column - 1] = `=${formula.replace(/,/g, ";")}`;
               }
               return {
                 dataFilters: [{ a1Range: sourceIdPreflightRange(assignment) }],
@@ -815,6 +1204,76 @@ test("applies source_id assignments when batch preflight results are reordered a
     if (originalKey === undefined) delete process.env.GOOGLE_PRIVATE_KEY;
     else process.env.GOOGLE_PRIVATE_KEY = originalKey;
   }
+});
+
+test("accepts localized formula separators during partner row preflight", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    );
+    const sheet = workbook.getWorksheet("Đơn đối tác");
+    assert.ok(sheet);
+    sheet.getRow(1).getCell(13).value = "Chiết khấu (%)";
+    sheet.fillFormula(
+      `G2:G${sheet.rowCount}`,
+      '=IF(OR($C2<>"Mua hàng",$E2="",$F2=""),"",ROUND($E2*$F2,0))'
+    );
+    sheet.fillFormula(`J2:J${sheet.rowCount}`, legacyPartnerPayableFormula(2));
+
+    const sourceExports: SourceExport[] = [{
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    assert.equal(plan.assignments.length, 0);
+
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).endsWith(":batchGetByDataFilter")) {
+        const ranges = sourceIdDataFilterRanges(init);
+        return {
+          json: async () => ({
+            valueRanges: ranges.map((range) => {
+              const rowCheck = plan.rowChecks.find((candidate) => sourceIdPreflightRange(candidate) === range);
+              assert.ok(rowCheck, `unexpected preflight range ${range}`);
+              const target = sourceIdTarget(rowCheck);
+              const values = sourceIdPreflightValues(
+                rowCheck.rowFingerprint,
+                rowCheck.sourceId,
+                range,
+                target.sourceIdColumn
+              );
+              for (let column = 0; column < values.length; column += 1) {
+                const value = values[column];
+                if (typeof value === "string" && value.startsWith("=")) {
+                  values[column] = value.replace(/,/g, ";");
+                }
+              }
+              return {
+                dataFilters: [{ a1Range: range }],
+                valueRange: { range, values: [values] },
+              };
+            }),
+          }),
+          ok: true,
+        } as Response;
+      }
+      throw new Error(`unexpected request ${url}`);
+    };
+
+    const result = await applyMinhHongSourceIdPlan(
+      plan,
+      plan.fingerprint,
+      sourceExports,
+      fetchImpl as typeof fetch,
+      "partners"
+    );
+    assert.equal(result.updatedCells, 0);
+  });
 });
 
 test("refuses every source_id write when an already-stamped row changes during final preflight", async () => {
@@ -1043,7 +1502,7 @@ test("hides only the service-order identity column after verified preparation", 
       return { json: async () => ({}), ok: true } as Response;
     };
 
-    await hideMinhHongSourceIdColumns(plan, buildSourceExports(), fetchImpl as typeof fetch);
+    await applyMinhHongSourceSheetSetup(plan, buildSourceExports(), fetchImpl as typeof fetch);
 
     const batchRequests = requests.filter((request) => request.url.endsWith(":batchUpdate"));
     assert.equal(batchRequests.length, 1);
@@ -1068,6 +1527,548 @@ test("hides only the service-order identity column after verified preparation", 
     if (originalKey === undefined) delete process.env.GOOGLE_PRIVATE_KEY;
     else process.env.GOOGLE_PRIVATE_KEY = originalKey;
   }
+});
+
+test("prepares the unified partner discount column as visible validated percentages", async () => {
+  const originalEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const originalKey = process.env.GOOGLE_PRIVATE_KEY;
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const sourceExports: SourceExport[] = [{
+    buffer: await buildUnifiedPartnerSourceWorkbook(),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }];
+  const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+
+  process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = "minhhong-sync@example.iam.gserviceaccount.com";
+  process.env.GOOGLE_PRIVATE_KEY = privateKeyPem;
+
+  try {
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      requests.push({ url: String(url), init });
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).includes("?fields=sheets.properties")) {
+        return {
+          json: async () => ({ sheets: [{ properties: { sheetId: 42, title: "Đơn đối tác" } }] }),
+          ok: true,
+        } as Response;
+      }
+      return { json: async () => ({}), ok: true } as Response;
+    };
+
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
+
+    const batchRequest = requests.find((request) => request.url.endsWith(":batchUpdate"));
+    assert.ok(batchRequest);
+    const body = JSON.parse(String(batchRequest.init?.body || "{}"));
+    assert.deepEqual(body.requests, [
+      {
+        updateDimensionProperties: {
+          range: { dimension: "COLUMNS", endIndex: 12, sheetId: 42, startIndex: 11 },
+          properties: { hiddenByUser: true },
+          fields: "hiddenByUser",
+        },
+      },
+      {
+        updateDimensionProperties: {
+          range: { dimension: "COLUMNS", endIndex: 13, sheetId: 42, startIndex: 12 },
+          properties: { hiddenByUser: false },
+          fields: "hiddenByUser",
+        },
+      },
+      {
+        repeatCell: {
+          range: { sheetId: 42, startColumnIndex: 12, startRowIndex: 1, endColumnIndex: 13 },
+          cell: {
+            dataValidation: {
+              condition: {
+                type: "CUSTOM_FORMULA",
+                values: [{ userEnteredValue: "=AND(ISNUMBER(M2);M2>=0;M2<=100)" }],
+              },
+              inputMessage: "Nhập số từ 0 đến 100, ví dụ 15 hoặc 15,5.",
+              strict: true,
+            },
+            userEnteredFormat: {
+              numberFormat: { type: "NUMBER", pattern: '0.##"%"' },
+            },
+          },
+          fields: "dataValidation,userEnteredFormat.numberFormat",
+        },
+      },
+    ]);
+  } finally {
+    if (originalEmail === undefined) delete process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    else process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = originalEmail;
+    if (originalKey === undefined) delete process.env.GOOGLE_PRIVATE_KEY;
+    else process.env.GOOGLE_PRIVATE_KEY = originalKey;
+  }
+});
+
+test("repairs future partner payable formulas to subtract purchase discounts", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    );
+    const sheet = workbook.getWorksheet("Đơn đối tác");
+    assert.ok(sheet);
+    sheet.fillFormula("J2:J100", legacyPartnerPayableFormula(2));
+
+    const sourceExports: SourceExport[] = [{
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    const batchBodies: Array<{ requests?: Array<{ repeatCell?: {
+      cell?: { userEnteredValue?: { formulaValue?: string } };
+      fields?: string;
+      range?: Record<string, number>;
+    } }> }> = [];
+
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).includes("?fields=sheets.properties")) {
+        return {
+          json: async () => ({ sheets: [{ properties: { sheetId: 42, title: "Đơn đối tác" } }] }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).includes("/values/")) {
+        const formulaRange = decodeURIComponent(String(url)).match(/J(\d+):J(\d+)/);
+        assert.ok(formulaRange);
+        const startRow = Number(formulaRange[1]);
+        const endRow = Number(formulaRange[2]);
+        return {
+          json: async () => ({
+            values: Array.from(
+              { length: endRow - startRow + 1 },
+              (_, index) => [legacyPartnerPayableFormula(startRow + index, ";")]
+            ),
+          }),
+          ok: true,
+        } as Response;
+      }
+      batchBodies.push(JSON.parse(String(init?.body || "{}")));
+      return { json: async () => ({}), ok: true } as Response;
+    };
+
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
+
+    const formulaRepair = batchBodies[0]?.requests?.find((request) => (
+      request.repeatCell?.range?.startColumnIndex === 9
+    ))?.repeatCell;
+    assert.deepEqual(formulaRepair, {
+      range: {
+        endColumnIndex: 10,
+        endRowIndex: 100,
+        sheetId: 42,
+        startColumnIndex: 9,
+        startRowIndex: 88,
+      },
+      cell: {
+        userEnteredValue: {
+          formulaValue: partnerPayableFormulaAtRow89,
+        },
+      },
+      fields: "userEnteredValue",
+    });
+  });
+});
+
+test("repairs one reverted payable formula among otherwise current rows", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    );
+    const sheet = workbook.getWorksheet("Đơn đối tác");
+    assert.ok(sheet);
+    sheet.fillFormula("J2:J88", legacyPartnerPayableFormula(2));
+    sheet.fillFormula("J89:J100", partnerPayableFormulaAtRow89.replace(/;/g, ","));
+    sheet.getRow(92).getCell(10).value = {
+      formula: legacyPartnerPayableFormula(92).replace(/^=/, ""),
+      result: 12_335_000,
+    };
+
+    const sourceExports: SourceExport[] = [{
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    const partnerTarget = plan.targets.find((target) => target.id === "partner-ledger");
+    assert.equal(partnerTarget?.payableFormulaReady, false);
+    assert.equal(partnerTarget?.payableFormulaStartRow, 89);
+    assert.equal(partnerTarget?.payableFormulaEndRow, 100);
+    const batchBodies: Array<{ requests?: Array<{ repeatCell?: {
+      cell?: { userEnteredValue?: { formulaValue?: string } };
+      range?: Record<string, number>;
+    } }> }> = [];
+
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).includes("?fields=sheets.properties")) {
+        return {
+          json: async () => ({ sheets: [{
+            properties: { sheetId: 42, title: "Đơn đối tác" },
+            protectedRanges: [{
+              protectedRangeId: 17,
+              range: {
+                endColumnIndex: 10,
+                endRowIndex: 100,
+                sheetId: 42,
+                startColumnIndex: 9,
+                startRowIndex: 88,
+              },
+              warningOnly: true,
+            }],
+          }] }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).includes("/values/")) {
+        const formulaRange = decodeURIComponent(String(url)).match(/J(\d+):J(\d+)/);
+        assert.ok(formulaRange);
+        const startRow = Number(formulaRange[1]);
+        const endRow = Number(formulaRange[2]);
+        return {
+          json: async () => ({
+            values: Array.from({ length: endRow - startRow + 1 }, (_, index) => {
+              const formula = sheet.getRow(startRow + index).getCell(10).formula;
+              return [formula ? (formula.startsWith("=") ? formula : `=${formula}`) : ""];
+            }),
+          }),
+          ok: true,
+        } as Response;
+      }
+      batchBodies.push(JSON.parse(String(init?.body || "{}")));
+      return { json: async () => ({}), ok: true } as Response;
+    };
+
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
+
+    const formulaRepair = batchBodies[0]?.requests?.find((request) => (
+      request.repeatCell?.range?.startColumnIndex === 9
+    ))?.repeatCell;
+    assert.equal(formulaRepair?.range?.startRowIndex, 88);
+    assert.equal(formulaRepair?.range?.endRowIndex, 100);
+    assert.equal(formulaRepair?.cell?.userEnteredValue?.formulaValue, partnerPayableFormulaAtRow89);
+  });
+});
+
+test("warns before future partner payable formulas are overwritten", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    );
+    const sheet = workbook.getWorksheet("Đơn đối tác");
+    assert.ok(sheet);
+    sheet.fillFormula("J2:J100", legacyPartnerPayableFormula(2));
+
+    const sourceExports: SourceExport[] = [{
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    const batchBodies: Array<{ requests?: Array<Record<string, unknown>> }> = [];
+    let metadataReads = 0;
+
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).includes("?fields=sheets.properties")) {
+        metadataReads += 1;
+        return {
+          json: async () => ({ sheets: [{
+            properties: { sheetId: 42, title: "Đơn đối tác" },
+            ...(metadataReads === 2 ? {
+              protectedRanges: [{
+                description: "Minh Hồng: công thức công nợ tự động",
+                protectedRangeId: 17,
+                range: {
+                  endColumnIndex: 10,
+                  endRowIndex: 100,
+                  sheetId: 42,
+                  startColumnIndex: 9,
+                  startRowIndex: 88,
+                },
+                warningOnly: true,
+              }],
+            } : {}),
+          }] }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).includes("/values/")) {
+        const formulaRange = decodeURIComponent(String(url)).match(/J(\d+):J(\d+)/);
+        assert.ok(formulaRange);
+        const startRow = Number(formulaRange[1]);
+        const endRow = Number(formulaRange[2]);
+        return {
+          json: async () => ({
+            values: Array.from(
+              { length: endRow - startRow + 1 },
+              (_, index) => [legacyPartnerPayableFormula(startRow + index, ";")]
+            ),
+          }),
+          ok: true,
+        } as Response;
+      }
+      batchBodies.push(JSON.parse(String(init?.body || "{}")));
+      return { json: async () => ({}), ok: true } as Response;
+    };
+
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
+
+    const protection = batchBodies[0]?.requests?.find((request) => "addProtectedRange" in request);
+    assert.deepEqual(protection, {
+      addProtectedRange: {
+        protectedRange: {
+          description: "Minh Hồng: công thức công nợ tự động",
+          range: {
+            endColumnIndex: 10,
+            endRowIndex: 100,
+            sheetId: 42,
+            startColumnIndex: 9,
+            startRowIndex: 88,
+          },
+          warningOnly: true,
+        },
+      },
+    });
+    assert.equal(batchBodies[1]?.requests?.some((request) => (
+      "addProtectedRange" in request || "updateProtectedRange" in request
+    )), false);
+  });
+});
+
+test("formats existing raw discount values without rescaling them", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    );
+    const sheet = workbook.getWorksheet("Đơn đối tác");
+    assert.ok(sheet);
+    sheet.getRow(4).getCell(13).value = 15;
+    const sourceExports: SourceExport[] = [{
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    const batchBodies: Array<{ requests?: Array<{ repeatCell?: { range?: { startRowIndex?: number } } }> }> = [];
+
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).includes("?fields=sheets.properties")) {
+        return {
+          json: async () => ({ sheets: [{ properties: { sheetId: 42, title: "Đơn đối tác" } }] }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).includes("/values/")) {
+        return { json: async () => ({ values: [[], [], [15]] }), ok: true } as Response;
+      }
+      batchBodies.push(JSON.parse(String(init?.body || "{}")));
+      return { json: async () => ({}), ok: true } as Response;
+    };
+
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
+
+    const repeatCell = batchBodies[0]?.requests?.find((request) => request.repeatCell)?.repeatCell;
+    assert.equal(repeatCell?.range?.startRowIndex, 1);
+  });
+});
+
+test("migrates legacy scaling discount values before applying the literal-percent format", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    );
+    const sheet = workbook.getWorksheet("Đơn đối tác");
+    assert.ok(sheet);
+    const discountCell = sheet.getRow(4).getCell(13);
+    discountCell.value = 0.15;
+    discountCell.numFmt = "0%";
+
+    const sourceExports: SourceExport[] = [{
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    const batchBodies: Array<{ requests?: Array<Record<string, unknown>> }> = [];
+
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).includes("?fields=sheets.properties")) {
+        return {
+          json: async () => ({ sheets: [{ properties: { sheetId: 42, title: "Đơn đối tác" } }] }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).includes("includeGridData=true")) {
+        return {
+          json: async () => ({
+            sheets: [{ data: [{ rowData: [{ values: [{
+              userEnteredFormat: { numberFormat: { pattern: "0%" } },
+              userEnteredValue: { numberValue: 0.15 },
+            }] }] }] }],
+          }),
+          ok: true,
+        } as Response;
+      }
+      batchBodies.push(JSON.parse(String(init?.body || "{}")));
+      return { json: async () => ({}), ok: true } as Response;
+    };
+
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
+
+    const valueRepair = batchBodies[0]?.requests?.find((request) => "updateCells" in request);
+    assert.deepEqual(valueRepair, {
+      updateCells: {
+        range: {
+          endColumnIndex: 13,
+          endRowIndex: 4,
+          sheetId: 42,
+          startColumnIndex: 12,
+          startRowIndex: 3,
+        },
+        rows: [{ values: [{ userEnteredValue: { numberValue: 15 } }] }],
+        fields: "userEnteredValue",
+      },
+    });
+  });
+});
+
+test("blocks automatic setup for a formula-valued legacy scaling discount", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  const discountCell = sheet.getRow(4).getCell(13);
+  discountCell.value = { formula: "15/100", result: 0.15 };
+  discountCell.numFmt = "0%";
+
+  const plan = await buildMinhHongSourceIdPlanFromExports([{
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }], "partners");
+
+  assert.equal(plan.canApply, false);
+  assert.equal(plan.headerConflicts.some((issue) => issue.includes("M4") && issue.includes("công thức")), true);
+});
+
+test("refuses a legacy discount migration when the live number format changed", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    );
+    const sheet = workbook.getWorksheet("Đơn đối tác");
+    assert.ok(sheet);
+    const discountCell = sheet.getRow(4).getCell(13);
+    discountCell.value = 0.15;
+    discountCell.numFmt = "0%";
+
+    const sourceExports: SourceExport[] = [{
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    let attemptedWrite = false;
+
+    const fetchImpl = async (url: string | URL) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).includes("?fields=sheets.properties")) {
+        return {
+          json: async () => ({ sheets: [{ properties: { sheetId: 42, title: "Đơn đối tác" } }] }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).includes("includeGridData=true")) {
+        return {
+          json: async () => ({
+            sheets: [{ data: [{ rowData: [{ values: [{
+              userEnteredFormat: { numberFormat: { pattern: '0"%"' } },
+              userEnteredValue: { numberValue: 0.15 },
+            }] }] }] }],
+          }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).includes("/values/")) {
+        return { json: async () => ({ values: [[0.15]] }), ok: true } as Response;
+      }
+      attemptedWrite = true;
+      return { json: async () => ({}), ok: true } as Response;
+    };
+
+    await assert.rejects(
+      () => applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch),
+      MinhHongSourceIdPlanChangedError
+    );
+    assert.equal(attemptedWrite, false);
+  });
+});
+
+test("formats the full discount column when a raw value appears after planning", async () => {
+  await withGoogleServiceAccountCredentials(async () => {
+    const sourceExports: SourceExport[] = [{
+      buffer: await buildUnifiedPartnerSourceWorkbook(),
+      kind: "legacy",
+      spreadsheetId: "unified-sheet-id",
+    }];
+    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, "partners");
+    const batchBodies: Array<{ requests?: Array<{ repeatCell?: { range?: { startRowIndex?: number } } }> }> = [];
+
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes("oauth2.googleapis.com/token")) {
+        return { json: async () => ({ access_token: "source-id-token" }), ok: true } as Response;
+      }
+      if (String(url).includes("?fields=sheets.properties")) {
+        return {
+          json: async () => ({ sheets: [{ properties: { sheetId: 42, title: "Đơn đối tác" } }] }),
+          ok: true,
+        } as Response;
+      }
+      if (String(url).includes("/values/")) {
+        return { json: async () => ({ values: [[], [], [15]] }), ok: true } as Response;
+      }
+      batchBodies.push(JSON.parse(String(init?.body || "{}")));
+      return { json: async () => ({}), ok: true } as Response;
+    };
+
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, fetchImpl as typeof fetch);
+
+    const repeatCell = batchBodies[0]?.requests?.find((request) => request.repeatCell)?.repeatCell;
+    assert.equal(repeatCell?.range?.startRowIndex, 1);
+  });
 });
 
 test("refuses source_id writes when business rows swap after the final export read", async () => {

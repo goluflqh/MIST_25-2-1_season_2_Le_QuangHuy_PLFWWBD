@@ -37,6 +37,8 @@ export interface DatabaseAuditSnapshot {
   partnerEntries: Array<{
     amount: number;
     countsInDebt: boolean;
+    discountAmount: number;
+    discountPercent: number | null;
     entryType: string;
     id: string;
     partnerCode: string;
@@ -76,6 +78,26 @@ function duplicateValues(values: string[]) {
     seen.add(value);
   }
   return [...duplicates];
+}
+
+function hasInvalidPartnerAmount(entry: {
+  amount: number;
+  countsInDebt: boolean;
+  discountAmount: number;
+  discountPercent: number | null;
+  entryType: string;
+}) {
+  const isFullyDiscountedPurchase = entry.entryType === "PURCHASE"
+    && entry.amount === 0
+    && entry.discountPercent === 100
+    && entry.discountAmount > 0;
+  const invalidAdjustment = entry.entryType === "ADJUSTMENT" && entry.amount === 0;
+  const invalidCountedAmount = entry.entryType !== "ADJUSTMENT"
+    && entry.countsInDebt
+    && entry.amount <= 0
+    && !isFullyDiscountedPurchase;
+  const invalidReferenceAmount = entry.entryType !== "ADJUSTMENT" && !entry.countsInDebt && entry.amount < 0;
+  return invalidAdjustment || invalidCountedAmount || invalidReferenceAmount;
 }
 
 function shouldAuditPartners(scope: MinhHongImportScope) {
@@ -180,10 +202,7 @@ export function auditParsedMinhHongWorkbookFinancials(
       issues.push(issue("error", "source.partner_duplicate_source_code", `Mã giao dịch ${sourceCode} bị trùng trong dữ liệu nguồn.`));
     }
     for (const entry of parsed.partnerEntries) {
-      const invalidAdjustment = entry.entryType === "ADJUSTMENT" && entry.amount === 0;
-      const invalidCountedAmount = entry.entryType !== "ADJUSTMENT" && entry.countsInDebt && entry.amount <= 0;
-      const invalidReferenceAmount = entry.entryType !== "ADJUSTMENT" && !entry.countsInDebt && entry.amount < 0;
-      if (invalidAdjustment || invalidCountedAmount || invalidReferenceAmount) {
+      if (hasInvalidPartnerAmount(entry)) {
         issues.push(issue("error", "source.partner_invalid_amount", `Giao dịch ${entry.sourceCode} có số tiền không hợp lệ.`));
       }
     }
@@ -271,10 +290,7 @@ export function auditDatabaseFinancialSnapshot(snapshot: DatabaseAuditSnapshot):
   addCheck(checks, issues, "Partner ledger signed balance", signedPartnerTotal, partnerBalance, "db.partner.balance_formula");
 
   for (const entry of snapshot.partnerEntries) {
-    const invalidAdjustment = entry.entryType === "ADJUSTMENT" && entry.amount === 0;
-    const invalidCountedAmount = entry.entryType !== "ADJUSTMENT" && entry.countsInDebt && entry.amount <= 0;
-    const invalidReferenceAmount = entry.entryType !== "ADJUSTMENT" && !entry.countsInDebt && entry.amount < 0;
-    if (invalidAdjustment || invalidCountedAmount || invalidReferenceAmount) {
+    if (hasInvalidPartnerAmount(entry)) {
       issues.push(issue("error", "db.partner_invalid_amount", `Giao dịch ${entry.id} có số tiền không hợp lệ.`));
     }
   }
@@ -345,6 +361,12 @@ export function auditSourceMatchesDatabase(
       if (dbEntry.entryType !== entry.entryType) {
         issues.push(issue("error", "match.partner_entry_type", `Giao dịch ${entry.sourceCode} lệch loại giao dịch.`));
       }
+      if (dbEntry.discountPercent !== entry.discountPercent) {
+        issues.push(issue("error", "match.partner_entry_discount_percent", `Giao dịch ${entry.sourceCode} lệch phần trăm chiết khấu.`));
+      }
+      if (dbEntry.discountAmount !== entry.discountAmount) {
+        issues.push(issue("error", "match.partner_entry_discount_amount", `Giao dịch ${entry.sourceCode} lệch số tiền chiết khấu.`));
+      }
     }
     addCheck(checks, issues, "Matched source partner entries in DB", matchedEntries, parsed.partnerEntries.length, "match.partner_entries.count");
   }
@@ -383,6 +405,8 @@ export function buildDatabaseAuditSnapshotFromPrisma(
   partnerEntries: Array<{
     amount: number;
     countsInDebt: boolean;
+    discountAmount: number;
+    discountPercent: number | null;
     entryType: string;
     id: string;
     partner: { code: string };
@@ -393,6 +417,8 @@ export function buildDatabaseAuditSnapshotFromPrisma(
     partnerEntries: partnerEntries.map((entry) => ({
       amount: entry.amount,
       countsInDebt: entry.countsInDebt,
+      discountAmount: entry.discountAmount,
+      discountPercent: entry.discountPercent,
       entryType: entry.entryType,
       id: entry.id,
       partnerCode: entry.partner.code,
