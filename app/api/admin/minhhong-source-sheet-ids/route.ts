@@ -8,9 +8,9 @@ import {
 import { normalizeMinhHongImportScope } from "@/lib/minhhong-import/import-scope";
 import {
   applyMinhHongSourceIdPlan,
+  applyMinhHongSourceSheetSetup,
   buildMinhHongSourceIdPlanFromExports,
   fetchMinhHongSourceSheetExports,
-  hideMinhHongSourceIdColumns,
   MinhHongSourceIdPartialWriteError,
   MinhHongSourceIdPlanChangedError,
 } from "@/lib/minhhong-import/source-sheet";
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       guardedFetch,
       scope
     );
-    await hideMinhHongSourceIdColumns(plan, sourceExports, guardedFetch);
+    await applyMinhHongSourceSheetSetup(plan, sourceExports, guardedFetch);
 
     return NextResponse.json({
       success: true,

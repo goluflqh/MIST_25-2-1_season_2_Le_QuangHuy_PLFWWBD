@@ -5,6 +5,13 @@ export interface PartnerPurchaseAmounts {
   netAmount: number;
 }
 
+export const PARTNER_DISCOUNT_SHEET_INPUT_MESSAGE = "Nhập số từ 0 đến 100, ví dụ 15 hoặc 15,5.";
+export const PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT = '0.##"%"';
+
+export function buildPartnerDiscountSheetValidationFormula(rowNumber: number, separator = ";") {
+  return `=AND(ISNUMBER(M${rowNumber})${separator}M${rowNumber}>=0${separator}M${rowNumber}<=100)`;
+}
+
 export function parsePartnerDiscountPercent(value: unknown) {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
@@ -18,11 +25,33 @@ export function parsePartnerDiscountPercent(value: unknown) {
   return parsed > 0 ? parsed : null;
 }
 
+function hasScalingPercentToken(numberFormat?: string) {
+  if (!numberFormat) return false;
+  let escaped = false;
+  let quoted = false;
+  for (const character of numberFormat) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (character === "%" && !quoted) return true;
+  }
+  return false;
+}
+
 export function parseExcelPartnerDiscountPercent(value: unknown, numberFormat?: string) {
   const resolvedValue = value && typeof value === "object" && "result" in value
     ? (value as { result?: unknown }).result
     : value;
-  const normalizedValue = numberFormat?.includes("%") && typeof resolvedValue === "number"
+  const normalizedValue = hasScalingPercentToken(numberFormat) && typeof resolvedValue === "number"
     ? resolvedValue * 100
     : resolvedValue;
   return parsePartnerDiscountPercent(normalizedValue);

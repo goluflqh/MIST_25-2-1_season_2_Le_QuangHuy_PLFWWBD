@@ -2,7 +2,13 @@ import ExcelJS from "exceljs";
 import { createHash, randomUUID } from "node:crypto";
 import { parseAdminDateInput } from "@/lib/admin-date";
 import { formatVietnamDate } from "@/lib/vietnam-time";
-import { calculatePartnerPurchaseAmounts, parseExcelPartnerDiscountPercent } from "@/lib/partner-discounts";
+import {
+  buildPartnerDiscountSheetValidationFormula,
+  calculatePartnerPurchaseAmounts,
+  parseExcelPartnerDiscountPercent,
+  PARTNER_DISCOUNT_SHEET_INPUT_MESSAGE,
+  PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT,
+} from "@/lib/partner-discounts";
 import { getGoogleAccessToken, hasGoogleServiceAccountCredentials } from "../google-sheets-sync";
 import {
   MINHHONG_CUSTOMER_ORDER_COLUMNS,
@@ -17,6 +23,11 @@ import { MinhHongSourceSheetFetchError } from "./source-fetch-guard";
 
 type SourceExportKind = "legacy" | "manual";
 const UNIFIED_PARTNER_SHEET_NAME = "Đơn đối tác";
+const PARTNER_DISCOUNT_COLUMN = 13;
+const PARTNER_DISCOUNT_HEADER = "Chiết khấu (%)";
+const PARTNER_PAYABLE_COLUMN = 10;
+const PARTNER_PAYABLE_FORMULA_REPAIR_START_ROW = 89;
+const PARTNER_PAYABLE_PROTECTION_DESCRIPTION = "Minh Hồng: công thức công nợ tự động";
 export const MINHHONG_PARTNER_SHEET_COLUMNS = [
   "Ngày",
   "Đối tác",
@@ -114,10 +125,21 @@ export interface MinhHongSourceIdRowCheck {
 }
 
 export interface MinhHongSourceIdTargetSummary {
+  discountValueRepairs?: Array<{
+    correctedValue: number;
+    currentNumberFormat: string;
+    currentValue: number;
+    rowNumber: number;
+  }>;
+  discountFormatStartRow?: number;
   hidden: boolean;
   id: MinhHongSourceIdTarget["id"];
   invalidRows: number;
   missingRows: number;
+  payableFormulaEndRow?: number;
+  payableFormulaFingerprint?: string;
+  payableFormulaReady?: boolean;
+  payableFormulaStartRow?: number;
   sheetName: string;
   totalRows: number;
   validRows: number;
@@ -448,12 +470,171 @@ function percentage(cell: ExcelJS.Cell) {
   return parseExcelPartnerDiscountPercent(cell.value, cell.numFmt);
 }
 
+function isPreparedPartnerDiscountCell(cell: ExcelJS.Cell, validationStartRow: number) {
+  const validation = cell.dataValidation;
+  if (!validation) return false;
+  const formulae = validation.formulae || [];
+  const formula = String(formulae[0] || "")
+    .replace(/^=/, "")
+    .replace(/;/g, ",")
+    .replace(/\s+/g, "")
+    .toUpperCase();
+  const expectedFormulas = new Set([
+    buildPartnerDiscountSheetValidationFormula(Number(cell.row), ",").slice(1),
+    buildPartnerDiscountSheetValidationFormula(validationStartRow, ",").slice(1),
+  ]);
+  return cell.numFmt === PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT
+    && validation.type === "custom"
+    && expectedFormulas.has(formula)
+    && validation.allowBlank === true
+    && validation.showErrorMessage === true;
+}
+
+function isPreparedPartnerDiscountRange(worksheet: ExcelJS.Worksheet, startRow: number) {
+  const endRow = Math.max(startRow, worksheet.rowCount);
+  for (let rowNumber = startRow; rowNumber <= endRow; rowNumber += 1) {
+    if (!isPreparedPartnerDiscountCell(
+      worksheet.getRow(rowNumber).getCell(PARTNER_DISCOUNT_COLUMN),
+      startRow
+    )) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function inspectPartnerDiscountValueRepairs(worksheet: ExcelJS.Worksheet, startRow: number) {
+  const conflicts: string[] = [];
+  const repairs: NonNullable<MinhHongSourceIdTargetSummary["discountValueRepairs"]> = [];
+  for (let rowNumber = startRow; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const cell = worksheet.getRow(rowNumber).getCell(PARTNER_DISCOUNT_COLUMN);
+    const currentValue = typeof cell.value === "number"
+      ? cell.value
+      : typeof cell.result === "number"
+        ? cell.result
+        : undefined;
+    if (currentValue === undefined) continue;
+    const parsed = parseExcelPartnerDiscountPercent(cell.value, cell.numFmt);
+    if (parsed === null || Number.isNaN(parsed) || parsed === currentValue) continue;
+    if (cell.formula) {
+      conflicts.push(
+        `${UNIFIED_PARTNER_SHEET_NAME}: ô M${rowNumber} dùng công thức phần trăm kiểu cũ; chưa thể tự động chuyển đổi an toàn.`
+      );
+      continue;
+    }
+    repairs.push({
+      correctedValue: parsed,
+      currentNumberFormat: cell.numFmt,
+      currentValue,
+      rowNumber,
+    });
+  }
+  return { conflicts, repairs };
+}
+
+function buildPartnerPayableSheetFormula(rowNumber: number, separator = ";") {
+  const currentRowCounts = `OR($K${rowNumber}="",$K${rowNumber}="Có",$K${rowNumber}="Co",$K${rowNumber}="Yes",$K${rowNumber}="True",$K${rowNumber}="1")`;
+  const countedRows = `((($K$2:$K${rowNumber}="")+($K$2:$K${rowNumber}="Có")+($K$2:$K${rowNumber}="Co")+($K$2:$K${rowNumber}="Yes")+($K$2:$K${rowNumber}="True")+($K$2:$K${rowNumber}="1"))>0)`;
+  const negativeTypes = `((($C$2:$C${rowNumber}="Thanh toán")+($C$2:$C${rowNumber}="Thanh toan")+($C$2:$C${rowNumber}="Trả hàng")+($C$2:$C${rowNumber}="Tra hang"))>0)`;
+  const purchaseTypes = `((($C$2:$C${rowNumber}="Mua hàng")+($C$2:$C${rowNumber}="Mua hang"))>0)`;
+  const formula = `=IF(OR($B${rowNumber}="",$C${rowNumber}="",$G${rowNumber}=""),"",IF(NOT(${currentRowCounts}),"",SUMPRODUCT(($B$2:$B${rowNumber}=$B${rowNumber})*${countedRows}*$G$2:$G${rowNumber}*(1-2*${negativeTypes}))-SUMPRODUCT(($B$2:$B${rowNumber}=$B${rowNumber})*${countedRows}*${purchaseTypes}*$G$2:$G${rowNumber}*IFERROR($M$2:$M${rowNumber}/100,0))))`;
+  return separator === "," ? formula : formula.replace(/,/g, separator);
+}
+
+function normalizedPartnerPayableFormula(formula: string) {
+  return formula.trim().replace(/^=/, "").replace(/;/g, ",").replace(/\s+/g, "");
+}
+
+function partnerPayableFormulaCellFingerprint(value: CellValue, formula?: string) {
+  return formula
+    ? ["formula", normalizedPartnerPayableFormula(formula)]
+    : sourceIdFingerprintValue(value);
+}
+
+function partnerPayableFormulaRangeFingerprint(
+  startRow: number,
+  endRow: number,
+  valueAt: (rowNumber: number) => { formula?: string; value: CellValue }
+) {
+  const values = [];
+  for (let rowNumber = startRow; rowNumber <= endRow; rowNumber += 1) {
+    const cell = valueAt(rowNumber);
+    values.push(partnerPayableFormulaCellFingerprint(cell.value, cell.formula));
+  }
+  return createHash("sha256").update(JSON.stringify(values)).digest("hex");
+}
+
+function inspectPartnerPayableFormulaRange(worksheet: ExcelJS.Worksheet, firstDataRow: number) {
+  let startRow: number | undefined;
+  let endRow: number | undefined;
+  for (let rowNumber = firstDataRow; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    if (!worksheet.getRow(rowNumber).getCell(PARTNER_PAYABLE_COLUMN).formula) continue;
+    startRow ??= rowNumber;
+    endRow = rowNumber;
+  }
+  if (!startRow || !endRow || endRow < PARTNER_PAYABLE_FORMULA_REPAIR_START_ROW) return null;
+  startRow = Math.max(startRow, PARTNER_PAYABLE_FORMULA_REPAIR_START_ROW);
+
+  let ready = true;
+  for (let rowNumber = startRow; rowNumber <= endRow; rowNumber += 1) {
+    const cell = worksheet.getRow(rowNumber).getCell(PARTNER_PAYABLE_COLUMN);
+    if (
+      !cell.formula
+      || normalizedPartnerPayableFormula(cell.formula)
+        !== normalizedPartnerPayableFormula(buildPartnerPayableSheetFormula(rowNumber, ","))
+    ) {
+      ready = false;
+      break;
+    }
+  }
+
+  return {
+    endRow,
+    fingerprint: partnerPayableFormulaRangeFingerprint(startRow, endRow, (rowNumber) => {
+      const cell = worksheet.getRow(rowNumber).getCell(PARTNER_PAYABLE_COLUMN);
+      return { formula: cell.formula, value: cell.value };
+    }),
+    ready,
+    startRow,
+  };
+}
+
 function normalizedSourceIdNumber(value: number) {
   return String(Number(value.toFixed(12)));
 }
 
+function normalizedSourceIdFormula(formula: string) {
+  const source = formula.trim().replace(/^=/, "");
+  let normalized = "";
+  let inString = false;
+  let arrayDepth = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === '"') {
+      normalized += character;
+      if (inString && source[index + 1] === '"') {
+        normalized += source[index + 1];
+        index += 1;
+      } else {
+        inString = !inString;
+      }
+      continue;
+    }
+    if (!inString) {
+      if (character === "{") arrayDepth += 1;
+      if (character === "}") arrayDepth = Math.max(0, arrayDepth - 1);
+      if (arrayDepth === 0 && (character === "," || character === ";")) {
+        normalized += ",";
+        continue;
+      }
+    }
+    normalized += character;
+  }
+  return normalized;
+}
+
 function sourceIdFormulaFingerprint(formula: string): [string, string] {
-  return ["formula", formula.trim().replace(/^=/, "")];
+  return ["formula", normalizedSourceIdFormula(formula)];
 }
 
 function sourceIdFingerprintValue(value: CellValue): [string, unknown?] {
@@ -534,6 +715,8 @@ function inspectMinhHongSourceIds(
   const validRowsById = new Map<string, Array<{ rowNumber: number; target: MinhHongSourceIdTarget }>>();
   const usedIds = new Set<string>();
   const summaries = new Map<MinhHongSourceIdTarget["id"], MinhHongSourceIdTargetSummary>();
+  let requiresPartnerDiscountSetup = false;
+  let requiresPartnerPayableFormulaSetup = false;
 
   const hasUnifiedPartnerSheet = Boolean(legacyWorkbook.getWorksheet(UNIFIED_PARTNER_SHEET_NAME));
   const targetsForScope = MINHHONG_SOURCE_ID_TARGETS.filter((target) => {
@@ -598,6 +781,39 @@ function inspectMinhHongSourceIds(
       );
     } else if (sourceIdHeaderColumns.some((column) => column !== target.sourceIdColumn)) {
       headerConflicts.push(`${target.sheetName}: có nhiều hơn một cột source_id; hãy giữ đúng một cột ở vị trí đã quy định.`);
+    }
+
+    if (target.id === "partner-ledger") {
+      const discountHeaderValue = clean(headerRow.getCell(PARTNER_DISCOUNT_COLUMN).value);
+      const discountMigration = inspectPartnerDiscountValueRepairs(worksheet, target.firstDataRow);
+      const payableFormulaRange = inspectPartnerPayableFormulaRange(worksheet, target.firstDataRow);
+      summary.discountFormatStartRow = target.firstDataRow;
+      if (discountMigration.repairs.length > 0) summary.discountValueRepairs = discountMigration.repairs;
+      headerConflicts.push(...discountMigration.conflicts);
+      if (payableFormulaRange) {
+        summary.payableFormulaEndRow = payableFormulaRange.endRow;
+        summary.payableFormulaFingerprint = payableFormulaRange.fingerprint;
+        summary.payableFormulaReady = payableFormulaRange.ready;
+        summary.payableFormulaStartRow = payableFormulaRange.startRow;
+        requiresPartnerPayableFormulaSetup = requiresPartnerPayableFormulaSetup || !payableFormulaRange.ready;
+      }
+      requiresPartnerDiscountSetup = Boolean(worksheet.getColumn(PARTNER_DISCOUNT_COLUMN).hidden)
+        || !isPreparedPartnerDiscountRange(worksheet, summary.discountFormatStartRow);
+      if (!discountHeaderValue) {
+        assignments.push({
+          kind: target.kind,
+          range: `${quoteSourceSheetName(target.sheetName)}!${sourceIdColumnLetter(PARTNER_DISCOUNT_COLUMN)}${target.headerRow}`,
+          rowFingerprint: sourceIdRowFingerprint(target, headerRow),
+          rowNumber: target.headerRow,
+          sheetName: target.sheetName,
+          spreadsheetId,
+          value: PARTNER_DISCOUNT_HEADER,
+        });
+      } else if (discountHeaderValue.toLocaleLowerCase("vi-VN") !== PARTNER_DISCOUNT_HEADER.toLocaleLowerCase("vi-VN")) {
+        headerConflicts.push(
+          `${target.sheetName}: ô tiêu đề ${sourceIdColumnLetter(PARTNER_DISCOUNT_COLUMN)}${target.headerRow} đang có dữ liệu khác, không thể dùng làm cột chiết khấu.`
+        );
+      }
     }
 
     for (let rowNumber = target.firstDataRow; rowNumber <= worksheet.rowCount; rowNumber += 1) {
@@ -683,7 +899,12 @@ function inspectMinhHongSourceIds(
     invalidRows,
     issues,
     missingRows,
-    requiresSetup: canApply && (assignments.length > 0 || targets.some((target) => !target.hidden)),
+    requiresSetup: canApply && (
+      assignments.length > 0
+      || targets.some((target) => !target.hidden)
+      || requiresPartnerDiscountSetup
+      || requiresPartnerPayableFormulaSetup
+    ),
     rowChecks,
     targets,
     totalRows,
@@ -1455,6 +1676,120 @@ async function fetchSheetId(accessToken: string, spreadsheetId: string, sheetNam
   return sheetId as number;
 }
 
+interface GoogleSheetProtectedRange {
+  description?: string;
+  protectedRangeId?: number;
+  range?: {
+    endColumnIndex?: number;
+    endRowIndex?: number;
+    sheetId?: number;
+    startColumnIndex?: number;
+    startRowIndex?: number;
+  };
+  warningOnly?: boolean;
+}
+
+async function fetchPartnerSheetSetupMetadata(
+  accessToken: string,
+  spreadsheetId: string,
+  fetchImpl: typeof fetch
+) {
+  const response = await fetchImpl(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties(sheetId,title),sheets.protectedRanges(protectedRangeId,description,warningOnly,range)`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const data = await response.json() as {
+    error?: { message?: string };
+    sheets?: Array<{
+      properties?: { sheetId?: number; title?: string };
+      protectedRanges?: GoogleSheetProtectedRange[];
+    }>;
+  };
+  if (!response.ok) throw new Error(data.error?.message || "Không đọc được metadata Google Sheet đối tác.");
+  const sheet = (data.sheets || []).find((item) => item.properties?.title === UNIFIED_PARTNER_SHEET_NAME);
+  const sheetId = sheet?.properties?.sheetId;
+  if (!Number.isFinite(sheetId)) throw new Error("Không tìm thấy sheet nguồn Đơn đối tác để bảo vệ công thức công nợ.");
+  return {
+    protectedRanges: sheet?.protectedRanges || [],
+    sheetId: sheetId as number,
+  };
+}
+
+function buildPartnerPayableProtectionRequest(
+  sheetId: number,
+  startRow: number | undefined,
+  endRow: number | undefined,
+  protectedRanges: GoogleSheetProtectedRange[]
+) {
+  if (!startRow || !endRow) return null;
+  const range = {
+    endColumnIndex: PARTNER_PAYABLE_COLUMN,
+    endRowIndex: endRow,
+    sheetId,
+    startColumnIndex: PARTNER_PAYABLE_COLUMN - 1,
+    startRowIndex: startRow - 1,
+  };
+  const exactProtection = protectedRanges.find((item) => (
+    item.range?.sheetId === range.sheetId
+    && item.range?.startRowIndex === range.startRowIndex
+    && item.range?.endRowIndex === range.endRowIndex
+    && item.range?.startColumnIndex === range.startColumnIndex
+    && item.range?.endColumnIndex === range.endColumnIndex
+  ));
+  if (exactProtection) return null;
+
+  const managedProtection = protectedRanges.find((item) => (
+    item.description === PARTNER_PAYABLE_PROTECTION_DESCRIPTION
+    && Number.isFinite(item.protectedRangeId)
+  ));
+  if (managedProtection) {
+    return {
+      updateProtectedRange: {
+        fields: "description,range,warningOnly",
+        protectedRange: {
+          description: PARTNER_PAYABLE_PROTECTION_DESCRIPTION,
+          protectedRangeId: managedProtection.protectedRangeId,
+          range,
+          warningOnly: true,
+        },
+      },
+    };
+  }
+
+  return {
+    addProtectedRange: {
+      protectedRange: {
+        description: PARTNER_PAYABLE_PROTECTION_DESCRIPTION,
+        range,
+        warningOnly: true,
+      },
+    },
+  };
+}
+
+async function fetchSheetGridProperties(
+  accessToken: string,
+  spreadsheetId: string,
+  sheetName: string,
+  fetchImpl: typeof fetch
+) {
+  const response = await fetchImpl(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties(sheetId,title,gridProperties(columnCount))`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error?.message || "Không đọc được kích thước Google Sheet nguồn.");
+  const sheet = (data.sheets || []).find((item: {
+    properties?: { title?: string };
+  }) => item.properties?.title === sheetName);
+  const sheetId = sheet?.properties?.sheetId;
+  const columnCount = sheet?.properties?.gridProperties?.columnCount;
+  if (!Number.isFinite(sheetId) || !Number.isFinite(columnCount)) {
+    throw new Error(`Không đọc được kích thước sheet nguồn ${sheetName}.`);
+  }
+  return { columnCount: columnCount as number, sheetId: sheetId as number };
+}
+
 async function applySourceSheetDateFormat(
   accessToken: string,
   spreadsheetId: string,
@@ -1631,7 +1966,10 @@ async function assertSourceIdRowsStillCurrent(
   );
   const data = await response.json() as {
     error?: { message?: string };
-    valueRanges?: Array<{ valueRange?: { range?: string; values?: CellValue[][] } }>;
+    valueRanges?: Array<{
+      dataFilters?: Array<{ a1Range?: string }>;
+      valueRange?: { range?: string; values?: CellValue[][] };
+    }>;
   };
   if (!response.ok) {
     throw new Error(data.error?.message || "Không đọc lại được các ô source_id ngay trước khi ghi.");
@@ -1643,11 +1981,17 @@ async function assertSourceIdRowsStillCurrent(
   }
 
   const valuesByRange = new Map<string, CellValue[][]>();
+  const requestedRanges = new Set(ranges);
   for (const matchedRange of valueRanges) {
-    const range = matchedRange.valueRange?.range;
-    if (!range || valuesByRange.has(range)) {
+    const matchingRanges = new Set([
+      ...(matchedRange.dataFilters || []).map((filter) => filter.a1Range),
+      matchedRange.valueRange?.range,
+    ].filter((range): range is string => Boolean(range && requestedRanges.has(range))));
+    if (matchingRanges.size !== 1) {
       throw new MinhHongSourceIdPlanChangedError();
     }
+    const [range] = matchingRanges;
+    if (valuesByRange.has(range)) throw new MinhHongSourceIdPlanChangedError();
     valuesByRange.set(range, matchedRange.valueRange?.values || []);
   }
 
@@ -1665,6 +2009,52 @@ async function assertSourceIdRowsStillCurrent(
       throw new MinhHongSourceIdPlanChangedError();
     }
   }
+}
+
+async function ensurePartnerDiscountColumnCapacity(
+  accessToken: string,
+  plan: MinhHongSourceIdPlan,
+  fetchImpl: typeof fetch
+) {
+  let changed = false;
+  const headerAssignments = plan.assignments.filter((assignment) => (
+    assignment.value === PARTNER_DISCOUNT_HEADER
+    && assignment.range === `${quoteSourceSheetName(UNIFIED_PARTNER_SHEET_NAME)}!M1`
+  ));
+
+  for (const assignment of headerAssignments) {
+    const { columnCount, sheetId } = await fetchSheetGridProperties(
+      accessToken,
+      assignment.spreadsheetId,
+      assignment.sheetName,
+      fetchImpl
+    );
+    if (columnCount >= PARTNER_DISCOUNT_COLUMN) continue;
+
+    const response = await fetchImpl(
+      `https://sheets.googleapis.com/v4/spreadsheets/${assignment.spreadsheetId}:batchUpdate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [{
+            appendDimension: {
+              dimension: "COLUMNS",
+              length: PARTNER_DISCOUNT_COLUMN - columnCount,
+              sheetId,
+            },
+          }],
+        }),
+      }
+    );
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Không tạo được cột chiết khấu trên Google Sheet nguồn.");
+    changed = true;
+  }
+  return changed;
 }
 
 export async function applyMinhHongSourceIdPlan(
@@ -1712,6 +2102,12 @@ export async function applyMinhHongSourceIdPlan(
   for (const [spreadsheetId, rowChecks] of rowChecksBySpreadsheet.entries()) {
     await assertSourceIdRowsStillCurrent(accessToken, spreadsheetId, rowChecks, fetchImpl);
   }
+  const capacityChanged = await ensurePartnerDiscountColumnCapacity(accessToken, currentPlan, fetchImpl);
+  if (capacityChanged) {
+    for (const [spreadsheetId, rowChecks] of rowChecksBySpreadsheet.entries()) {
+      await assertSourceIdRowsStillCurrent(accessToken, spreadsheetId, rowChecks, fetchImpl);
+    }
+  }
   if (currentPlan.assignments.length === 0) return { updatedCells: 0 };
 
   let updatedCells = 0;
@@ -1751,13 +2147,86 @@ export async function applyMinhHongSourceIdPlan(
   return { updatedCells };
 }
 
-export async function hideMinhHongSourceIdColumns(
+async function assertPartnerDiscountValueRepairsStillCurrent(
+  accessToken: string,
+  spreadsheetId: string,
+  summary: MinhHongSourceIdTargetSummary,
+  fetchImpl: typeof fetch
+) {
+  for (const repair of summary.discountValueRepairs || []) {
+    const range = `${quoteSourceSheetName(UNIFIED_PARTNER_SHEET_NAME)}!M${repair.rowNumber}`;
+    const response = await fetchImpl(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?includeGridData=true&ranges=${encodeURIComponent(range)}&fields=sheets.data.rowData.values(userEnteredValue,userEnteredFormat.numberFormat.pattern)`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const data = await response.json() as {
+      error?: { message?: string };
+      sheets?: Array<{
+        data?: Array<{
+          rowData?: Array<{
+            values?: Array<{
+              userEnteredFormat?: { numberFormat?: { pattern?: string } };
+              userEnteredValue?: { numberValue?: number };
+            }>;
+          }>;
+        }>;
+      }>;
+    };
+    if (!response.ok) {
+      throw new Error(data.error?.message || "Không đọc lại được giá trị chiết khấu cũ trước khi chuyển đổi.");
+    }
+    const currentCell = data.sheets?.[0]?.data?.[0]?.rowData?.[0]?.values?.[0];
+    const currentValue = currentCell?.userEnteredValue?.numberValue;
+    const currentNumberFormat = currentCell?.userEnteredFormat?.numberFormat?.pattern || "";
+    if (
+      typeof currentValue !== "number"
+      || normalizedSourceIdNumber(currentValue) !== normalizedSourceIdNumber(repair.currentValue)
+      || currentNumberFormat !== repair.currentNumberFormat
+    ) {
+      throw new MinhHongSourceIdPlanChangedError();
+    }
+  }
+}
+
+async function assertPartnerPayableFormulaRangeStillCurrent(
+  accessToken: string,
+  spreadsheetId: string,
+  summary: MinhHongSourceIdTargetSummary,
+  fetchImpl: typeof fetch
+) {
+  const startRow = summary.payableFormulaStartRow;
+  const endRow = summary.payableFormulaEndRow;
+  const expectedFingerprint = summary.payableFormulaFingerprint;
+  if (!startRow || !endRow || !expectedFingerprint) return;
+
+  const range = `${quoteSourceSheetName(UNIFIED_PARTNER_SHEET_NAME)}!J${startRow}:J${endRow}`;
+  const response = await fetchImpl(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueRenderOption=FORMULA`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const data = await response.json() as { error?: { message?: string }; values?: CellValue[][] };
+  if (!response.ok) {
+    throw new Error(data.error?.message || "Không đọc lại được công thức công nợ đối tác trước khi sửa.");
+  }
+
+  const values = data.values || [];
+  const currentFingerprint = partnerPayableFormulaRangeFingerprint(startRow, endRow, (rowNumber) => {
+    const value = values[rowNumber - startRow]?.[0];
+    return {
+      formula: typeof value === "string" && value.startsWith("=") ? value : undefined,
+      value,
+    };
+  });
+  if (currentFingerprint !== expectedFingerprint) throw new MinhHongSourceIdPlanChangedError();
+}
+
+export async function applyMinhHongSourceSheetSetup(
   plan: MinhHongSourceIdPlan,
   sourceExports: SourceExport[],
   fetchImpl: typeof fetch = fetch
 ) {
   if (!plan.canApply) {
-    throw new Error("Sheet nguồn chưa đủ điều kiện để ẩn cột định danh.");
+    throw new Error("Sheet nguồn chưa đủ điều kiện để hoàn tất thiết lập.");
   }
 
   const accessToken = await getGoogleAccessToken(fetchImpl);
@@ -1769,7 +2238,14 @@ export async function hideMinhHongSourceIdColumns(
     const source = sourceExports.find((item) => item.kind === target.kind);
     if (!source) throw new Error(`Không tìm thấy Sheet nguồn cho ${target.sheetName}.`);
 
-    const sheetId = await fetchSheetId(accessToken, source.spreadsheetId, target.sheetName, fetchImpl);
+    const partnerSheetMetadata = target.id === "partner-ledger"
+      ? await fetchPartnerSheetSetupMetadata(accessToken, source.spreadsheetId, fetchImpl)
+      : null;
+    const sheetId = partnerSheetMetadata?.sheetId
+      ?? await fetchSheetId(accessToken, source.spreadsheetId, target.sheetName, fetchImpl);
+    const discountFormatStartRow = target.id === "partner-ledger"
+      ? summary.discountFormatStartRow || target.firstDataRow
+      : undefined;
     const requests = requestsBySpreadsheet.get(source.spreadsheetId) || [];
     requests.push({
       updateDimensionProperties: {
@@ -1783,6 +2259,111 @@ export async function hideMinhHongSourceIdColumns(
         fields: "hiddenByUser",
       },
     });
+    if (target.id === "partner-ledger") {
+      if (summary.discountValueRepairs?.length) {
+        await assertPartnerDiscountValueRepairsStillCurrent(
+          accessToken,
+          source.spreadsheetId,
+          summary,
+          fetchImpl
+        );
+      }
+      if (summary.payableFormulaReady === false) {
+        await assertPartnerPayableFormulaRangeStillCurrent(
+          accessToken,
+          source.spreadsheetId,
+          summary,
+          fetchImpl
+        );
+      }
+      requests.push(
+        {
+          updateDimensionProperties: {
+            range: {
+              dimension: "COLUMNS",
+              endIndex: PARTNER_DISCOUNT_COLUMN,
+              sheetId,
+              startIndex: PARTNER_DISCOUNT_COLUMN - 1,
+            },
+            properties: { hiddenByUser: false },
+            fields: "hiddenByUser",
+          },
+        },
+        {
+          repeatCell: {
+            range: {
+              sheetId,
+              startColumnIndex: PARTNER_DISCOUNT_COLUMN - 1,
+              startRowIndex: (discountFormatStartRow || target.firstDataRow) - 1,
+              endColumnIndex: PARTNER_DISCOUNT_COLUMN,
+            },
+            cell: {
+              dataValidation: {
+                condition: {
+                  type: "CUSTOM_FORMULA",
+                  values: [{
+                    userEnteredValue: buildPartnerDiscountSheetValidationFormula(target.firstDataRow),
+                  }],
+                },
+                inputMessage: PARTNER_DISCOUNT_SHEET_INPUT_MESSAGE,
+                strict: true,
+              },
+              userEnteredFormat: {
+                numberFormat: { type: "NUMBER", pattern: PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT },
+              },
+            },
+            fields: "dataValidation,userEnteredFormat.numberFormat",
+          },
+        }
+      );
+      const payableProtectionRequest = buildPartnerPayableProtectionRequest(
+        sheetId,
+        summary.payableFormulaStartRow,
+        summary.payableFormulaEndRow,
+        partnerSheetMetadata?.protectedRanges || []
+      );
+      if (payableProtectionRequest) requests.push(payableProtectionRequest);
+      for (const repair of summary.discountValueRepairs || []) {
+        requests.push({
+          updateCells: {
+            range: {
+              endColumnIndex: PARTNER_DISCOUNT_COLUMN,
+              endRowIndex: repair.rowNumber,
+              sheetId,
+              startColumnIndex: PARTNER_DISCOUNT_COLUMN - 1,
+              startRowIndex: repair.rowNumber - 1,
+            },
+            rows: [{
+              values: [{ userEnteredValue: { numberValue: repair.correctedValue } }],
+            }],
+            fields: "userEnteredValue",
+          },
+        });
+      }
+      if (
+        summary.payableFormulaReady === false
+        && summary.payableFormulaStartRow
+        && summary.payableFormulaEndRow
+      ) {
+        requests.push({
+          repeatCell: {
+            range: {
+              endColumnIndex: PARTNER_PAYABLE_COLUMN,
+              endRowIndex: summary.payableFormulaEndRow,
+              sheetId,
+              startColumnIndex: PARTNER_PAYABLE_COLUMN - 1,
+              startRowIndex: summary.payableFormulaStartRow - 1,
+            },
+            cell: {
+              userEnteredValue: {
+                formulaValue: buildPartnerPayableSheetFormula(summary.payableFormulaStartRow),
+              },
+            },
+            fields: "userEnteredValue",
+          },
+        });
+      }
+    }
     requestsBySpreadsheet.set(source.spreadsheetId, requests);
   }
 
@@ -1796,7 +2377,7 @@ export async function hideMinhHongSourceIdColumns(
       body: JSON.stringify({ requests }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Không ẩn được cột định danh kỹ thuật trên Google Sheet.");
+    if (!response.ok) throw new Error(data.error?.message || "Không hoàn tất được thiết lập Google Sheet.");
   }
 }
 

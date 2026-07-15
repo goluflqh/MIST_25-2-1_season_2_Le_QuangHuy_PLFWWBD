@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   auditDatabaseFinancialSnapshot,
   auditParsedMinhHongWorkbookFinancials,
+  auditSourceMatchesDatabase,
+  buildDatabaseAuditSnapshotFromPrisma,
 } from "../../lib/minhhong-financial-audit";
 import { reconcileMinhHongWorkbook } from "../../lib/minhhong-import/reconciliation";
 import { parseMinhHongAdminWorkbook } from "../../lib/minhhong-import/workbook-parser";
@@ -85,6 +87,8 @@ test("database audit fails closed on impossible money states", () => {
       {
         amount: 100_000,
         countsInDebt: true,
+        discountAmount: 0,
+        discountPercent: null,
         entryType: "PURCHASE",
         id: "entry-1",
         partnerCode: "LONG",
@@ -124,6 +128,8 @@ test("database audit allows reference blanks and signed adjustments but rejects 
       {
         amount: 0,
         countsInDebt: false,
+        discountAmount: 0,
+        discountPercent: null,
         entryType: "PURCHASE",
         id: "reference-without-amount",
         partnerCode: "LONG",
@@ -132,6 +138,8 @@ test("database audit allows reference blanks and signed adjustments but rejects 
       {
         amount: -10_000,
         countsInDebt: true,
+        discountAmount: 0,
+        discountPercent: null,
         entryType: "ADJUSTMENT",
         id: "negative-adjustment",
         partnerCode: "LONG",
@@ -145,6 +153,8 @@ test("database audit allows reference blanks and signed adjustments but rejects 
       {
         amount: 0,
         countsInDebt: true,
+        discountAmount: 0,
+        discountPercent: null,
         entryType: "ADJUSTMENT",
         id: "zero-adjustment",
         partnerCode: "LONG",
@@ -158,4 +168,81 @@ test("database audit allows reference blanks and signed adjustments but rejects 
   assert.equal(validAudit.summary.partnerBalance, -10_000);
   assert.equal(invalidAudit.ok, false);
   assert.match(invalidAudit.issues.map((item) => item.code).join("\n"), /db\.partner_invalid_amount/);
+});
+
+test("partner audits accept fully discounted purchases but reject unexplained zero purchases", async () => {
+  const parsed = await parseMinhHongAdminWorkbook(await readCleanMinhHongAdminWorkbookBuffer());
+  const fullyDiscountedSourceEntry = {
+    ...parsed.partnerEntries[0],
+    amount: 0,
+    countsInDebt: true,
+    discountAmount: 100_000,
+    discountPercent: 100,
+    entryType: "PURCHASE" as const,
+    sourceCode: "NHAP_HANG:FULLY-DISCOUNTED",
+  };
+  const sourceAudit = auditParsedMinhHongWorkbookFinancials(
+    {
+      ...parsed,
+      partnerEntries: [...parsed.partnerEntries, fullyDiscountedSourceEntry],
+    },
+    { scope: "partners" }
+  );
+  const databaseAudit = auditDatabaseFinancialSnapshot(buildDatabaseAuditSnapshotFromPrisma([], [
+    {
+      amount: 0,
+      countsInDebt: true,
+      discountAmount: 100_000,
+      discountPercent: 100,
+      entryType: "PURCHASE",
+      id: "fully-discounted",
+      partner: { code: "LONG" },
+      sourceCode: "NHAP_HANG:FULLY-DISCOUNTED",
+    },
+  ]));
+  const invalidDatabaseAudit = auditDatabaseFinancialSnapshot(buildDatabaseAuditSnapshotFromPrisma([], [
+    {
+      amount: 0,
+      countsInDebt: true,
+      discountAmount: 0,
+      discountPercent: null,
+      entryType: "PURCHASE",
+      id: "unexplained-zero",
+      partner: { code: "LONG" },
+      sourceCode: "NHAP_HANG:UNEXPLAINED-ZERO",
+    },
+  ]));
+
+  assert.equal(sourceAudit.ok, true, JSON.stringify(sourceAudit.issues, null, 2));
+  assert.equal(databaseAudit.ok, true, JSON.stringify(databaseAudit.issues, null, 2));
+  assert.equal(invalidDatabaseAudit.ok, false);
+  assert.match(invalidDatabaseAudit.issues.map((item) => item.code).join("\n"), /db\.partner_invalid_amount/);
+});
+
+test("source-to-database audit detects partner discount metadata drift", async () => {
+  const parsed = await parseMinhHongAdminWorkbook(await readCleanMinhHongAdminWorkbookBuffer());
+  const sourceEntry = parsed.partnerEntries.find((entry) => entry.entryType === "PURCHASE");
+  assert.ok(sourceEntry);
+  const snapshot = buildDatabaseAuditSnapshotFromPrisma([], parsed.partnerEntries.map((entry) => ({
+    amount: entry.amount,
+    countsInDebt: entry.countsInDebt,
+    discountAmount: entry.discountAmount,
+    discountPercent: entry.discountPercent,
+    entryType: entry.entryType,
+    id: entry.sourceCode,
+    partner: { code: entry.partnerCode },
+    sourceCode: entry.sourceCode,
+  })));
+  const driftedSnapshot = {
+    ...snapshot,
+    partnerEntries: snapshot.partnerEntries.map((entry) => entry.sourceCode === sourceEntry.sourceCode
+      ? { ...entry, discountAmount: 1, discountPercent: 1 }
+      : entry),
+  };
+
+  const audit = auditSourceMatchesDatabase(parsed, driftedSnapshot, "partners");
+
+  assert.equal(audit.ok, false);
+  assert.match(audit.issues.map((item) => item.code).join("\n"), /match\.partner_entry_discount_percent/);
+  assert.match(audit.issues.map((item) => item.code).join("\n"), /match\.partner_entry_discount_amount/);
 });
