@@ -121,7 +121,8 @@ MINHHONG_PARTNER_IMPORT_CONFIRM_ENABLED="false"
 
 AI_PROVIDER="9router"
 NINE_ROUTER_BASE_URL="http://host.docker.internal:20128/v1"
-NINE_ROUTER_MODEL="cx/gpt-5.5"
+NINE_ROUTER_MODEL="cx/gpt-5.6-luna"
+NINE_ROUTER_REASONING_EFFORT="medium"
 NINE_ROUTER_API_KEY="replace-with-router-key"
 ```
 
@@ -258,6 +259,8 @@ Day la cach nhanh neu 9router cua ban hien la mot CLI/process rieng:
 
 ```env
 NINE_ROUTER_BASE_URL="http://host.docker.internal:20128/v1"
+NINE_ROUTER_MODEL="cx/gpt-5.6-luna"
+NINE_ROUTER_REASONING_EFFORT="medium"
 ```
 
 `docker-compose.yml` da them `host.docker.internal:host-gateway`, nen app container co the goi service dang chay tren host VPS.

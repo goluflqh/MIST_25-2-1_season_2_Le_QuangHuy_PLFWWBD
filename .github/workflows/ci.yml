@@ -42,7 +42,8 @@ jobs:
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/minhhong_next?schema=public
       AI_PROVIDER: 9router
       NINE_ROUTER_BASE_URL: http://127.0.0.1:20128/v1
-      NINE_ROUTER_MODEL: cx/gpt-5.2
+      NINE_ROUTER_MODEL: cx/gpt-5.6-luna
+      NINE_ROUTER_REASONING_EFFORT: medium
       NINE_ROUTER_API_KEY: ci-placeholder
       AI_API_KEY: ci-placeholder
       NEXT_TELEMETRY_DISABLED: "1"
