@@ -61,13 +61,17 @@ prisma/dev.db-journal
 # Antigravity agent
 .gemini/
 
+# machine-local agent skill installations and junctions
+/.agent/global-skills/
+/.agent/skills/ui-ux-pro-max/
+
 # local code graph metadata
 /.gitnexus/
 /.claude/
 
 # local generated artifacts and private campaign drafts
 /marketing/
-scripts/__pycache__/
+**/__pycache__/
 *.pyc
 
 # generated visual drafts kept locally but not used by the app

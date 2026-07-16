@@ -32,10 +32,13 @@ local search, tests, and runtime evidence instead.
 
 ## Agent skills
 
-Use the canonical Matt Pocock workflow routing in `AGENTS.md` for every
-engineering task. Small, clear edits stay lightweight; non-trivial work must be
-routed through the appropriate Matt skill, using `ask-matt` when the route is
-unclear. The authorization gates in `AGENTS.md` remain mandatory.
+Use the canonical Matt Pocock workflow routing in `AGENTS.md`. Small, clear
+tasks stay direct. Respect each skill's invocation metadata: model-invoked
+skills may trigger only when their concrete seam exists, while user-invoked
+skills require explicit intent. Use `ask-matt` only when the user explicitly
+requests the appropriate Matt workflow. Do not auto-chain planning,
+specification, tickets, implementation, handoff, and review. The authorization
+gates in `AGENTS.md` remain mandatory.
 
 ### Issue tracker
 
