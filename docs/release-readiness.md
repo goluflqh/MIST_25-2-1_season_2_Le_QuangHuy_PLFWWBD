@@ -24,7 +24,7 @@ Repo hiện hỗ trợ 3 lựa chọn `AI_PROVIDER`:
 
 - `gemini`: dùng `GEMINI_API_KEY` hoặc `AI_API_KEY`
 - `openai`: dùng `OPENAI_API_KEY`, có thể override thêm `OPENAI_BASE_URL`, `OPENAI_MODEL`
-- `9router`: dùng `NINE_ROUTER_API_KEY`, có thể override thêm `NINE_ROUTER_BASE_URL`, `NINE_ROUTER_MODEL`
+- `9router`: dùng `NINE_ROUTER_API_KEY`, có thể override thêm `NINE_ROUTER_BASE_URL`, `NINE_ROUTER_MODEL`, `NINE_ROUTER_REASONING_EFFORT`
 
 Nếu cần một lớp fallback chung cho provider đang test nội bộ, có thể dùng thêm:
 

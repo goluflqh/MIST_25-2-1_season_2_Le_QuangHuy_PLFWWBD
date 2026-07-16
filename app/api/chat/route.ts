@@ -22,6 +22,7 @@ import { sanitizeText } from "@/lib/sanitize";
 import { siteConfig } from "@/lib/site";
 
 type AIProvider = "gemini" | "openai" | "9router";
+type ReasoningEffort = "low" | "medium";
 
 interface ChatMessage {
   role: string;
@@ -38,6 +39,7 @@ interface ChatCompletionOptions {
   history?: ChatMessage[];
   label: string;
   model: string;
+  reasoningEffort?: ReasoningEffort;
   systemPrompt: string;
   userMessage: string;
 }
@@ -55,7 +57,8 @@ interface ChatRouteMeta {
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_9ROUTER_BASE_URL = "http://127.0.0.1:20128/v1";
-const DEFAULT_9ROUTER_MODEL = "cx/gpt-5.5";
+const DEFAULT_9ROUTER_MODEL = "cx/gpt-5.6-luna";
+const DEFAULT_9ROUTER_REASONING_EFFORT: ReasoningEffort = "medium";
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_CONTENT_CHARS = 800;
@@ -264,6 +267,10 @@ function normalizeProvider(provider: string | undefined): AIProvider {
   return "gemini";
 }
 
+function normalizeReasoningEffort(value: string | undefined): ReasoningEffort {
+  return value?.trim().toLowerCase() === "low" ? "low" : DEFAULT_9ROUTER_REASONING_EFFORT;
+}
+
 function removeTrailingSlash(value: string) {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
@@ -387,6 +394,7 @@ function getAIConfig() {
         process.env.NINE_ROUTER_BASE_URL || process.env.AI_BASE_URL || DEFAULT_9ROUTER_BASE_URL
       ),
       model: process.env.NINE_ROUTER_MODEL || process.env.AI_MODEL || DEFAULT_9ROUTER_MODEL,
+      reasoningEffort: normalizeReasoningEffort(process.env.NINE_ROUTER_REASONING_EFFORT),
     };
   }
 
@@ -614,7 +622,8 @@ export async function POST(request: Request) {
           aiConfig.baseUrl,
           message,
           history,
-          systemPrompt
+          systemPrompt,
+          aiConfig.reasoningEffort
         );
       }
 
@@ -740,6 +749,7 @@ async function callOpenAICompatible({
   history = [],
   label,
   model,
+  reasoningEffort,
   systemPrompt,
   userMessage,
 }: ChatCompletionOptions): Promise<string> {
@@ -762,6 +772,7 @@ async function callOpenAICompatible({
       messages,
       max_tokens: AI_MAX_OUTPUT_TOKENS,
       temperature: 0.3,
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     }),
   });
 
@@ -800,7 +811,8 @@ async function callNineRouter(
   baseUrl: string,
   userMessage: string,
   history: ChatMessage[] = [],
-  systemPrompt: string
+  systemPrompt: string,
+  reasoningEffort: ReasoningEffort = DEFAULT_9ROUTER_REASONING_EFFORT
 ): Promise<string> {
   return callOpenAICompatible({
     apiKey,
@@ -808,6 +820,7 @@ async function callNineRouter(
     history,
     label: "9Router",
     model,
+    reasoningEffort,
     systemPrompt,
     userMessage,
   });
