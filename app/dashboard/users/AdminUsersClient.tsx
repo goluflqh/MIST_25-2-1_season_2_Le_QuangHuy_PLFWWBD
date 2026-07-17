@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import AdminFilterToolbar from "@/components/admin/AdminFilterToolbar";
+import AdminMetricStrip from "@/components/admin/AdminMetricStrip";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
 import { useNotify } from "@/components/NotifyProvider";
 import PaginationControls from "@/components/PaginationControls";
 import { formatVietnamDate } from "@/lib/vietnam-time";
@@ -472,71 +475,65 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
 
   return (
     <div data-testid="dashboard-users-crm" className="space-y-6 animate-fade-in-up">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Hồ sơ khách hàng</p>
-          <h2 className="font-heading font-extrabold text-xl text-slate-900">Khách Hàng & Điểm Thưởng</h2>
-          <p className="font-body text-sm text-slate-500">
-            {metrics.customers} khách hàng · {metrics.admins} quản trị viên · {metrics.totalPoints} điểm đang lưu hành
+      <AdminPageHeader
+        eyebrow="Hồ sơ khách hàng"
+        title="Khách Hàng & Điểm Thưởng"
+        summary={`${metrics.customers} khách hàng · ${metrics.admins} quản trị viên · ${metrics.totalPoints} điểm đang lưu hành`}
+      />
+
+      <AdminMetricStrip
+        dataTestId="dashboard-users-metrics"
+        items={[
+          { key: "customers", label: "Khách hàng", value: metrics.customers, active: roleFilter === "CUSTOMER", onSelect: () => setRoleFilter("CUSTOMER") },
+          { key: "vip", label: "VIP từ hạng vàng", value: metrics.vipCustomers, tone: "amber" },
+          { key: "warranty", label: "Có bảo hành", value: metrics.warrantyCustomers, tone: "blue", active: warrantyFilter === "hasWarranty", onSelect: () => setWarrantyFilter("hasWarranty") },
+          { key: "debt", label: "Có nợ", value: metrics.debtCustomers, tone: "red", active: debtFilter === "hasDebt", onSelect: () => setDebtFilter("hasDebt") },
+          { key: "points", label: "Điểm thưởng", value: metrics.totalPoints, tone: "violet" },
+        ]}
+      />
+
+      <AdminFilterToolbar
+        searchDataTestId="dashboard-users-search"
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Tên, SĐT, mã giới thiệu"
+        activeFilterCount={
+          Number(roleFilter !== "all")
+          + Number(tierFilter !== "all")
+          + Number(originFilter !== "all")
+          + Number(debtFilter !== "all")
+          + Number(warrantyFilter !== "all")
+          + Number(recentOrderFilter !== "all")
+          + Number(sortMode !== "newest")
+        }
+        onReset={resetFilters}
+        desktopGridClassName="md:grid-cols-2 xl:grid-cols-4"
+        resultSummary={
+          <p data-testid="dashboard-users-result-count">
+            Hiển thị {filteredUsers.length} / {users.length} tài khoản
           </p>
-        </div>
-        <button
-          onClick={resetFilters}
-          className="self-start rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200 lg:self-auto"
-        >
-          Xoá bộ lọc
-        </button>
-      </div>
-
-      <div data-testid="dashboard-users-metrics" className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Khách hàng</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.customers}</p>
-        </div>
-        <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-yellow-700">VIP từ hạng vàng</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-yellow-700">{metrics.vipCustomers}</p>
-        </div>
-        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-blue-700">Có bảo hành</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-blue-700">{metrics.warrantyCustomers}</p>
-        </div>
-        <div className="rounded-2xl border border-red-100 bg-red-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-red-700">Có nợ</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-red-700">{metrics.debtCustomers}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Điểm thưởng</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.totalPoints}</p>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
-          <input
-            data-testid="dashboard-users-search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Tìm theo tên, SĐT, mã giới thiệu"
-            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none transition-colors focus:border-red-400 md:col-span-2 xl:col-span-2"
-          />
+        }
+      >
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Vai trò</span>
           <select
             data-testid="dashboard-users-role-filter"
             value={roleFilter}
             onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}
-            title="Lọc vai trò"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="all">Tất cả vai trò</option>
             <option value="CUSTOMER">Khách hàng</option>
             <option value="ADMIN">Quản trị viên</option>
           </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Hạng điểm</span>
           <select
             data-testid="dashboard-users-tier-filter"
             value={tierFilter}
             onChange={(event) => setTierFilter(event.target.value as TierFilter)}
-            title="Lọc hạng điểm thưởng"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="all">Tất cả hạng</option>
             <option value="diamond">Kim cương</option>
@@ -544,67 +541,74 @@ export default function AdminUsersClient({ initialUsers }: { initialUsers: UserD
             <option value="silver">Bạc</option>
             <option value="bronze">Đồng</option>
           </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Nguồn khách</span>
           <select
             data-testid="dashboard-users-origin-filter"
             value={originFilter}
             onChange={(event) => setOriginFilter(event.target.value as CustomerOriginFilter)}
-            title="Lọc nguồn khách"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="all">Tất cả nguồn khách</option>
             <option value="WEB_REGISTERED">Đăng ký web</option>
             <option value="LINKED_OLD_CUSTOMER">Khách cũ đã nối tài khoản</option>
           </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Công nợ</span>
           <select
             data-testid="dashboard-users-debt-filter"
             value={debtFilter}
             onChange={(event) => setDebtFilter(event.target.value as DebtFilter)}
-            title="Lọc công nợ"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="all">Tất cả công nợ</option>
             <option value="hasDebt">Có nợ</option>
             <option value="noDebt">Không nợ</option>
           </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Bảo hành</span>
           <select
             data-testid="dashboard-users-warranty-filter"
             value={warrantyFilter}
             onChange={(event) => setWarrantyFilter(event.target.value as WarrantyFilter)}
-            title="Lọc bảo hành"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="all">Tất cả bảo hành</option>
             <option value="hasWarranty">Có bảo hành</option>
             <option value="noWarranty">Chưa có bảo hành</option>
           </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Lịch sử đơn</span>
           <select
             data-testid="dashboard-users-recent-order-filter"
             value={recentOrderFilter}
             onChange={(event) => setRecentOrderFilter(event.target.value as RecentOrderFilter)}
-            title="Lọc đơn gần đây"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="all">Tất cả lịch sử đơn</option>
             <option value="recent">Có đơn gần đây</option>
             <option value="noRecent">Chưa có đơn gần đây</option>
           </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Sắp xếp</span>
           <select
             data-testid="dashboard-users-sort"
             value={sortMode}
             onChange={(event) => setSortMode(event.target.value as SortMode)}
-            title="Sắp xếp khách hàng"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="newest">Mới đăng ký</option>
             <option value="points">Điểm cao nhất</option>
             <option value="engagement">Tương tác nhiều</option>
             <option value="name">Tên A-Z</option>
           </select>
-        </div>
-        <p data-testid="dashboard-users-result-count" className="mt-3 font-body text-xs text-slate-400">
-          Hiển thị {filteredUsers.length} / {users.length} tài khoản
-        </p>
-      </div>
+        </label>
+      </AdminFilterToolbar>
 
       <div className="space-y-3 lg:hidden">
         {filteredUsers.length === 0 ? (

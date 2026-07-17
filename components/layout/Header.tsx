@@ -275,6 +275,10 @@ export default function Header({
 
   const isActive = (href: string) => pathname === href;
 
+  if (pathname.startsWith("/dashboard")) {
+    return null;
+  }
+
   return (
     <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-6">
       {isMobileMenuOpen ? (

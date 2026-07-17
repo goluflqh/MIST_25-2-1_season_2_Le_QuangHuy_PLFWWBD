@@ -426,3 +426,7 @@
     transform: none !important;
   }
 }
+
+#main-content:has([data-admin-shell]) {
+  padding-top: 0;
+}

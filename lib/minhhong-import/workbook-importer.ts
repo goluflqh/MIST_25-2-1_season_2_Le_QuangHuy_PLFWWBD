@@ -1,8 +1,15 @@
 import { parseAdminDateInput } from "@/lib/admin-date";
 import { getImportedFallbackOrderDate, isImportedOrderDateFallback } from "@/lib/admin-order-display";
 import { normalizePhone, sanitizeText } from "@/lib/sanitize";
-import { createWarrantyForServiceOrder, DEFAULT_WARRANTY_MONTHS, getDefaultWarrantyEndDate } from "@/lib/warranties";
+import { DEFAULT_WARRANTY_MONTHS } from "@/lib/warranties";
 import { formatVietnamDate, getVietnamDateKey } from "@/lib/vietnam-time";
+import {
+  APPROVED_DUPLICATE_WARRANTY_PAIRS,
+  APPROVED_INITIAL_ORDER_GROUPS,
+  APPROVED_STANDALONE_WARRANTY_LINKS,
+  isApprovedInitialOrderMatch,
+  reconcileApprovedInitialCustomerOrders,
+} from "./initial-reconciliation";
 import type { MinhHongImportScope } from "./import-scope";
 import { getServiceOrderInvalidDateSourceRows, reconcileMinhHongWorkbook } from "./reconciliation";
 import type { MinhHongParsedCustomerOrder, MinhHongParsedPartner, MinhHongParsedPartnerEntry, MinhHongParsedWorkbook } from "./workbook-parser";
@@ -78,6 +85,11 @@ export interface MinhHongImportPreview {
   partnerEntries: MinhHongImportChangeCounts;
   serviceOrders: MinhHongImportChangeCounts;
   conflicts: string[];
+  warranties: {
+    archivedDuplicates: number;
+    linked: number;
+    unchanged: number;
+  };
   records: {
     partners?: MinhHongImportChangeRecord[];
     partnerEntries: MinhHongImportChangeRecord[];
@@ -113,15 +125,29 @@ interface PartnerEntryPlanItem {
 
 interface ServiceOrderPlanItem {
   action: ImportAction | "conflict";
+  approvedInitialMatch: boolean;
   existing: Record<string, unknown> | null;
   order: MinhHongParsedCustomerOrder;
 }
+
+type WarrantyPlanItem =
+  | {
+      action: "archive-duplicate";
+      canonicalSerialNo: string;
+      duplicateSerialNo: string;
+    }
+  | {
+      action: "link";
+      serialNo: string;
+      sourceCode: string;
+    };
 
 interface ImportPlan {
   preview: MinhHongImportPreview;
   partners: PartnerPlanItem[];
   partnerEntries: PartnerEntryPlanItem[];
   serviceOrders: ServiceOrderPlanItem[];
+  warranties: WarrantyPlanItem[];
 }
 
 export class MinhHongWorkbookImportError extends Error {
@@ -281,9 +307,15 @@ function customerPhone(order: MinhHongParsedCustomerOrder) {
   return sanitizeText(order.customerPhone) || buildPlaceholderPhone(order.sourceRow);
 }
 
+function mergeNotes(...values: unknown[]) {
+  return [...new Set(values
+    .map((value) => sanitizeText(String(value || "")))
+    .filter(Boolean))]
+    .join(" · ") || null;
+}
+
 function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string, existingOrderCode?: string) {
   const phone = customerPhone(order);
-  const orderDate = toOrderDate(order.orderDate, order.sourceRow);
   const status = serviceOrderStatus(order);
   const warrantyMonths = DEFAULT_WARRANTY_MONTHS;
   return {
@@ -300,12 +332,12 @@ function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string
     sourceName: "Đơn khách",
     sourceCode: order.sourceCode,
     sourceRow: order.sourceRow,
-    orderDate,
+    orderDate: toOrderDate(order.orderDate, order.sourceRow),
     quotedPrice: order.quotedPrice,
     priceStatus: priceStatus(order),
     paidAmount: order.paidAmount,
     warrantyMonths,
-    warrantyEndDate: status === "COMPLETED" ? getDefaultWarrantyEndDate(orderDate, warrantyMonths) : null,
+    warrantyEndDate: null,
     customerVisible: false,
     couponCode: null,
     couponDiscount: null,
@@ -315,7 +347,46 @@ function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string
   };
 }
 
+function approvedExistingServiceOrderData(
+  order: MinhHongParsedCustomerOrder,
+  existing: Record<string, unknown>
+) {
+  const previousProduct = sanitizeText(String(existing.productName || ""));
+  const nextProduct = order.productName || previousProduct || "Đơn khách cũ";
+  const wordingNote = previousProduct && normalizedBusinessText(previousProduct) !== normalizedBusinessText(nextProduct)
+    ? `Cách ghi trước đồng bộ: ${previousProduct}`
+    : null;
+
+  return {
+    orderCode: String(existing.orderCode || order.orderCode),
+    customerName: sanitizeText(String(existing.customerName || "")) || order.customerName || "Khách chưa rõ tên",
+    customerPhone: sanitizeText(String(existing.customerPhone || "")) || customerPhone(order),
+    service: sanitizeText(String(existing.service || "")) || "KHAC",
+    productName: nextProduct,
+    issueDescription: existing.issueDescription || order.productName || null,
+    solution: existing.solution ?? null,
+    status: sanitizeText(String(existing.status || "")) || serviceOrderStatus(order),
+    source: sanitizeText(String(existing.source || "")) || "IMPORT",
+    sourceName: "Đơn khách",
+    sourceCode: order.sourceCode,
+    sourceRow: order.sourceRow,
+    orderDate: toOrderDate(order.orderDate, order.sourceRow),
+    quotedPrice: order.quotedPrice,
+    priceStatus: priceStatus(order),
+    paidAmount: order.paidAmount,
+    warrantyMonths: existing.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
+    warrantyEndDate: existing.warrantyEndDate ?? null,
+    customerVisible: Boolean(existing.customerVisible),
+    discountAmount: Number(existing.discountAmount || 0),
+    notes: mergeNotes(existing.notes, order.notes, wordingNote),
+    deletedAt: null,
+  };
+}
+
 function serviceOrderBusinessData(order: MinhHongParsedCustomerOrder, existing?: Record<string, unknown> | null) {
+  if (existing && isApprovedInitialOrderMatch(order, existing.orderCode)) {
+    return approvedExistingServiceOrderData(order, existing);
+  }
   return Object.fromEntries(
     Object.entries(serviceOrderData(
       order,
@@ -570,6 +641,7 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
     partnerEntries: emptyChangeCounts(),
     serviceOrders: emptyChangeCounts(),
     conflicts: [],
+    warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
     records: { partners: [], partnerEntries: [], serviceOrders: [] },
   };
   const partnerPlans: PartnerPlanItem[] = [];
@@ -692,18 +764,51 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
   }
 
   const serviceOrderPlans: ServiceOrderPlanItem[] = [];
+  const warrantyPlans: WarrantyPlanItem[] = [];
   if (includeServiceOrders) {
-    const incomingServiceOrderSourceCodes = new Set(parsed.customerOrders.map((order) => order.sourceCode));
+    const existingApprovedOrders = await tx.serviceOrder.findMany({
+      where: { orderCode: { in: APPROVED_INITIAL_ORDER_GROUPS.map((group) => group.orderCode) } },
+      include: { warranty: true },
+    });
+    const existingApprovedOrderCodes = new Set(existingApprovedOrders.map((order) => String(order.orderCode)));
+    const standaloneWarrantiesBySourceCode = new Map<string, Record<string, unknown>>();
+    for (const link of APPROVED_STANDALONE_WARRANTY_LINKS) {
+      const warranty = await tx.warranty.findUnique({ where: { serialNo: link.serialNo } });
+      if (warranty && !warranty.deletedAt) standaloneWarrantiesBySourceCode.set(link.sourceCode, warranty);
+    }
+    const incomingApprovedSourceCodes = new Set(parsed.customerOrders.map((order) => order.sourceCode));
+    for (const group of APPROVED_INITIAL_ORDER_GROUPS) {
+      if (!existingApprovedOrderCodes.has(group.orderCode) || group.sourceCodes.length === 1) continue;
+      const presentRows = group.sourceCodes.filter((sourceCode) => incomingApprovedSourceCodes.has(sourceCode)).length;
+      if (presentRows > 0 && presentRows < group.sourceCodes.length) {
+        preview.conflicts.push(
+          `Đơn ${group.orderCode} thiếu ${group.sourceCodes.length - presentRows}/${group.sourceCodes.length} dòng Sheet đã duyệt; chưa thể đồng bộ an toàn.`
+        );
+      }
+    }
+    const customerOrders = reconcileApprovedInitialCustomerOrders(
+      parsed.customerOrders,
+      existingApprovedOrderCodes
+    ).map((order) => {
+      const warranty = standaloneWarrantiesBySourceCode.get(order.sourceCode);
+      if (!warranty || order.customerPhone) return order;
+      return {
+        ...order,
+        customerName: order.customerName || sanitizeText(String(warranty.customerName || "")),
+        customerPhone: sanitizeText(String(warranty.customerPhone || "")),
+      };
+    });
+    const incomingServiceOrderSourceCodes = new Set(customerOrders.map((order) => order.sourceCode));
     const duplicateServiceOrderAnchorSignatures = duplicateRolloutSignatures(
-      parsed.customerOrders.map(serviceOrderAnchorSignature)
+      customerOrders.map(serviceOrderAnchorSignature)
     );
     const existingServiceOrderRows = await tx.serviceOrder.findMany({
       where: {
         OR: [
-          { sourceCode: { in: parsed.customerOrders.map((order) => order.sourceCode) } },
+          { sourceCode: { in: customerOrders.map((order) => order.sourceCode) } },
           {
             orderCode: {
-              in: [...new Set(parsed.customerOrders.flatMap((order) => [
+              in: [...new Set(customerOrders.flatMap((order) => [
                 order.orderCode,
                 order.legacyOrderCode || "",
               ]).filter(Boolean))],
@@ -722,12 +827,12 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
       existingServiceOrderRows.map((order) => [String(order.orderCode), order])
     );
     const duplicateServiceOrderRolloutSignatures = duplicateRolloutSignatures(
-      parsed.customerOrders
+      customerOrders
         .filter((order) => Boolean(order.legacyOrderCode))
         .map(serviceOrderRolloutSignature)
     );
 
-    for (const order of parsed.customerOrders) {
+    for (const order of customerOrders) {
       if (
         scope === "service-orders"
         && ((order.sourceRow && invalidServiceOrderDateRows.has(order.sourceRow)) || hasInvalidTypedOrderDate(order))
@@ -744,7 +849,7 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
       if (!sourceCodeMatch && codeMatches.length > 1) {
         const message = `source_id của ${order.orderCode} đang thuộc một đơn khác; chưa thể tự động hợp nhất.`;
         preview.conflicts.push(message);
-        serviceOrderPlans.push({ action: "conflict", existing: sourceCodeMatch, order });
+        serviceOrderPlans.push({ action: "conflict", approvedInitialMatch: false, existing: sourceCodeMatch, order });
         continue;
       }
 
@@ -757,6 +862,9 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
         ? legacyCandidate
         : null;
       const orderFallbackMatch = orderCodeMatch || legacyOrderCodeMatch;
+      const approvedInitialMatch = Boolean(
+        orderFallbackMatch && isApprovedInitialOrderMatch(order, orderFallbackMatch.orderCode)
+      );
       const safeIdentityRefresh = Boolean(
         orderFallbackMatch
         && !duplicateServiceOrderAnchorSignatures.has(serviceOrderAnchorSignature(order))
@@ -768,18 +876,19 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
         && String(orderFallbackMatch.sourceCode) !== order.sourceCode
         && !legacyRekeyCandidate
         && !safeIdentityRefresh
+        && !approvedInitialMatch
       ) {
         const message = `Mã đơn ${order.orderCode} đã có source_id khác; chưa ghi đè danh tính ổn định.`;
         preview.conflicts.push(message);
-        serviceOrderPlans.push({ action: "conflict", existing: orderFallbackMatch, order });
+        serviceOrderPlans.push({ action: "conflict", approvedInitialMatch, existing: orderFallbackMatch, order });
         continue;
       }
 
       const existing = sourceCodeMatch || orderFallbackMatch;
-      if (existing && existing.source !== "IMPORT" && !existing.deletedAt) {
+      if (existing && existing.source !== "IMPORT" && !existing.deletedAt && !approvedInitialMatch) {
         const message = `Không ghi đè đơn thủ công ${order.orderCode}; dữ liệu trên web được giữ nguyên.`;
         preview.conflicts.push(message);
-        serviceOrderPlans.push({ action: "conflict", existing, order });
+        serviceOrderPlans.push({ action: "conflict", approvedInitialMatch, existing, order });
         continue;
       }
 
@@ -793,7 +902,7 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
               ? `source_id của ${order.orderCode} trùng dữ liệu nghiệp vụ trong lần gắn source_id đầu tiên; chưa thể tự động hợp nhất.`
               : `source_id của ${order.orderCode} không khớp dữ liệu nghiệp vụ của đơn cũ; chưa thể tự động hợp nhất.`
           );
-          serviceOrderPlans.push({ action: "conflict", existing: legacyRekeyCandidate, order });
+          serviceOrderPlans.push({ action: "conflict", approvedInitialMatch, existing: legacyRekeyCandidate, order });
           continue;
         }
       }
@@ -818,7 +927,43 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
           label: serviceOrderPreviewLabel(order),
         });
       }
-      serviceOrderPlans.push({ action, existing, order });
+      serviceOrderPlans.push({ action, approvedInitialMatch, existing, order });
+    }
+
+    for (const link of APPROVED_STANDALONE_WARRANTY_LINKS) {
+      const warranty = standaloneWarrantiesBySourceCode.get(link.sourceCode);
+      const targetPlan = serviceOrderPlans.find((plan) => plan.order.sourceCode === link.sourceCode);
+      if (!warranty || !targetPlan || targetPlan.action === "conflict") continue;
+      if (warranty.serviceOrderId) {
+        const targetId = targetPlan.existing ? asId(targetPlan.existing) : "";
+        if (targetId && String(warranty.serviceOrderId) !== targetId) {
+          const message = `Phiếu ${link.serialNo} đang gắn với một đơn khác; chưa thể tự động nối lại.`;
+          preview.conflicts.push(message);
+        } else {
+          preview.warranties.unchanged += 1;
+        }
+        continue;
+      }
+      preview.warranties.linked += 1;
+      warrantyPlans.push({ action: "link", serialNo: link.serialNo, sourceCode: link.sourceCode });
+    }
+
+    for (const pair of APPROVED_DUPLICATE_WARRANTY_PAIRS) {
+      const [canonical, duplicate] = await Promise.all([
+        tx.warranty.findUnique({ where: { serialNo: pair.canonicalSerialNo } }),
+        tx.warranty.findUnique({ where: { serialNo: pair.duplicateSerialNo } }),
+      ]);
+      if (!duplicate || duplicate.deletedAt) {
+        if (canonical && !canonical.deletedAt) preview.warranties.unchanged += 1;
+        continue;
+      }
+      if (!canonical || canonical.deletedAt) {
+        const message = `Không tìm thấy phiếu chính ${pair.canonicalSerialNo} để gộp phiếu trùng ${pair.duplicateSerialNo}.`;
+        preview.conflicts.push(message);
+        continue;
+      }
+      preview.warranties.archivedDuplicates += 1;
+      warrantyPlans.push({ action: "archive-duplicate", ...pair });
     }
   }
 
@@ -827,6 +972,7 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
     partners: partnerPlans,
     partnerEntries: partnerEntryPlans,
     serviceOrders: serviceOrderPlans,
+    warranties: warrantyPlans,
   };
 }
 
@@ -895,31 +1041,41 @@ async function upsertCustomer(tx: ImportTransaction, order: MinhHongParsedCustom
   });
 }
 
-function hasActiveLinkedWarranty(order: Record<string, unknown> | null) {
-  const warranty = order?.warranty as Record<string, unknown> | null | undefined;
-  return Boolean(warranty && !warranty.deletedAt);
-}
-
-async function syncImportedOrderWarranty(
+async function refreshApprovedLinkedWarranty(
   tx: ImportTransaction,
-  order: Record<string, unknown>,
-  options: { refreshExisting: boolean }
+  plan: ServiceOrderPlanItem,
+  savedOrder: Record<string, unknown>
 ) {
-  if (order.status !== "COMPLETED" || order.warrantyMonths === 0) return;
+  if (!plan.approvedInitialMatch) return;
 
-  const serviceOrderId = asId(order);
-  if (!serviceOrderId) {
-    throw new MinhHongWorkbookImportError(`Không tìm thấy ID đơn ${order.orderCode || ""} để tạo phiếu bảo hành.`);
-  }
+  const serviceOrderId = asId(savedOrder);
+  const includedWarranty = plan.existing?.warranty as Record<string, unknown> | null | undefined;
+  const warranty = includedWarranty || (serviceOrderId
+    ? await tx.warranty.findUnique({ where: { serviceOrderId } })
+    : null);
+  if (!warranty || warranty.deletedAt) return;
 
-  await createWarrantyForServiceOrder(
-    tx as unknown as Parameters<typeof createWarrantyForServiceOrder>[0],
-    serviceOrderId,
-    {
-      refreshExisting: options.refreshExisting,
-      warrantyMonths: order.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
-    }
-  );
+  const previousProduct = sanitizeText(String(warranty.productName || ""));
+  const previousCustomer = sanitizeText(String(warranty.customerName || ""));
+  const nextProduct = sanitizeText(String(savedOrder.productName || "")) || previousProduct;
+  const nextCustomer = sanitizeText(String(savedOrder.customerName || "")) || previousCustomer;
+  const wordingNotes = [
+    previousProduct && normalizedBusinessText(previousProduct) !== normalizedBusinessText(nextProduct)
+      ? `Tên sản phẩm trên phiếu trước đồng bộ: ${previousProduct}`
+      : null,
+    previousCustomer && normalizedBusinessText(previousCustomer) !== normalizedBusinessText(nextCustomer)
+      ? `Tên khách trên phiếu trước đồng bộ: ${previousCustomer}`
+      : null,
+  ];
+  const data = {
+    customerName: nextCustomer,
+    customerPhone: sanitizeText(String(savedOrder.customerPhone || "")) || warranty.customerPhone,
+    notes: mergeNotes(warranty.notes, ...wordingNotes),
+    productName: nextProduct,
+    service: sanitizeText(String(savedOrder.service || "")) || warranty.service,
+  };
+  if (recordMatches(warranty, data)) return;
+  await tx.warranty.update({ where: { id: asId(warranty) }, data });
 }
 
 async function upsertServiceOrders(tx: ImportTransaction, plans: ServiceOrderPlanItem[]) {
@@ -929,19 +1085,18 @@ async function upsertServiceOrders(tx: ImportTransaction, plans: ServiceOrderPla
     }
 
     if (plan.action === "unchanged") {
-      if (plan.existing && !hasActiveLinkedWarranty(plan.existing)) {
-        await syncImportedOrderWarranty(tx, plan.existing, { refreshExisting: true });
-      }
+      if (plan.existing) await refreshApprovedLinkedWarranty(tx, plan, plan.existing);
       continue;
     }
 
     const order = plan.order;
-    const customer = await upsertCustomer(tx, order);
-    const data = serviceOrderData(
-      order,
-      asId(customer),
-      plan.existing?.orderCode ? String(plan.existing.orderCode) : undefined
-    );
+    const data = plan.approvedInitialMatch && plan.existing
+      ? approvedExistingServiceOrderData(order, plan.existing)
+      : serviceOrderData(
+          order,
+          asId(await upsertCustomer(tx, order)),
+          plan.existing?.orderCode ? String(plan.existing.orderCode) : undefined
+        );
     let savedOrder: Record<string, unknown>;
     if (plan.action === "updated") {
       const existingId = plan.existing ? asId(plan.existing) : "";
@@ -952,7 +1107,56 @@ async function upsertServiceOrders(tx: ImportTransaction, plans: ServiceOrderPla
     } else {
       savedOrder = await tx.serviceOrder.create({ data });
     }
-    await syncImportedOrderWarranty(tx, savedOrder, { refreshExisting: true });
+    await refreshApprovedLinkedWarranty(tx, plan, savedOrder);
+  }
+}
+
+async function applyWarrantyPlans(tx: ImportTransaction, plans: WarrantyPlanItem[]) {
+  for (const plan of plans) {
+    if (plan.action === "link") {
+      const warranty = await tx.warranty.findUnique({ where: { serialNo: plan.serialNo } });
+      const order = await tx.serviceOrder.findUnique({ where: { sourceCode: plan.sourceCode } });
+      if (!warranty || warranty.deletedAt || !order) {
+        throw new MinhHongWorkbookImportError(`Không thể nối phiếu ${plan.serialNo} với đơn đã nhập.`);
+      }
+
+      await tx.warranty.update({
+        where: { id: asId(warranty) },
+        data: { serviceOrderId: asId(order) },
+      });
+      if (warranty.endDate instanceof Date) {
+        await tx.serviceOrder.update({
+          where: { id: asId(order) },
+          data: { warrantyEndDate: warranty.endDate },
+        });
+      }
+      continue;
+    }
+
+    const canonical = await tx.warranty.findUnique({ where: { serialNo: plan.canonicalSerialNo } });
+    const duplicate = await tx.warranty.findUnique({ where: { serialNo: plan.duplicateSerialNo } });
+    if (!canonical || canonical.deletedAt || !duplicate || duplicate.deletedAt) {
+      throw new MinhHongWorkbookImportError(`Không thể lưu trữ phiếu trùng ${plan.duplicateSerialNo}.`);
+    }
+
+    const duplicateWording = [
+      sanitizeText(String(duplicate.customerName || "")),
+      sanitizeText(String(duplicate.productName || "")),
+    ].filter(Boolean).join(" · ");
+    await tx.warranty.update({
+      where: { id: asId(canonical) },
+      data: {
+        notes: mergeNotes(
+          canonical.notes,
+          duplicate.notes,
+          `Đã lưu trữ phiếu trùng ${duplicate.serialNo}${duplicateWording ? ` (${duplicateWording})` : ""}`
+        ),
+      },
+    });
+    await tx.warranty.update({
+      where: { id: asId(duplicate) },
+      data: { deletedAt: new Date() },
+    });
   }
 }
 
@@ -989,6 +1193,7 @@ export async function importMinhHongParsedWorkbook(parsed: MinhHongParsedWorkboo
     }
     if (scope !== "partners") {
       await upsertServiceOrders(tx, plan.serviceOrders);
+      await applyWarrantyPlans(tx, plan.warranties);
     }
 
     const summary: MinhHongImportSummary = {

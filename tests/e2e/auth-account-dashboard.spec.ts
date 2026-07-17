@@ -698,6 +698,8 @@ test.describe("Auth, account and dashboard smoke", () => {
       await expect(page.getByTestId("dashboard-warranty-metrics")).toBeVisible();
 
       await page.getByTestId("dashboard-warranty-search").fill(generatedSerialNo);
+      await page.getByRole("button", { name: /Bộ lọc/ }).click();
+      await expect(page.getByTestId("dashboard-warranty-status-filter")).toBeVisible();
       await page.getByTestId("dashboard-warranty-status-filter").selectOption("expiring");
       await page.getByTestId("dashboard-warranty-service-filter").selectOption("DONG_PIN");
       await expect(page.getByTestId("dashboard-warranty-result-count")).toContainText("1 /");

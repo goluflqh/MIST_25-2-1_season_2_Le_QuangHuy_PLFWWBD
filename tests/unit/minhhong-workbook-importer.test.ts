@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseMinhHongAdminWorkbook } from "../../lib/minhhong-import/workbook-parser";
 import { importMinhHongParsedWorkbook, previewMinhHongParsedWorkbook, type ImportRunner } from "../../lib/minhhong-import/workbook-importer";
+import {
+  APPROVED_DUPLICATE_WARRANTY_PAIRS,
+  APPROVED_INITIAL_ORDER_GROUPS,
+  APPROVED_STANDALONE_WARRANTY_LINKS,
+} from "../../lib/minhhong-import/initial-reconciliation";
 import { readCleanMinhHongAdminWorkbookBuffer } from "./minhhong-test-workbook";
 import { getVietnamDateKey } from "../../lib/vietnam-time";
 
@@ -170,9 +175,7 @@ test("imports the parsed workbook into idempotent partner and order records", as
   assert.equal(state.partners.size, parsed.partners.length);
   assert.equal(state.partnerLedgerEntries.size, 80);
   assert.equal(state.serviceOrders.size, 41);
-  const completedOrders = [...state.serviceOrders.values()].filter((order) => order.status === "COMPLETED");
-  assert.equal(state.warranties.size, completedOrders.length);
-  assert.equal(completedOrders.every((order) => order.warrantyMonths === 6 && order.warrantyEndDate instanceof Date), true);
+  assert.equal(state.warranties.size, 0);
   assert.equal([...state.partnerLedgerEntries.keys()].some((key) => key.startsWith("DON_KHACH")), false);
   assert.equal([...state.serviceOrders.values()].every((order) => order.source === "IMPORT" && order.sourceName === "Đơn khách"), true);
   assert.equal([...state.serviceOrders.values()].every((order) => typeof order.sourceCode === "string" && order.sourceCode.length > 0), true);
@@ -210,7 +213,7 @@ test("service-order scoped import leaves partner ledger records untouched", asyn
   assert.equal(state.auditLogs.length, 1);
 });
 
-test("service-order scoped import creates and refreshes linked six-month warranties from source order dates", async () => {
+test("service-order scoped import does not invent warranty cards for historical Sheet orders", async () => {
   const baseline = await parsedWorkbook();
   const sourceOrder = {
     ...baseline.customerOrders[0],
@@ -240,15 +243,8 @@ test("service-order scoped import creates and refreshes linked six-month warrant
   await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
 
   const savedOrder = state.serviceOrders.get("DH-WARRANTY-SYNC");
-  const warranty = [...state.warranties.values()][0];
   assert.ok(savedOrder);
-  assert.ok(warranty);
-  assert.equal(state.warranties.size, 1);
-  assert.equal(warranty.serviceOrderId, savedOrder.id);
-  assert.equal(warranty.productName, "Pin warranty sync");
-  assert.equal(getVietnamDateKey(warranty.startDate as Date), "2026-01-10");
-  assert.equal(getVietnamDateKey(warranty.endDate as Date), "2026-07-10");
-  assert.equal(getVietnamDateKey(savedOrder.warrantyEndDate as Date), "2026-07-10");
+  assert.equal(state.warranties.size, 0);
 
   const changed = {
     ...parsed,
@@ -260,13 +256,9 @@ test("service-order scoped import creates and refreshes linked six-month warrant
   };
   await importMinhHongParsedWorkbook(changed, runner, { scope: "service-orders", userId: "admin-test" });
 
-  const refreshedWarranty = state.warranties.get(String(warranty.id));
   const refreshedOrder = state.serviceOrders.get("DH-WARRANTY-SYNC");
-  assert.equal(state.warranties.size, 1);
-  assert.equal(refreshedWarranty?.productName, "Pin warranty sync updated");
-  assert.equal(getVietnamDateKey(refreshedWarranty?.startDate as Date), "2026-01-20");
-  assert.equal(getVietnamDateKey(refreshedWarranty?.endDate as Date), "2026-07-20");
-  assert.equal(getVietnamDateKey(refreshedOrder?.warrantyEndDate as Date), "2026-07-20");
+  assert.equal(state.warranties.size, 0);
+  assert.equal(refreshedOrder?.productName, "Pin warranty sync updated");
 });
 
 test("partner scoped import leaves service orders untouched", async () => {
@@ -360,7 +352,7 @@ test("running the same parsed workbook twice does not create duplicate records",
   assert.equal(state.partners.size, parsed.partners.length);
   assert.equal(state.partnerLedgerEntries.size, 80);
   assert.equal(state.serviceOrders.size, 41);
-  assert.equal(state.warranties.size, [...state.serviceOrders.values()].filter((order) => order.status === "COMPLETED").length);
+  assert.equal(state.warranties.size, 0);
   assert.equal(state.auditLogs.length, 2);
   assert.deepEqual(second.changes.partnerEntries, { created: 0, updated: 0, unchanged: 80 });
   assert.deepEqual(second.changes.serviceOrders, { created: 0, updated: 0, unchanged: 41 });
@@ -368,6 +360,213 @@ test("running the same parsed workbook twice does not create duplicate records",
   assert.equal(second.serviceOrdersUpserted, 0);
   assert.equal([...state.partnerLedgerEntries.keys()].every((sourceCode) => !sourceCode.includes(":MH_")), true);
   assert.equal([...state.serviceOrders.values()].every((order) => !String(order.sourceCode).includes(":MH_")), true);
+});
+
+test("reconciles approved manual orders and warranties without deleting history", async () => {
+  const baseline = await parsedWorkbook();
+  const approvedGroup = APPROVED_INITIAL_ORDER_GROUPS[0];
+  const manualApprovedGroup = APPROVED_INITIAL_ORDER_GROUPS[1];
+  const standaloneLink = APPROVED_STANDALONE_WARRANTY_LINKS[0];
+  const duplicatePair = APPROVED_DUPLICATE_WARRANTY_PAIRS[0];
+  const approvedSource = {
+    ...baseline.customerOrders[0],
+    orderCode: approvedGroup.orderCode,
+    sourceCode: approvedGroup.sourceCodes[0],
+    sourceRow: 901,
+  };
+  const manualApprovedSource = {
+    ...baseline.customerOrders[2],
+    orderCode: manualApprovedGroup.orderCode,
+    sourceCode: manualApprovedGroup.sourceCodes[0],
+    sourceRow: 903,
+  };
+  const standaloneSource = {
+    ...baseline.customerOrders[1],
+    orderCode: "DH-STANDALONE-WARRANTY",
+    sourceCode: standaloneLink.sourceCode,
+    sourceRow: 902,
+  };
+
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [approvedSource, manualApprovedSource, standaloneSource],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const { runner, state } = createFakeImportRunner();
+  state.serviceOrders.set(approvedGroup.orderCode, {
+    id: "approved-order-id",
+    orderCode: approvedGroup.orderCode,
+    customerId: "existing-customer-id",
+    customerName: "Tên khách rõ hơn trên web",
+    customerPhone: "0909000000",
+    service: "DONG_PIN",
+    productName: "Cách ghi sản phẩm cũ trên web",
+    issueDescription: "Ghi chú vận hành trên web",
+    solution: "Đã bàn giao",
+    status: "COMPLETED",
+    source: "PHONE",
+    orderDate: new Date("2026-01-01T00:00:00.000Z"),
+    quotedPrice: 1,
+    paidAmount: 1,
+    warrantyMonths: 6,
+    warrantyEndDate: new Date("2026-12-31T23:59:59.999Z"),
+    customerVisible: true,
+    discountAmount: 0,
+    notes: "Ghi chú web cần giữ",
+    deletedAt: null,
+  });
+  state.serviceOrders.set(manualApprovedGroup.orderCode, {
+    ...state.serviceOrders.get(approvedGroup.orderCode),
+    id: "manual-approved-order-id",
+    orderCode: manualApprovedGroup.orderCode,
+    customerId: "manual-existing-customer-id",
+    source: "MANUAL",
+  });
+  const canonicalStart = new Date("2026-05-01T00:00:00.000Z");
+  const canonicalEnd = new Date("2026-11-01T23:59:59.999Z");
+  state.warranties.set("canonical-warranty-id", {
+    id: "canonical-warranty-id",
+    serialNo: duplicatePair.canonicalSerialNo,
+    productName: "Tên sản phẩm cũ trên phiếu",
+    customerName: "Tên khách cũ trên phiếu",
+    customerPhone: "0909000000",
+    service: "DONG_PIN",
+    startDate: canonicalStart,
+    endDate: canonicalEnd,
+    notes: "Ghi chú phiếu chính",
+    serviceOrderId: "approved-order-id",
+    deletedAt: null,
+  });
+  state.warranties.set("duplicate-warranty-id", {
+    id: "duplicate-warranty-id",
+    serialNo: duplicatePair.duplicateSerialNo,
+    productName: "Cách ghi trên phiếu trùng",
+    customerName: "Khách trên phiếu trùng",
+    customerPhone: "0909000000",
+    service: "DONG_PIN",
+    startDate: canonicalStart,
+    endDate: canonicalEnd,
+    notes: "Ghi chú phiếu trùng cần lưu",
+    serviceOrderId: null,
+    deletedAt: null,
+  });
+  const standaloneStart = new Date("2026-05-02T00:00:00.000Z");
+  const standaloneEnd = new Date("2026-08-02T23:59:59.999Z");
+  state.warranties.set("standalone-warranty-id", {
+    id: "standalone-warranty-id",
+    serialNo: standaloneLink.serialNo,
+    productName: "Phiếu độc lập hợp lệ",
+    customerName: "Khách phiếu độc lập",
+    customerPhone: "0911000000",
+    service: "KHAC",
+    startDate: standaloneStart,
+    endDate: standaloneEnd,
+    notes: "Giữ nguyên thông tin phiếu độc lập",
+    serviceOrderId: null,
+    deletedAt: null,
+  });
+
+  const preview = await previewMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders" });
+  assert.equal(preview.warranties.archivedDuplicates, 1);
+  assert.equal(preview.warranties.linked, 1);
+  assert.deepEqual(preview.conflicts, []);
+
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+
+  const approvedOrder = state.serviceOrders.get(approvedGroup.orderCode);
+  assert.equal(approvedOrder?.id, "approved-order-id");
+  assert.equal(approvedOrder?.customerName, "Tên khách rõ hơn trên web");
+  assert.equal(approvedOrder?.productName, approvedSource.productName);
+  assert.equal(approvedOrder?.source, "PHONE");
+  assert.equal(approvedOrder?.sourceName, "Đơn khách");
+  assert.equal(approvedOrder?.quotedPrice, approvedSource.quotedPrice);
+  assert.match(String(approvedOrder?.notes), /Ghi chú web cần giữ/);
+  assert.match(String(approvedOrder?.notes), /Cách ghi sản phẩm cũ trên web/);
+
+  const manualApprovedOrder = state.serviceOrders.get(manualApprovedGroup.orderCode);
+  assert.equal(manualApprovedOrder?.id, "manual-approved-order-id");
+  assert.equal(manualApprovedOrder?.source, "MANUAL");
+  assert.equal(manualApprovedOrder?.sourceName, "Đơn khách");
+
+  const canonical = state.warranties.get("canonical-warranty-id");
+  assert.equal(canonical?.serialNo, duplicatePair.canonicalSerialNo);
+  assert.equal(canonical?.startDate, canonicalStart);
+  assert.equal(canonical?.endDate, canonicalEnd);
+  assert.equal(canonical?.productName, approvedSource.productName);
+  assert.match(String(canonical?.notes), new RegExp(duplicatePair.duplicateSerialNo));
+  assert.match(String(canonical?.notes), /Ghi chú phiếu trùng cần lưu/);
+  assert.ok(state.warranties.get("duplicate-warranty-id")?.deletedAt instanceof Date);
+
+  const importedStandaloneOrder = [...state.serviceOrders.values()].find(
+    (order) => order.sourceCode === standaloneLink.sourceCode
+  );
+  assert.ok(importedStandaloneOrder);
+  const standalone = state.warranties.get("standalone-warranty-id");
+  assert.equal(standalone?.serviceOrderId, importedStandaloneOrder.id);
+  assert.equal(standalone?.startDate, standaloneStart);
+  assert.equal(standalone?.endDate, standaloneEnd);
+});
+
+test("blocks an approved multi-row manual order when the Sheet group is incomplete", async () => {
+  const baseline = await parsedWorkbook();
+  const group = APPROVED_INITIAL_ORDER_GROUPS.find((candidate) => candidate.sourceCodes.length === 3);
+  assert.ok(group);
+  const partialOrders = group.sourceCodes.slice(0, 2).map((sourceCode, index) => ({
+    ...baseline.customerOrders[index],
+    orderCode: `DH-PARTIAL-${index + 1}`,
+    sourceCode,
+    sourceRow: 960 + index,
+    customerName: "Nghĩa",
+    customerPhone: "0901234567",
+    productName: `Phần đơn ${index + 1}`,
+    quotedPrice: 1_000_000,
+    paidAmount: 1_000_000,
+    debtAmount: 0,
+    priceStatus: "CONFIRMED" as const,
+  }));
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: partialOrders,
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const { runner, state } = createFakeImportRunner();
+  state.serviceOrders.set(group.orderCode, {
+    id: "nghia-existing-order",
+    orderCode: group.orderCode,
+    customerId: "nghia-customer",
+    customerName: "Nghĩa",
+    customerPhone: "0901234567",
+    service: "DONG_PIN",
+    productName: "Đơn Nghĩa đầy đủ trên web",
+    status: "COMPLETED",
+    source: "MANUAL",
+    orderDate: new Date("2026-07-14T00:00:00.000Z"),
+    quotedPrice: 2_450_000,
+    paidAmount: 2_450_000,
+    customerVisible: false,
+    discountAmount: 0,
+    notes: null,
+    deletedAt: null,
+  });
+
+  const preview = await previewMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders" });
+
+  assert.equal(preview.conflicts.some((message) => message.includes("thiếu") && message.includes(group.orderCode)), true);
+  await assert.rejects(
+    importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" }),
+    /thiếu/
+  );
+  assert.equal(state.serviceOrders.size, 1);
+  assert.equal(state.serviceOrders.get(group.orderCode)?.quotedPrice, 2_450_000);
+  assert.equal(state.serviceOrders.get(group.orderCode)?.source, "MANUAL");
 });
 
 test("matches imported service orders by sourceCode without changing the visible order code", async () => {

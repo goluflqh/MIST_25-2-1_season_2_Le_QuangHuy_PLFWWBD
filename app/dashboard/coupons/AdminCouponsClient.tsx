@@ -1,6 +1,9 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import AdminFilterToolbar from "@/components/admin/AdminFilterToolbar";
+import AdminMetricStrip from "@/components/admin/AdminMetricStrip";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 import { formatVietnamDate } from "@/lib/vietnam-time";
@@ -251,65 +254,48 @@ export default function AdminCouponsClient({ initialCoupons }: { initialCoupons:
 
   return (
     <div data-testid="dashboard-coupons-crm" className="space-y-6 animate-fade-in-up">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Ưu đãi đổi điểm</p>
-          <h2 className="font-heading font-extrabold text-xl text-slate-900">Quản Lý Mã Giảm Giá</h2>
-          <p className="font-body text-sm text-slate-500">
-            {metrics.total} mã · {metrics.active} đang bật · {metrics.used} lượt đã dùng
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={resetFilters}
-            className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
-          >
-            Xoá bộ lọc
-          </button>
+      <AdminPageHeader
+        eyebrow="Ưu đãi đổi điểm"
+        title="Quản Lý Mã Giảm Giá"
+        summary={`${metrics.total} mã · ${metrics.active} đang bật · ${metrics.used} lượt đã dùng`}
+        actions={
           <button
             aria-expanded={showForm}
             onClick={toggleCreateForm}
-            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-red-700"
+            className="min-h-11 rounded-lg bg-red-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
           >
             + Tạo Mã
           </button>
-        </div>
-      </div>
+        }
+      />
 
-      <div data-testid="dashboard-coupons-metrics" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="rounded-2xl border border-green-100 bg-green-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-green-700">Đang bật</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-green-700">{metrics.active}</p>
-        </div>
-        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-blue-700">Lượt khách nhận</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-blue-700">{metrics.assigned}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Lượt đã dùng</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.used}</p>
-        </div>
-        <div className="rounded-2xl border border-red-100 bg-red-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-red-700">Hết hạn</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-red-700">{metrics.expired}</p>
-        </div>
-      </div>
+      <AdminMetricStrip
+        dataTestId="dashboard-coupons-metrics"
+        items={[
+          { key: "active", label: "Đang bật", value: metrics.active, tone: "green", active: statusFilter === "active", onSelect: () => setStatusFilter("active") },
+          { key: "assigned", label: "Lượt khách nhận", value: metrics.assigned, tone: "blue", active: statusFilter === "assigned", onSelect: () => setStatusFilter("assigned") },
+          { key: "used", label: "Lượt đã dùng", value: metrics.used },
+          { key: "expired", label: "Hết hạn", value: metrics.expired, tone: "red", active: statusFilter === "expired", onSelect: () => setStatusFilter("expired") },
+        ]}
+      />
 
-      <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(2,minmax(0,1fr))]">
-          <input
-            data-testid="dashboard-coupons-search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Tìm mã, mô tả, mức giảm, khách đã nhận"
-            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
-          />
+      <AdminFilterToolbar
+        searchDataTestId="dashboard-coupons-search"
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Mã, mô tả, mức giảm, khách đã nhận"
+        activeFilterCount={Number(statusFilter !== "all") + Number(sortMode !== "recommended")}
+        onReset={resetFilters}
+        desktopGridClassName="md:grid-cols-2"
+        resultSummary={<p data-testid="dashboard-coupons-result-count">Hiển thị {filteredCoupons.length} / {coupons.length} mã</p>}
+      >
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Trạng thái</span>
           <select
             data-testid="dashboard-coupons-status-filter"
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as CouponStatusFilter)}
-            title="Lọc trạng thái mã giảm giá"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="all">Tất cả trạng thái</option>
             <option value="active">Đang bật</option>
@@ -318,23 +304,22 @@ export default function AdminCouponsClient({ initialCoupons }: { initialCoupons:
             <option value="depleted">Hết lượt</option>
             <option value="assigned">Đã có khách nhận</option>
           </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Sắp xếp</span>
           <select
             data-testid="dashboard-coupons-sort"
             value={sortMode}
             onChange={(event) => setSortMode(event.target.value as CouponSortMode)}
-            title="Sắp xếp mã giảm giá"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="recommended">Ưu tiên đang bật</option>
             <option value="code">Mã A-Z</option>
             <option value="points">Điểm cao nhất</option>
             <option value="usage">Dùng nhiều nhất</option>
           </select>
-        </div>
-        <p data-testid="dashboard-coupons-result-count" className="mt-3 font-body text-xs text-slate-400">
-          Hiển thị {filteredCoupons.length} / {coupons.length} mã
-        </p>
-      </div>
+        </label>
+      </AdminFilterToolbar>
 
       {showForm && (
         <form ref={formRef} onSubmit={handleCreate} className="scroll-mt-28 bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">

@@ -478,7 +478,7 @@ test.describe("Admin phase 2 workflows", () => {
     expect(sourceIdentityRequests).toBe(0);
   });
 
-  test("first-time Google Sheet setup completes inside the initial check", async ({ page }) => {
+  test("first-time Google Sheet preview stays read-only until explicit setup", async ({ page }) => {
     await login(page);
     let previewRequests = 0;
     let setupRequests = 0;
@@ -524,6 +524,14 @@ test.describe("Admin phase 2 workflows", () => {
     await page.getByTestId("minhhong-source-sheet-preview").click();
 
     const previewSummary = page.getByTestId("minhhong-workbook-preview-summary");
+    await expect(page.getByTestId("minhhong-source-sheet-setup-card")).toBeVisible();
+    await expect(page.getByTestId("minhhong-source-sheet-setup")).toContainText("Hoàn tất thiết lập Sheet");
+    await expect(previewSummary.getByText("Cần hoàn tất thiết lập", { exact: true }).locator("..")).toHaveClass(/bg-amber-50/);
+    expect(previewRequests).toBe(1);
+    expect(setupRequests).toBe(0);
+
+    await page.getByTestId("minhhong-source-sheet-setup").click();
+
     await expect(page.getByTestId("minhhong-source-sheet-preview")).toContainText("Cập nhật 1 đơn lên web");
     await expect(previewSummary.getByText("Sẵn sàng áp dụng", { exact: true }).locator("..")).toHaveClass(/bg-green-50/);
     await expect(page.getByTestId("minhhong-source-sheet-setup-card")).toHaveCount(0);
@@ -534,7 +542,7 @@ test.describe("Admin phase 2 workflows", () => {
     expect(setupRequests).toBe(1);
   });
 
-  test("a Sheet change before update automatically prepares the Sheet and checks again", async ({ page }) => {
+  test("a Sheet change before update requires explicit setup and checks again", async ({ page }) => {
     await login(page);
     let previewRequests = 0;
     let setupRequests = 0;
@@ -594,6 +602,11 @@ test.describe("Admin phase 2 workflows", () => {
     await page.getByTestId("minhhong-source-sheet-preview").click();
     await expect(page.getByTestId("minhhong-source-sheet-preview")).toContainText("Cập nhật 1 đơn lên web");
     await page.getByTestId("minhhong-source-sheet-preview").click();
+
+    await expect(page.getByTestId("minhhong-source-sheet-setup-card")).toBeVisible();
+    expect(previewRequests).toBe(2);
+    expect(setupRequests).toBe(0);
+    await page.getByTestId("minhhong-source-sheet-setup").click();
 
     await expect(page.getByTestId("minhhong-source-sheet-preview")).toContainText("Cập nhật 1 đơn lên web");
     await expect(page.getByTestId("minhhong-source-sheet-setup-card")).toHaveCount(0);

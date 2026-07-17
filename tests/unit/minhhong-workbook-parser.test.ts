@@ -87,6 +87,23 @@ async function buildDiscountWorkbookBuffer(options: {
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
+async function buildZeroPaymentWorkbookBuffer() {
+  const workbook = new ExcelJS.Workbook();
+  workbook.addWorksheet("Đối tác").addRows([
+    [...MINHHONG_PARTNER_COLUMNS],
+    ["LONG", "Long", "Đối tác công nợ", "", "", "Đang theo dõi"],
+  ]);
+  workbook.addWorksheet("Nhập hàng").addRow([...MINHHONG_PURCHASE_COLUMNS]);
+  workbook.addWorksheet("Thanh toán").addRows([
+    [...MINHHONG_PAYMENT_COLUMNS],
+    ["TT-ZERO", "26/05/2026", "LONG", "Long", 0, "", "Có", "Bù, không phát sinh tiền", "Thanh toán!A2:I2"],
+  ]);
+  workbook.addWorksheet("Trả hàng").addRow([...MINHHONG_RETURN_COLUMNS]);
+  workbook.addWorksheet("Đơn khách").addRow([...MINHHONG_CUSTOMER_ORDER_COLUMNS]);
+  workbook.addWorksheet("Đối soát").addRow(["Khoá", "Nhãn", "Giá trị kỳ vọng", "Ghi chú"]);
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
 test("parses approved Minh Hong admin import workbook totals", async () => {
   const result = await parseMinhHongAdminWorkbook(await readGeneratedWorkbook());
 
@@ -111,6 +128,17 @@ test("keeps customer workbook rows out of partner ledger entries", async () => {
 
   assert.equal(result.customerOrders.some((order) => order.sourceCode.startsWith("DON_KHACH")), true);
   assert.equal(result.partnerEntries.some((entry) => entry.sourceCode.startsWith("DON_KHACH")), false);
+});
+
+test("keeps a zero-value partner payment as a reference-only row", async () => {
+  const result = await parseMinhHongAdminWorkbook(await buildZeroPaymentWorkbookBuffer());
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.partnerEntries.length, 1);
+  assert.equal(result.partnerEntries[0].amount, 0);
+  assert.equal(result.partnerEntries[0].countsInDebt, false);
+  assert.equal(result.partnerEntries[0].description, "Bù, không phát sinh tiền");
+  assert.equal(result.partnerTotals.longCountedPayment, 0);
 });
 
 test("derives workbook purchase discount values from quantity and unit price", async () => {

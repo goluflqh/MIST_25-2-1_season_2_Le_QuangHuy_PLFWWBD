@@ -33,7 +33,12 @@ function SidebarNav({
   return (
     <>
       <div className="relative border-b border-slate-700 p-6 pr-16">
-        <h2 id={titleId} className="font-heading font-bold text-lg text-yellow-400">🔧 Admin Panel</h2>
+        <h2 id={titleId} className="flex items-center gap-2 font-heading text-lg font-bold text-yellow-400">
+          <svg className="h-5 w-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 13h6V4H4v9Zm0 7h6v-3H4v3Zm10 0h6v-9h-6v9Zm0-13h6V4h-6v3Z" />
+          </svg>
+          <span>Admin Panel</span>
+        </h2>
         <p className="text-xs text-slate-400 font-body mt-1">Minh Hồng Dashboard</p>
         {onClose ? (
           <button
@@ -59,7 +64,7 @@ function SidebarNav({
               </svg>
               {item.label}
               {count > 0 && (
-                <span aria-label={`${count} mục mới`} className="ml-auto bg-red-500 text-white text-[10px] font-black rounded-full min-w-[20px] h-5 flex items-center justify-center px-1.5 animate-pulse">
+                <span aria-label={`${count} mục mới`} className="ml-auto flex h-6 min-w-6 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-black text-white">
                   {count}
                 </span>
               )}
@@ -69,10 +74,12 @@ function SidebarNav({
       </nav>
       <div className="p-4 border-t border-slate-700 space-y-2">
         <Link href="/tai-khoan" onClick={onNavigate} className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm text-slate-400 transition-colors hover:bg-slate-800 hover:text-white font-body">
-          👤 Tài Khoản
+          <svg className="h-4 w-4" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" /></svg>
+          <span>Tài Khoản</span>
         </Link>
         <Link href="/" onClick={onNavigate} className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm text-slate-400 transition-colors hover:bg-slate-800 hover:text-white font-body">
-          ← Về Trang Chủ
+          <svg className="h-4 w-4" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg>
+          <span>Về Trang Chủ</span>
         </Link>
       </div>
     </>
@@ -81,19 +88,21 @@ function SidebarNav({
 
 function MobileAdminToolbar({
   adminName,
+  pageTitle,
   mobileOpen,
   onToggle,
   buttonRef,
   controlsId,
 }: {
   adminName?: string;
+  pageTitle: string;
   mobileOpen: boolean;
   onToggle: () => void;
   buttonRef: RefObject<HTMLButtonElement | null>;
   controlsId: string;
 }) {
   return (
-    <div className="z-[45] flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur md:hidden">
+    <div className="z-[45] flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur md:hidden">
       <button
         ref={buttonRef}
         type="button"
@@ -111,11 +120,31 @@ function MobileAdminToolbar({
         )}
       </button>
       <div className="min-w-0 flex-1">
-        <h1 className="truncate font-heading text-base font-extrabold text-slate-900">Bảng Điều Khiển</h1>
+        <h1 className="truncate font-heading text-base font-extrabold text-slate-900">{pageTitle}</h1>
         {adminName ? (
           <p className="truncate font-body text-xs font-semibold text-slate-500">Admin: {adminName}</p>
         ) : null}
       </div>
+      <Link
+        href="/"
+        aria-label="Về trang cửa hàng"
+        title="Về trang cửa hàng"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+      >
+        <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-6h6v6" />
+        </svg>
+      </Link>
+      <Link
+        href="/tai-khoan"
+        aria-label="Mở tài khoản quản trị"
+        title="Tài khoản quản trị"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+      >
+        <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" />
+        </svg>
+      </Link>
     </div>
   );
 }
@@ -137,6 +166,7 @@ export default function AdminSidebar({
   const mobileToggleRef = useRef<HTMLButtonElement>(null);
   const mobileMenuId = "mobile-admin-menu";
   const mobileOpen = mobileMenuState.pathname === pathname && mobileMenuState.open;
+  const currentPage = navItems.find((item) => item.href === pathname) || navItems[0];
 
   useEffect(() => {
     let isActive = true;
@@ -250,7 +280,7 @@ export default function AdminSidebar({
   return (
     <div
       data-admin-shell
-      className="relative flex h-[calc(100dvh-var(--app-header-offset))] min-h-0 overflow-hidden md:h-auto md:min-h-[calc(100dvh-var(--app-header-offset))] md:overflow-visible"
+      className="relative flex h-dvh min-h-0 overflow-hidden md:h-auto md:min-h-dvh md:overflow-visible"
     >
       {/* Mobile overlay + sidebar */}
       {mobileOpen && (
@@ -283,16 +313,44 @@ export default function AdminSidebar({
       <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-x-hidden bg-slate-50">
         <MobileAdminToolbar
           adminName={adminName}
+          pageTitle={currentPage.label}
           mobileOpen={mobileOpen}
           onToggle={toggleMobileMenu}
           buttonRef={mobileToggleRef}
           controlsId={mobileMenuId}
         />
-        <header className="hidden items-center justify-between border-b border-slate-200 bg-white px-6 py-4 md:flex">
-          <h1 className="font-heading text-xl font-bold text-slate-900">Bảng Điều Khiển</h1>
-          {adminName ? (
-            <span className="font-body text-sm text-slate-500">Admin: {adminName}</span>
-          ) : null}
+        <header className="hidden min-h-14 items-center justify-between border-b border-slate-200 bg-white px-6 py-2 md:flex">
+          <div>
+            <p className="font-body text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Minh Hồng Admin</p>
+            <h1 className="font-heading text-base font-bold text-slate-900">{currentPage.label}</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            {adminName ? (
+              <span className="hidden font-body text-sm text-slate-500 xl:inline">Admin: {adminName}</span>
+            ) : null}
+            <Link
+              href="/"
+              aria-label="Về trang cửa hàng"
+              title="Về trang cửa hàng"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 font-body text-sm font-bold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+            >
+              <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-6h6v6" />
+              </svg>
+              <span className="hidden lg:inline">Cửa hàng</span>
+            </Link>
+            <Link
+              href="/tai-khoan"
+              aria-label="Mở tài khoản quản trị"
+              title="Tài khoản quản trị"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 font-body text-sm font-bold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+            >
+              <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" />
+              </svg>
+              <span className="hidden lg:inline">Tài khoản</span>
+            </Link>
+          </div>
         </header>
         <div data-admin-scroll className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-4 sm:p-6 md:overflow-visible">
           <div className="min-w-0 max-w-full">{children}</div>

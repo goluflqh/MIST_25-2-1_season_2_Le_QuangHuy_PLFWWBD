@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import AdminMetricStrip from "@/components/admin/AdminMetricStrip";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
 import { useNotify } from "@/components/NotifyProvider";
 import PaginationControls from "@/components/PaginationControls";
 import { getLeadSourceLabel } from "@/lib/lead-sources";
@@ -518,19 +520,30 @@ export default function ContactsManagementClient({
 
   return (
     <div data-testid="dashboard-contacts-crm" className="space-y-6 animate-fade-in-up">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="font-heading font-extrabold text-xl text-slate-900">Quản Lý Yêu Cầu Tư Vấn</h2>
-          <p className="font-body text-sm text-slate-500">{contacts.length} yêu cầu tổng cộng</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+      <AdminPageHeader
+        eyebrow="Khách hàng tiềm năng"
+        title="Quản Lý Yêu Cầu Tư Vấn"
+        summary={`${contacts.length} yêu cầu tổng cộng · ưu tiên khách đang chờ và yêu cầu quá 48 giờ`}
+      />
+
+      <AdminMetricStrip
+        dataTestId="dashboard-contacts-metrics"
+        items={[
+          { key: "open", label: "Khách đang chờ", value: crmStats.openCount },
+          { key: "completed", label: "Đã hoàn thành", value: crmStats.completedCount, tone: "green" },
+          { key: "stale", label: "Trễ trên 48h", value: crmStats.staleCount, tone: "amber" },
+          { key: "conversion", label: "Tỉ lệ chốt", value: `${crmStats.conversionRate}%`, tone: "blue" },
+        ]}
+      />
+
+      <div className="flex flex-wrap gap-2">
           {[{ key: "ALL", label: "Tất cả" }, ...Object.entries(statusConfig).map(([key, value]) => ({ key, label: value.label }))].map((item) => (
             <button
               key={item.key}
               type="button"
               onClick={() => setFilter(item.key)}
               aria-pressed={filter === item.key}
-              className={`min-h-11 rounded-lg px-3 py-2 text-xs font-body font-bold transition-colors ${filter === item.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+              className={`min-h-11 rounded-lg px-3 py-2 font-body text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 ${filter === item.key ? "bg-slate-900 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"}`}
             >
               {item.label}{" "}
               {item.key === "ALL"
@@ -538,32 +551,12 @@ export default function ContactsManagementClient({
                 : `(${contacts.filter((contact) => contact.status === item.key).length})`}
             </button>
           ))}
-        </div>
-      </div>
-
-      <div data-testid="dashboard-contacts-metrics" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-          <p className="font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">Khách đang chờ</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{crmStats.openCount}</p>
-        </div>
-        <div className="rounded-xl border border-green-100 bg-green-50 p-4">
-          <p className="font-body text-[11px] font-bold uppercase tracking-wider text-green-700">Đã hoàn thành</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-green-700">{crmStats.completedCount}</p>
-        </div>
-        <div className="rounded-xl border border-amber-100 bg-amber-50 p-4">
-          <p className="font-body text-[11px] font-bold uppercase tracking-wider text-amber-700">Trễ trên 48h</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-amber-700">{crmStats.staleCount}</p>
-        </div>
-        <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-          <p className="font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">Tỉ lệ chốt</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{crmStats.conversionRate}%</p>
-        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_180px]">
           <label className="block">
-            <span className="mb-1 block font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <span className="mb-1 block font-body text-xs font-bold uppercase tracking-wider text-slate-600">
               Tìm khách liên hệ
             </span>
             <input
@@ -571,19 +564,19 @@ export default function ContactsManagementClient({
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-body text-slate-700 outline-none transition-colors focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+              className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-body text-base text-slate-700 outline-none transition-colors focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100 md:min-h-11 md:text-sm"
               placeholder="Tên, SĐT, ghi chú, nguồn quảng cáo…"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <span className="mb-1 block font-body text-xs font-bold uppercase tracking-wider text-slate-600">
               Nguồn khách
             </span>
             <select
               data-testid="dashboard-contacts-source-filter"
               value={sourceFilter}
               onChange={(event) => setSourceFilter(event.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-body font-semibold text-slate-700 outline-none transition-colors focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+              className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-body text-base font-semibold text-slate-700 outline-none transition-colors focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100 md:min-h-11 md:text-sm"
             >
               <option value="ALL">Tất cả nguồn</option>
               {sourceOptions.map((source) => (
@@ -594,14 +587,14 @@ export default function ContactsManagementClient({
             </select>
           </label>
           <label className="block">
-            <span className="mb-1 block font-body text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <span className="mb-1 block font-body text-xs font-bold uppercase tracking-wider text-slate-600">
               Sắp xếp
             </span>
             <select
               data-testid="dashboard-contacts-sort"
               value={sortMode}
               onChange={(event) => setSortMode(event.target.value as SortMode)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-body font-semibold text-slate-700 outline-none transition-colors focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+              className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-body text-base font-semibold text-slate-700 outline-none transition-colors focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100 md:min-h-11 md:text-sm"
             >
               {sortOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -612,7 +605,7 @@ export default function ContactsManagementClient({
           </label>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <p data-testid="dashboard-contacts-result-count" className="font-body text-xs text-slate-500">
+          <p data-testid="dashboard-contacts-result-count" className="font-body text-sm text-slate-600">
             Hiển thị {filtered.length} / {contacts.length} khách liên hệ
           </p>
           {(filter !== "ALL" || sourceFilter !== "ALL" || searchQuery.trim()) && (
@@ -645,7 +638,7 @@ export default function ContactsManagementClient({
             <div
               data-testid="dashboard-contact-card"
               key={contact.id}
-              className={`bg-white rounded-xl p-5 border border-slate-100 shadow-sm transition-all ${deletingId === contact.id ? "opacity-60" : "hover:shadow-md"}`}
+              className={`bg-white rounded-xl p-5 border border-slate-100 shadow-sm transition-shadow ${deletingId === contact.id ? "opacity-60" : "hover:shadow-md"}`}
             >
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                 <div className="flex-1 min-w-0">
