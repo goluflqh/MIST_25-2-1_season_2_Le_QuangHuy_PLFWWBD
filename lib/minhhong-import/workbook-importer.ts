@@ -1,7 +1,11 @@
 import { parseAdminDateInput } from "@/lib/admin-date";
 import { getImportedFallbackOrderDate, isImportedOrderDateFallback } from "@/lib/admin-order-display";
 import { normalizePhone, sanitizeText } from "@/lib/sanitize";
-import { DEFAULT_WARRANTY_MONTHS } from "@/lib/warranties";
+import {
+  DEFAULT_WARRANTY_MONTHS,
+  getAvailableWarrantySerial,
+  getDefaultWarrantyEndDate,
+} from "@/lib/warranties";
 import { formatVietnamDate, getVietnamDateKey } from "@/lib/vietnam-time";
 import {
   APPROVED_DUPLICATE_WARRANTY_PAIRS,
@@ -87,7 +91,9 @@ export interface MinhHongImportPreview {
   conflicts: string[];
   warranties: {
     archivedDuplicates: number;
+    created: number;
     linked: number;
+    missingDate: number;
     unchanged: number;
   };
   records: {
@@ -135,6 +141,10 @@ type WarrantyPlanItem =
       action: "archive-duplicate";
       canonicalSerialNo: string;
       duplicateSerialNo: string;
+    }
+  | {
+      action: "create";
+      sourceCode: string;
     }
   | {
       action: "link";
@@ -273,11 +283,6 @@ function priceStatus(order: MinhHongParsedCustomerOrder) {
   return "CONFIRMED";
 }
 
-function serviceOrderStatus(order: MinhHongParsedCustomerOrder) {
-  if (order.priceStatus === "LEGACY_MISSING") return "PENDING";
-  return "COMPLETED";
-}
-
 function ledgerData(entry: MinhHongParsedPartnerEntry, partnerId: string) {
   return {
     partnerId,
@@ -316,8 +321,9 @@ function mergeNotes(...values: unknown[]) {
 
 function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string, existingOrderCode?: string) {
   const phone = customerPhone(order);
-  const status = serviceOrderStatus(order);
   const warrantyMonths = DEFAULT_WARRANTY_MONTHS;
+  const orderDate = toOrderDate(order.orderDate, order.sourceRow);
+  const missingDate = orderDate.getUTCFullYear() <= 1900;
   return {
     orderCode: existingOrderCode || order.orderCode,
     customerId,
@@ -327,17 +333,17 @@ function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string
     productName: order.productName || "Đơn khách cũ",
     issueDescription: order.productName || null,
     solution: null,
-    status,
+    status: "COMPLETED",
     source: "IMPORT",
     sourceName: "Đơn khách",
     sourceCode: order.sourceCode,
     sourceRow: order.sourceRow,
-    orderDate: toOrderDate(order.orderDate, order.sourceRow),
+    orderDate,
     quotedPrice: order.quotedPrice,
     priceStatus: priceStatus(order),
     paidAmount: order.paidAmount,
     warrantyMonths,
-    warrantyEndDate: null,
+    warrantyEndDate: missingDate ? null : getDefaultWarrantyEndDate(orderDate, warrantyMonths),
     customerVisible: false,
     couponCode: null,
     couponDiscount: null,
@@ -356,6 +362,9 @@ function approvedExistingServiceOrderData(
   const wordingNote = previousProduct && normalizedBusinessText(previousProduct) !== normalizedBusinessText(nextProduct)
     ? `Cách ghi trước đồng bộ: ${previousProduct}`
     : null;
+  const orderDate = toOrderDate(order.orderDate, order.sourceRow);
+  const warrantyMonths = Number(existing.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS);
+  const missingDate = orderDate.getUTCFullYear() <= 1900;
 
   return {
     orderCode: String(existing.orderCode || order.orderCode),
@@ -365,17 +374,17 @@ function approvedExistingServiceOrderData(
     productName: nextProduct,
     issueDescription: existing.issueDescription || order.productName || null,
     solution: existing.solution ?? null,
-    status: sanitizeText(String(existing.status || "")) || serviceOrderStatus(order),
+    status: "COMPLETED",
     source: sanitizeText(String(existing.source || "")) || "IMPORT",
     sourceName: "Đơn khách",
     sourceCode: order.sourceCode,
     sourceRow: order.sourceRow,
-    orderDate: toOrderDate(order.orderDate, order.sourceRow),
+    orderDate,
     quotedPrice: order.quotedPrice,
     priceStatus: priceStatus(order),
     paidAmount: order.paidAmount,
-    warrantyMonths: existing.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
-    warrantyEndDate: existing.warrantyEndDate ?? null,
+    warrantyMonths,
+    warrantyEndDate: missingDate ? null : getDefaultWarrantyEndDate(orderDate, warrantyMonths),
     customerVisible: Boolean(existing.customerVisible),
     discountAmount: Number(existing.discountAmount || 0),
     notes: mergeNotes(existing.notes, order.notes, wordingNote),
@@ -641,7 +650,7 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
     partnerEntries: emptyChangeCounts(),
     serviceOrders: emptyChangeCounts(),
     conflicts: [],
-    warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
+    warranties: { archivedDuplicates: 0, created: 0, linked: 0, missingDate: 0, unchanged: 0 },
     records: { partners: [], partnerEntries: [], serviceOrders: [] },
   };
   const partnerPlans: PartnerPlanItem[] = [];
@@ -965,6 +974,32 @@ async function buildImportPlan(tx: ImportTransaction, parsed: MinhHongParsedWork
       preview.warranties.archivedDuplicates += 1;
       warrantyPlans.push({ action: "archive-duplicate", ...pair });
     }
+
+    const warrantyLinkSourceCodes = new Set(
+      warrantyPlans
+        .filter((plan): plan is Extract<WarrantyPlanItem, { action: "link" }> => plan.action === "link")
+        .map((plan) => plan.sourceCode)
+    );
+    for (const plan of serviceOrderPlans) {
+      if (plan.action === "conflict") continue;
+      if (!sanitizeText(plan.order.orderDate)) preview.warranties.missingDate += 1;
+
+      const existingWarranty = plan.existing?.warranty as Record<string, unknown> | null | undefined;
+      if (existingWarranty && !existingWarranty.deletedAt) {
+        preview.warranties.unchanged += 1;
+        continue;
+      }
+      if (existingWarranty?.deletedAt) {
+        preview.conflicts.push(
+          `Đơn ${plan.order.orderCode} đang có phiếu bảo hành đã lưu trữ; hãy khôi phục hoặc xác nhận xử lý trước khi import.`
+        );
+        continue;
+      }
+      if (warrantyLinkSourceCodes.has(plan.order.sourceCode)) continue;
+
+      preview.warranties.created += 1;
+      warrantyPlans.push({ action: "create", sourceCode: plan.order.sourceCode });
+    }
   }
 
   return {
@@ -1041,24 +1076,23 @@ async function upsertCustomer(tx: ImportTransaction, order: MinhHongParsedCustom
   });
 }
 
-async function refreshApprovedLinkedWarranty(
-  tx: ImportTransaction,
-  plan: ServiceOrderPlanItem,
-  savedOrder: Record<string, unknown>
+function importedWarrantyDates(order: Record<string, unknown>) {
+  const startDate = order.orderDate instanceof Date ? order.orderDate : new Date(String(order.orderDate || ""));
+  const missingDate = !Number.isFinite(startDate.getTime()) || startDate.getUTCFullYear() <= 1900;
+  const warrantyMonths = Number(order.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS);
+  const endDate = getDefaultWarrantyEndDate(startDate, warrantyMonths);
+  return { endDate, missingDate, startDate, warrantyMonths };
+}
+
+function importedWarrantyData(
+  order: Record<string, unknown>,
+  existingWarranty?: Record<string, unknown> | null
 ) {
-  if (!plan.approvedInitialMatch) return;
-
-  const serviceOrderId = asId(savedOrder);
-  const includedWarranty = plan.existing?.warranty as Record<string, unknown> | null | undefined;
-  const warranty = includedWarranty || (serviceOrderId
-    ? await tx.warranty.findUnique({ where: { serviceOrderId } })
-    : null);
-  if (!warranty || warranty.deletedAt) return;
-
-  const previousProduct = sanitizeText(String(warranty.productName || ""));
-  const previousCustomer = sanitizeText(String(warranty.customerName || ""));
-  const nextProduct = sanitizeText(String(savedOrder.productName || "")) || previousProduct;
-  const nextCustomer = sanitizeText(String(savedOrder.customerName || "")) || previousCustomer;
+  const { endDate, missingDate, startDate } = importedWarrantyDates(order);
+  const previousProduct = sanitizeText(String(existingWarranty?.productName || ""));
+  const previousCustomer = sanitizeText(String(existingWarranty?.customerName || ""));
+  const nextProduct = sanitizeText(String(order.productName || "")) || previousProduct;
+  const nextCustomer = sanitizeText(String(order.customerName || "")) || previousCustomer;
   const wordingNotes = [
     previousProduct && normalizedBusinessText(previousProduct) !== normalizedBusinessText(nextProduct)
       ? `Tên sản phẩm trên phiếu trước đồng bộ: ${previousProduct}`
@@ -1066,16 +1100,43 @@ async function refreshApprovedLinkedWarranty(
     previousCustomer && normalizedBusinessText(previousCustomer) !== normalizedBusinessText(nextCustomer)
       ? `Tên khách trên phiếu trước đồng bộ: ${previousCustomer}`
       : null,
+    missingDate ? "Cần bổ sung ngày đơn để xác định thời hạn bảo hành." : null,
   ];
-  const data = {
+
+  return {
     customerName: nextCustomer,
-    customerPhone: sanitizeText(String(savedOrder.customerPhone || "")) || warranty.customerPhone,
-    notes: mergeNotes(warranty.notes, ...wordingNotes),
+    customerPhone: sanitizeText(String(order.customerPhone || "")) || existingWarranty?.customerPhone,
+    endDate,
+    notes: mergeNotes(
+      existingWarranty?.notes,
+      existingWarranty ? null : `Tự tạo khi đồng bộ từ đơn ${String(order.orderCode || "")}`,
+      ...wordingNotes
+    ),
     productName: nextProduct,
-    service: sanitizeText(String(savedOrder.service || "")) || warranty.service,
+    service: sanitizeText(String(order.service || "")) || existingWarranty?.service || "KHAC",
+    startDate,
   };
+}
+
+async function refreshImportedLinkedWarranty(
+  tx: ImportTransaction,
+  plan: ServiceOrderPlanItem,
+  savedOrder: Record<string, unknown>
+) {
+  const serviceOrderId = asId(savedOrder);
+  const includedWarranty = plan.existing?.warranty as Record<string, unknown> | null | undefined;
+  const warranty = includedWarranty || (serviceOrderId
+    ? await tx.warranty.findUnique({ where: { serviceOrderId } })
+    : null);
+  if (!warranty || warranty.deletedAt) return;
+  const data = importedWarrantyData(savedOrder, warranty);
   if (recordMatches(warranty, data)) return;
   await tx.warranty.update({ where: { id: asId(warranty) }, data });
+  const dates = importedWarrantyDates(savedOrder);
+  await tx.serviceOrder.update({
+    where: { id: serviceOrderId },
+    data: { warrantyEndDate: dates.missingDate ? null : dates.endDate },
+  });
 }
 
 async function upsertServiceOrders(tx: ImportTransaction, plans: ServiceOrderPlanItem[]) {
@@ -1085,7 +1146,7 @@ async function upsertServiceOrders(tx: ImportTransaction, plans: ServiceOrderPla
     }
 
     if (plan.action === "unchanged") {
-      if (plan.existing) await refreshApprovedLinkedWarranty(tx, plan, plan.existing);
+      if (plan.existing) await refreshImportedLinkedWarranty(tx, plan, plan.existing);
       continue;
     }
 
@@ -1107,7 +1168,7 @@ async function upsertServiceOrders(tx: ImportTransaction, plans: ServiceOrderPla
     } else {
       savedOrder = await tx.serviceOrder.create({ data });
     }
-    await refreshApprovedLinkedWarranty(tx, plan, savedOrder);
+    await refreshImportedLinkedWarranty(tx, plan, savedOrder);
   }
 }
 
@@ -1122,14 +1183,40 @@ async function applyWarrantyPlans(tx: ImportTransaction, plans: WarrantyPlanItem
 
       await tx.warranty.update({
         where: { id: asId(warranty) },
-        data: { serviceOrderId: asId(order) },
+        data: { ...importedWarrantyData(order, warranty), serviceOrderId: asId(order) },
       });
-      if (warranty.endDate instanceof Date) {
-        await tx.serviceOrder.update({
-          where: { id: asId(order) },
-          data: { warrantyEndDate: warranty.endDate },
-        });
+      const dates = importedWarrantyDates(order);
+      await tx.serviceOrder.update({
+        where: { id: asId(order) },
+        data: { warrantyEndDate: dates.missingDate ? null : dates.endDate },
+      });
+      continue;
+    }
+
+    if (plan.action === "create") {
+      const order = await tx.serviceOrder.findUnique({ where: { sourceCode: plan.sourceCode } });
+      if (!order) {
+        throw new MinhHongWorkbookImportError(`Không thể tạo phiếu bảo hành cho đơn ${plan.sourceCode}.`);
       }
+      const existingWarranty = await tx.warranty.findUnique({ where: { serviceOrderId: asId(order) } });
+      if (existingWarranty && !existingWarranty.deletedAt) continue;
+      if (existingWarranty?.deletedAt) {
+        throw new MinhHongWorkbookImportError(`Đơn ${String(order.orderCode || plan.sourceCode)} có phiếu đã lưu trữ; chưa tự tạo phiếu thay thế.`);
+      }
+
+      const dates = importedWarrantyDates(order);
+      await tx.warranty.create({
+        data: {
+          ...importedWarrantyData(order),
+          serialNo: await getAvailableWarrantySerial(tx, undefined),
+          serviceOrderId: asId(order),
+          userId: order.userId || null,
+        },
+      });
+      await tx.serviceOrder.update({
+        where: { id: asId(order) },
+        data: { warrantyEndDate: dates.missingDate ? null : dates.endDate },
+      });
       continue;
     }
 
@@ -1155,7 +1242,10 @@ async function applyWarrantyPlans(tx: ImportTransaction, plans: WarrantyPlanItem
     });
     await tx.warranty.update({
       where: { id: asId(duplicate) },
-      data: { deletedAt: new Date() },
+      data: {
+        deletedAt: new Date(),
+        notes: mergeNotes(duplicate.notes, `Lưu trữ do trùng với phiếu ${canonical.serialNo}.`),
+      },
     });
   }
 }

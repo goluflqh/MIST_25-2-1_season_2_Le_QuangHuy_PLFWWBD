@@ -696,6 +696,9 @@ test.describe("Auth, account and dashboard smoke", () => {
       await page.goto("/dashboard/warranty");
       await expect(page.getByTestId("dashboard-warranty-crm")).toBeVisible();
       await expect(page.getByTestId("dashboard-warranty-metrics")).toBeVisible();
+      await expect(page.getByTestId("dashboard-warranty-view-active")).toContainText("Đang sử dụng");
+      await expect(page.getByTestId("dashboard-warranty-view-archived")).toContainText("Đã lưu trữ");
+      await expect(page.getByTestId("dashboard-warranty-view-all")).toContainText("Tất cả");
 
       await page.getByTestId("dashboard-warranty-search").fill(generatedSerialNo);
       await page.getByRole("button", { name: /Bộ lọc/ }).click();
@@ -712,6 +715,18 @@ test.describe("Auth, account and dashboard smoke", () => {
 
       await page.getByTestId("dashboard-warranty-sort").selectOption("customer");
       await expect(page.getByTestId("dashboard-warranty-card")).toContainText("Pin CRM warranty E2E");
+
+      await page.getByRole("button", { name: "Lưu trữ", exact: true }).click();
+      await page.getByRole("button", { name: "Xác nhận", exact: true }).click();
+      await expect(page.getByTestId("dashboard-warranty-card")).toHaveCount(0);
+      await page.getByTestId("dashboard-warranty-view-archived").click();
+      await expect(page.getByTestId("dashboard-warranty-card")).toHaveCount(1);
+      await expect(page.getByTestId("dashboard-warranty-card")).toHaveAttribute("data-warranty-state", "archived");
+      await page.getByRole("button", { name: "Khôi phục" }).click();
+      await page.getByRole("button", { name: "Xác nhận", exact: true }).click();
+      await expect(page.getByTestId("dashboard-warranty-card")).toHaveCount(0);
+      await page.getByTestId("dashboard-warranty-view-active").click();
+      await expect(page.getByTestId("dashboard-warranty-card")).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2)).toBe(true);
     } finally {
       if (warrantyId) {
@@ -788,10 +803,9 @@ test.describe("Auth, account and dashboard smoke", () => {
     }
   });
 
-  test("admin can archive and recreate a linked service-order warranty", async ({ request }) => {
+  test("admin can archive, inspect and restore a linked service-order warranty", async ({ request }) => {
     const unique = Date.now().toString().slice(-8);
     const customerPhone = buildUniquePhone();
-    let warrantyId: string | undefined;
 
     await loginAdminRequest(request);
     const orderResponse = await request.post("/api/admin/service-orders", {
@@ -806,13 +820,13 @@ test.describe("Auth, account and dashboard smoke", () => {
         service: "DONG_PIN",
         source: "MANUAL",
         status: "COMPLETED",
-        warrantyMonths: "6",
+        warrantyMonths: "12",
       },
     });
     expect(orderResponse.ok()).toBeTruthy();
     const orderBody = await orderResponse.json();
     const orderId = orderBody.order?.id as string | undefined;
-    warrantyId = orderBody.order?.warranty?.id as string | undefined;
+    const warrantyId = orderBody.order?.warranty?.id as string | undefined;
     expect(orderId).toBeTruthy();
     expect(warrantyId).toBeTruthy();
 
@@ -828,29 +842,169 @@ test.describe("Auth, account and dashboard smoke", () => {
       const orderAfterDelete = ordersAfterDeleteBody.orders.find((order: { id: string }) => order.id === orderId);
       expect(orderAfterDelete?.warranty).toBeNull();
       expect(orderAfterDelete?.warrantyEndDate).toBeNull();
-      expect(orderAfterDelete?.warrantyMonths).toBeNull();
+      expect(orderAfterDelete?.warrantyMonths).toBe(12);
 
-      const recreateWarrantyResponse = await request.post("/api/admin/warranty", {
+      const archivedWarrantiesResponse = await request.get("/api/admin/warranty");
+      expect(archivedWarrantiesResponse.ok()).toBeTruthy();
+      const archivedWarranty = (await archivedWarrantiesResponse.json()).warranties.find(
+        (warranty: { id: string }) => warranty.id === warrantyId
+      );
+      expect(archivedWarranty?.deletedAt).toBeTruthy();
+
+      const recreateArchivedWarrantyResponse = await request.post("/api/admin/warranty", {
         data: { serviceOrderId: orderId, warrantyMonths: "6" },
       });
-      expect(recreateWarrantyResponse.ok()).toBeTruthy();
-      const recreateWarrantyBody = await recreateWarrantyResponse.json();
-      expect(recreateWarrantyBody.created).toBeTruthy();
-      warrantyId = recreateWarrantyBody.warranty?.id as string | undefined;
-      expect(warrantyId).toBeTruthy();
+      expect(recreateArchivedWarrantyResponse.status()).toBe(409);
 
-      const ordersAfterRecreateResponse = await request.get("/api/admin/service-orders");
-      expect(ordersAfterRecreateResponse.ok()).toBeTruthy();
-      const ordersAfterRecreateBody = await ordersAfterRecreateResponse.json();
-      const orderAfterRecreate = ordersAfterRecreateBody.orders.find((order: { id: string }) => order.id === orderId);
-      expect(orderAfterRecreate?.warranty?.id).toBe(warrantyId);
-      expect(orderAfterRecreate?.warrantyEndDate).toBeTruthy();
+      const editArchivedOrderResponse = await request.patch("/api/admin/service-orders", {
+        data: { id: orderId, orderDate: "18/01/2026" },
+      });
+      expect(editArchivedOrderResponse.ok()).toBeTruthy();
+      expect(editArchivedOrderResponse.json()).resolves.toMatchObject({ order: { warranty: null } });
+
+      const pauseOrderResponse = await request.patch("/api/admin/service-orders", {
+        data: { id: orderId, status: "IN_PROGRESS" },
+      });
+      expect(pauseOrderResponse.ok()).toBeTruthy();
+      const restorePausedOrderWarrantyResponse = await request.patch("/api/admin/warranty", {
+        data: { id: warrantyId, restore: true },
+      });
+      expect(restorePausedOrderWarrantyResponse.status()).toBe(409);
+      const completeOrderResponse = await request.patch("/api/admin/service-orders", {
+        data: { id: orderId, status: "COMPLETED" },
+      });
+      expect(completeOrderResponse.ok()).toBeTruthy();
+
+      const restoreWarrantyResponse = await request.patch("/api/admin/warranty", {
+        data: { id: warrantyId, restore: true },
+      });
+      expect(restoreWarrantyResponse.ok()).toBeTruthy();
+      const restoreWarrantyBody = await restoreWarrantyResponse.json();
+      expect(restoreWarrantyBody.warranty?.id).toBe(warrantyId);
+      expect(restoreWarrantyBody.warranty?.deletedAt).toBeNull();
+
+      const ordersAfterRestoreResponse = await request.get("/api/admin/service-orders");
+      expect(ordersAfterRestoreResponse.ok()).toBeTruthy();
+      const ordersAfterRestoreBody = await ordersAfterRestoreResponse.json();
+      const orderAfterRestore = ordersAfterRestoreBody.orders.find((order: { id: string }) => order.id === orderId);
+      expect(orderAfterRestore?.warranty?.id).toBe(warrantyId);
+      expect(orderAfterRestore?.warrantyEndDate).toBeTruthy();
+      expect(orderAfterRestore?.warrantyMonths).toBe(12);
+      expect(new Date(orderAfterRestore?.warrantyEndDate).getUTCFullYear()).toBe(2027);
+      const linkedStartOverrideResponse = await request.post("/api/admin/warranty", {
+        data: { serviceOrderId: orderId, startDate: "01/01/2020", warrantyMonths: "6" },
+      });
+      expect(linkedStartOverrideResponse.status()).toBe(400);
+      const warrantiesAfterRestoreResponse = await request.get("/api/admin/warranty");
+      const warrantyAfterRestore = (await warrantiesAfterRestoreResponse.json()).warranties.find(
+        (warranty: { id: string }) => warranty.id === warrantyId
+      );
+      expect(new Date(warrantyAfterRestore?.startDate).getUTCDate()).toBe(17);
+
+      const orderDateResponse = await request.patch("/api/admin/service-orders", {
+        data: { id: orderId, orderDate: "20/01/2026" },
+      });
+      expect(orderDateResponse.ok()).toBeTruthy();
+      const orderDateBody = await orderDateResponse.json();
+      expect(new Date(orderDateBody.order?.warrantyEndDate).getUTCFullYear()).toBe(2027);
+      expect(new Date(orderDateBody.order?.warrantyEndDate).getUTCMonth()).toBe(0);
+      const warrantiesAfterOrderDateResponse = await request.get("/api/admin/warranty");
+      const warrantyAfterOrderDate = (await warrantiesAfterOrderDateResponse.json()).warranties.find(
+        (warranty: { id: string }) => warranty.id === warrantyId
+      );
+      expect(new Date(warrantyAfterOrderDate?.startDate).getUTCMonth()).toBe(0);
+
+      const invalidWarrantyDateResponse = await request.patch("/api/admin/warranty", {
+        data: {
+          id: warrantyId,
+          startDate: "25/08/2026",
+          endDate: "25/01/2026",
+        },
+      });
+      expect(invalidWarrantyDateResponse.status()).toBe(400);
+
+      const warrantyDateResponse = await request.patch("/api/admin/warranty", {
+        data: {
+          id: warrantyId,
+          startDate: "25/01/2026",
+          endDate: "25/08/2026",
+        },
+      });
+      expect(warrantyDateResponse.ok()).toBeTruthy();
+
+      const ordersAfterWarrantyEditResponse = await request.get("/api/admin/service-orders");
+      const ordersAfterWarrantyEditBody = await ordersAfterWarrantyEditResponse.json();
+      const orderAfterWarrantyEdit = ordersAfterWarrantyEditBody.orders.find((order: { id: string }) => order.id === orderId);
+      expect(new Date(orderAfterWarrantyEdit?.orderDate).getUTCDate()).toBe(24);
+      expect(new Date(orderAfterWarrantyEdit?.warrantyEndDate).getUTCMonth()).toBe(7);
+
+      const replayRestoreResponse = await request.patch("/api/admin/warranty", {
+        data: { id: warrantyId, restore: true },
+      });
+      expect(replayRestoreResponse.status()).toBe(409);
+      const warrantiesAfterReplayResponse = await request.get("/api/admin/warranty");
+      const warrantyAfterReplay = (await warrantiesAfterReplayResponse.json()).warranties.find(
+        (warranty: { id: string }) => warranty.id === warrantyId
+      );
+      expect(new Date(warrantyAfterReplay?.endDate).getUTCMonth()).toBe(7);
+
+      const archiveBeforeOrderDeleteResponse = await request.delete("/api/admin/warranty", {
+        data: { id: warrantyId },
+      });
+      expect(archiveBeforeOrderDeleteResponse.ok()).toBeTruthy();
+      const deleteOrderResponse = await request.delete("/api/admin/service-orders", { data: { id: orderId } });
+      expect(deleteOrderResponse.ok()).toBeTruthy();
+      const restoreDeletedOrderWarrantyResponse = await request.patch("/api/admin/warranty", {
+        data: { id: warrantyId, restore: true },
+      });
+      expect(restoreDeletedOrderWarrantyResponse.status()).toBe(409);
     } finally {
       if (warrantyId) {
         await request.delete("/api/admin/warranty", { data: { id: warrantyId } }).catch(() => undefined);
       }
       if (orderId) {
         await request.delete("/api/admin/service-orders", { data: { id: orderId } }).catch(() => undefined);
+      }
+    }
+  });
+
+  test("restoring a standalone warranty preserves its original dates", async ({ request }) => {
+    const unique = Date.now().toString().slice(-8);
+    const customerPhone = buildUniquePhone();
+
+    await loginAdminRequest(request);
+    const createResponse = await request.post("/api/admin/warranty", {
+      data: {
+        customerName: `Standalone Restore ${unique}`,
+        customerPhone,
+        endDate: "15/09/2027",
+        productName: `Standalone product ${unique}`,
+        service: "KHAC",
+        startDate: "10/02/2026",
+      },
+    });
+    expect(createResponse.ok()).toBeTruthy();
+    const createdWarranty = (await createResponse.json()).warranty;
+    const warrantyId = createdWarranty?.id as string | undefined;
+    expect(warrantyId).toBeTruthy();
+
+    try {
+      const archiveResponse = await request.delete("/api/admin/warranty", {
+        data: { id: warrantyId },
+      });
+      expect(archiveResponse.ok()).toBeTruthy();
+
+      const restoreResponse = await request.patch("/api/admin/warranty", {
+        data: { id: warrantyId, restore: true },
+      });
+      expect(restoreResponse.ok()).toBeTruthy();
+      const restoredWarranty = (await restoreResponse.json()).warranty;
+      expect(restoredWarranty.startDate).toBe(createdWarranty.startDate);
+      expect(restoredWarranty.endDate).toBe(createdWarranty.endDate);
+      expect(restoredWarranty.deletedAt).toBeNull();
+    } finally {
+      if (warrantyId) {
+        await request.delete("/api/admin/warranty", { data: { id: warrantyId } }).catch(() => undefined);
       }
     }
   });

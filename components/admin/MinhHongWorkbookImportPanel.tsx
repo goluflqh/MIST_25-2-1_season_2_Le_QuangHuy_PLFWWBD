@@ -62,7 +62,9 @@ interface ImportChanges {
   conflicts: string[];
   warranties?: {
     archivedDuplicates: number;
+    created: number;
     linked: number;
+    missingDate: number;
     unchanged: number;
   };
   records: {
@@ -319,6 +321,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
 
   const changeTotals = totalChanges(preview?.changes, scope);
   const pendingWarrantyChanges = (preview?.changes?.warranties?.linked || 0)
+    + (preview?.changes?.warranties?.created || 0)
     + (preview?.changes?.warranties?.archivedDuplicates || 0);
   const hasPendingChanges = changeTotals.created + changeTotals.updated + pendingWarrantyChanges > 0;
   const canConfirmPreview = Boolean(
@@ -595,6 +598,10 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                 <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2" data-testid="minhhong-workbook-warranty-reconciliation">
                   <p className="font-body text-sm font-bold text-sky-900">Đối soát phiếu bảo hành đi kèm</p>
                   <p className="mt-1 font-body text-sm text-sky-800 tabular-nums">
+                    Tạo {preview.changes?.warranties?.created || 0} phiếu còn thiếu
+                    {" · "}Giữ {preview.changes?.warranties?.unchanged || 0} phiếu đã liên kết
+                    {" · "}Có {preview.changes?.warranties?.missingDate || 0} phiếu cần bổ sung ngày
+                    <br />
                     Nối {preview.changes?.warranties?.linked || 0} phiếu tạo riêng vào đúng đơn
                     {" · "}Lưu trữ {preview.changes?.warranties?.archivedDuplicates || 0} phiếu trùng
                   </p>

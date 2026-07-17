@@ -3,7 +3,15 @@ import { Prisma } from "@prisma/client";
 import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
-import { createManualWarranty, createWarrantyForServiceOrder, normalizeWarrantyUpdatePayload, serializeWarranty, WarrantyValidationError } from "@/lib/warranties";
+import {
+  DEFAULT_WARRANTY_MONTHS,
+  createManualWarranty,
+  createWarrantyForServiceOrder,
+  getDefaultWarrantyEndDate,
+  normalizeWarrantyUpdatePayload,
+  serializeWarranty,
+  WarrantyValidationError,
+} from "@/lib/warranties";
 
 // GET — Admin list all warranties
 export async function GET() {
@@ -11,7 +19,6 @@ export async function GET() {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse();
     const warranties = await prisma.warranty.findMany({
-      where: { deletedAt: null },
       orderBy: { createdAt: "desc" },
       include: { user: { select: { name: true, phone: true } } },
     });
@@ -32,8 +39,18 @@ export async function POST(request: Request) {
     if (!admin) return forbiddenResponse();
 
     const body = await request.json();
+    if (body.serviceOrderId && body.startDate !== undefined) {
+      throw new WarrantyValidationError("Ngày bắt đầu của phiếu liên kết phải theo ngày đơn. Hãy sửa ngày trên đơn dịch vụ.");
+    }
     const warrantyResult = body.serviceOrderId
-      ? await createWarrantyForServiceOrder(prisma, String(body.serviceOrderId), body)
+      ? await prisma.$transaction(async (tx) => {
+          const serviceOrderId = String(body.serviceOrderId);
+          const existing = await tx.warranty.findUnique({ where: { serviceOrderId } });
+          if (existing?.deletedAt) {
+            throw new WarrantyValidationError("Đơn này có phiếu đã lưu trữ. Hãy khôi phục phiếu thay vì tạo lại.", 409);
+          }
+          return createWarrantyForServiceOrder(tx, serviceOrderId, body);
+        })
       : { created: true, warranty: await createManualWarranty(prisma, body) };
     const warranty = warrantyResult.warranty;
     await recordAuditLog({
@@ -79,13 +96,73 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: "Thiếu mã phiếu bảo hành cần sửa." }, { status: 400 });
     }
 
+    const restore = body.restore === true;
     const { previousWarranty, warranty } = await prisma.$transaction(async (tx) => {
-      const previous = await tx.warranty.findUnique({ where: { id } });
-      if (!previous || previous.deletedAt) {
+      const previous = await tx.warranty.findUnique({
+        where: { id },
+        include: {
+          serviceOrder: {
+            select: { deletedAt: true, id: true, orderDate: true, status: true, warrantyMonths: true },
+          },
+        },
+      });
+      if (!previous) {
         throw new WarrantyValidationError("Không tìm thấy phiếu bảo hành.", 404);
       }
 
+      if (restore) {
+        if (!previous.deletedAt) {
+          throw new WarrantyValidationError("Phiếu bảo hành này đang được sử dụng, không cần khôi phục.", 409);
+        }
+
+        if (!previous.serviceOrderId) {
+          const restored = await tx.warranty.update({
+            where: { id },
+            data: { deletedAt: null },
+          });
+          return { previousWarranty: previous, warranty: restored };
+        }
+
+        if (!previous.serviceOrder || previous.serviceOrder.deletedAt) {
+          throw new WarrantyValidationError("Không thể khôi phục phiếu vì đơn liên kết đã bị xóa.", 409);
+        }
+        if (previous.serviceOrder.status !== "COMPLETED") {
+          throw new WarrantyValidationError("Chỉ có thể khôi phục phiếu khi đơn liên kết đã hoàn thành.", 409);
+        }
+        const warrantyMonths = previous.serviceOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS;
+        const startDate = previous.serviceOrder.orderDate;
+        const endDate = getDefaultWarrantyEndDate(startDate, warrantyMonths);
+        const restored = await tx.warranty.update({
+          where: { id },
+          data: { deletedAt: null, endDate, startDate },
+        });
+        const missingDate = restored.endDate.getUTCFullYear() <= 1900;
+        await tx.serviceOrder.update({
+          where: { id: previous.serviceOrderId },
+          data: {
+            warrantyEndDate: missingDate ? null : restored.endDate,
+            warrantyMonths,
+          },
+        });
+        return { previousWarranty: previous, warranty: restored };
+      }
+
+      if (previous.deletedAt) {
+        throw new WarrantyValidationError("Phiếu này đang ở mục Đã lưu trữ. Hãy khôi phục trước khi sửa.", 409);
+      }
+
       const updateData = normalizeWarrantyUpdatePayload(body);
+      if (updateData.startDate instanceof Date && body.endDate === undefined) {
+        updateData.endDate = getDefaultWarrantyEndDate(
+          updateData.startDate,
+          previous.serviceOrder?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS
+        );
+      }
+      const nextStartDate = updateData.startDate instanceof Date ? updateData.startDate : previous.startDate;
+      const nextEndDate = updateData.endDate instanceof Date ? updateData.endDate : previous.endDate;
+      if (nextEndDate.getTime() < nextStartDate.getTime()) {
+        throw new WarrantyValidationError("Ngày hết hạn phải bằng hoặc sau ngày bắt đầu.");
+      }
       if (
         typeof updateData.customerPhone === "string"
         && updateData.customerPhone !== previous.customerPhone
@@ -104,10 +181,20 @@ export async function PATCH(request: Request) {
         data: updateData,
       });
 
+      if (previous.serviceOrderId && (updateData.startDate instanceof Date || updateData.endDate instanceof Date)) {
+        await tx.serviceOrder.update({
+          where: { id: previous.serviceOrderId },
+          data: {
+            ...(updateData.startDate instanceof Date ? { orderDate: updated.startDate } : {}),
+            warrantyEndDate: updated.endDate.getUTCFullYear() <= 1900 ? null : updated.endDate,
+          },
+        });
+      }
+
       return { previousWarranty: previous, warranty: updated };
     });
     await recordAuditLog({
-      action: "WARRANTY_UPDATE",
+      action: restore ? "WARRANTY_RESTORE" : "WARRANTY_UPDATE",
       actor: admin,
       entity: "Warranty",
       entityId: warranty.id,
@@ -116,7 +203,13 @@ export async function PATCH(request: Request) {
       request,
     });
 
-    return NextResponse.json({ success: true, warranty: serializeWarranty(warranty) });
+    return NextResponse.json({
+      success: true,
+      warranty: {
+        ...serializeWarranty(warranty),
+        deletedAt: warranty.deletedAt?.toISOString() || null,
+      },
+    });
   } catch (error) {
     console.error("Warranty PATCH error:", error);
     if (error instanceof WarrantyValidationError) {
@@ -149,7 +242,6 @@ export async function DELETE(request: Request) {
           where: { id: previousWarranty.serviceOrderId },
           data: {
             warrantyEndDate: null,
-            warrantyMonths: null,
           },
         });
       }

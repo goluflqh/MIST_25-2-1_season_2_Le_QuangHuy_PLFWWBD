@@ -44,7 +44,7 @@ test("includes database change preview when supplied", async () => {
     partnerEntries: { created: 2, updated: 1, unchanged: 80 },
     serviceOrders: { created: 3, updated: 1, unchanged: 41 },
     conflicts: [],
-    warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
+    warranties: { archivedDuplicates: 0, created: 0, linked: 0, missingDate: 0, unchanged: 0 },
     records: {
       partnerEntries: [{ action: "created" as const, key: "NH-0042", label: "Mua camera" }],
       serviceOrders: [{ action: "updated" as const, key: "DH-0041", label: "Anh Hiệp · Camera" }],
@@ -79,7 +79,7 @@ test("builds a service-order scoped response without partner ledger numbers", as
     partnerEntries: { created: 2, updated: 1, unchanged: 80 },
     serviceOrders: { created: 3, updated: 1, unchanged: 37 },
     conflicts: [],
-    warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
+    warranties: { archivedDuplicates: 0, created: 0, linked: 0, missingDate: 0, unchanged: 0 },
     records: {
       partnerEntries: [{ action: "created" as const, key: "NH-0042", label: "Mua camera" }],
       serviceOrders: [{ action: "updated" as const, key: "DH-0041", label: "Anh Hiệp · Camera" }],
@@ -118,7 +118,7 @@ test("builds a partner scoped response without customer order numbers", async ()
     partnerEntries: { created: 2, updated: 1, unchanged: 77 },
     serviceOrders: { created: 3, updated: 1, unchanged: 37 },
     conflicts: [],
-    warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
+    warranties: { archivedDuplicates: 0, created: 0, linked: 0, missingDate: 0, unchanged: 0 },
     records: {
       partnerEntries: [{ action: "created" as const, key: "NH-0042", label: "Mua camera" }],
       serviceOrders: [{ action: "updated" as const, key: "DH-0041", label: "Anh Hiệp · Camera" }],
@@ -227,7 +227,7 @@ test("includes import result for confirm responses", async () => {
       partnerEntries: { created: 80, updated: 0, unchanged: 0 },
       serviceOrders: { created: 41, updated: 0, unchanged: 0 },
       conflicts: [],
-      warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
+      warranties: { archivedDuplicates: 0, created: 0, linked: 0, missingDate: 0, unchanged: 0 },
       records: { partnerEntries: [], serviceOrders: [] },
     },
   });
