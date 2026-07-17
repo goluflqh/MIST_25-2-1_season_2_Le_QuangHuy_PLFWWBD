@@ -18,6 +18,12 @@ export const warrantyServices = [
 
 type PrismaRunner = typeof prisma | Prisma.TransactionClient;
 
+interface WarrantySerialRunner {
+  warranty: {
+    findUnique(args: { where: { serialNo: string } }): Promise<unknown | null>;
+  };
+}
+
 export class WarrantyValidationError extends Error {
   status = 400;
 
@@ -82,13 +88,19 @@ export function getDefaultWarrantyEndDate(startDate = new Date(), months = DEFAU
   return addMonthsInVietnam(startDate, months, true);
 }
 
+function validateWarrantyDateRange(startDate: Date, endDate: Date) {
+  if (endDate.getTime() < startDate.getTime()) {
+    throw new WarrantyValidationError("Ngày hết hạn phải bằng hoặc sau ngày bắt đầu.");
+  }
+}
+
 function buildWarrantySerial() {
   const suffix = randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase();
 
   return `MH-BH-${getVietnamDateCode()}-${suffix}`;
 }
 
-export async function getAvailableWarrantySerial(runner: PrismaRunner, manualSerial: unknown) {
+export async function getAvailableWarrantySerial(runner: WarrantySerialRunner, manualSerial: unknown) {
   const normalizedManualSerial = sanitizeText(String(manualSerial || "")).toUpperCase();
   if (normalizedManualSerial) return normalizedManualSerial;
 
@@ -135,6 +147,7 @@ export async function createManualWarranty(
   const startDate = parseAdminDateInput(payload.startDate) || new Date();
   const endDate = parseAdminDateInput(payload.endDate, { endOfDay: true })
     || getDefaultWarrantyEndDate(startDate, DEFAULT_WARRANTY_MONTHS);
+  validateWarrantyDateRange(startDate, endDate);
   const serialNo = await getAvailableWarrantySerial(runner, payload.serialNo);
   const notes = sanitizeText(String(payload.notes || "")) || null;
 
@@ -197,6 +210,7 @@ export async function createWarrantyForServiceOrder(
   const months = parseOptionalInt(payload.warrantyMonths, 120) ?? order.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS;
   const startDate = parseAdminDateInput(payload.startDate) || order.orderDate;
   const endDate = parseAdminDateInput(payload.endDate, { endOfDay: true }) || getDefaultWarrantyEndDate(startDate, months);
+  validateWarrantyDateRange(startDate, endDate);
   const serialNo = existingWarranty && !payload.serialNo
     ? existingWarranty.serialNo
     : await getAvailableWarrantySerial(runner, payload.serialNo);
@@ -256,7 +270,7 @@ export async function archiveWarrantyForServiceOrder(
 
   await runner.serviceOrder.update({
     where: { id: serviceOrderId },
-    data: { warrantyEndDate: null, warrantyMonths: null },
+    data: { warrantyEndDate: null },
   });
 
   return warranty;
@@ -264,6 +278,12 @@ export async function archiveWarrantyForServiceOrder(
 
 export function normalizeWarrantyUpdatePayload(payload: Record<string, unknown>) {
   const updateData: Prisma.WarrantyUpdateInput = {};
+
+  if (typeof payload.startDate === "string") {
+    const startDate = parseAdminDateInput(payload.startDate);
+    if (!startDate) throw new WarrantyValidationError("Ngày bắt đầu bảo hành chưa đúng định dạng.");
+    updateData.startDate = startDate;
+  }
 
   if (typeof payload.productName === "string") {
     const productName = sanitizeText(payload.productName);

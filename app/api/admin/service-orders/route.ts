@@ -182,6 +182,9 @@ export async function PATCH(request: Request) {
         : normalized.paidAmount;
     const phoneChanged = normalized.customerPhone !== previousOrder.customerPhone;
     const paymentChanged = paidAmount !== previousOrder.paidAmount;
+    const orderDateChanged = normalized.orderDate.getTime() !== previousOrder.orderDate.getTime();
+    const warrantyMonthsChanged = normalized.warrantyMonths !== previousOrder.warrantyMonths;
+    const warrantyEndDateExplicitlyChanged = body.warrantyEndDate !== undefined;
     const paidAt = paidAmount <= 0
       ? null
       : paymentChanged
@@ -268,13 +271,18 @@ export async function PATCH(request: Request) {
         typeof updateData.status === "string"
         && warrantyAutoStatuses.has(updateData.status)
         && transactionalOrder.warrantyMonths !== 0
+        && !transactionalOrder.warranty?.deletedAt
       ) {
         const previousWarranty = transactionalOrder.warranty && !transactionalOrder.warranty.deletedAt
           ? await tx.warranty.findUnique({ where: { id: transactionalOrder.warranty.id } })
           : null;
         const warrantyResult = await createWarrantyForServiceOrder(tx, transactionalOrder.id, {
+          endDate: (orderDateChanged || warrantyMonthsChanged) && !warrantyEndDateExplicitlyChanged
+            ? undefined
+            : normalized.warrantyEndDate || undefined,
           notes: previousWarranty?.notes || undefined,
           refreshExisting: true,
+          startDate: normalized.orderDate,
           warrantyMonths: transactionalOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
         });
         if (warrantyResult.created) {

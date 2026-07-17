@@ -8,6 +8,7 @@ import AdminServiceIcon from "@/components/admin/AdminServiceIcon";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 import PaginationControls from "@/components/PaginationControls";
+import { parseAdminDateInput } from "@/lib/admin-date";
 import { addMonthsInVietnam, formatVietnamDate } from "@/lib/vietnam-time";
 
 interface WarrantyData {
@@ -21,10 +22,14 @@ interface WarrantyData {
   endDate: string;
   notes: string | null;
   serviceOrderId?: string | null;
+  orderCode?: string | null;
+  warrantyMonths?: number | null;
+  deletedAt: string | null;
 }
 
 type WarrantyStatusFilter = "all" | "valid" | "expiring" | "expired" | "unknown";
 type WarrantySortMode = "newest" | "endingSoon" | "customer";
+type WarrantyViewMode = "active" | "archived" | "all";
 
 const serviceLabels: Record<string, string> = {
   DONG_PIN: "Đóng pin",
@@ -133,6 +138,7 @@ export default function AdminWarrantyClient({
     notes: "",
     productName: "",
     service: "DONG_PIN",
+    startDate: "",
   });
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -142,10 +148,11 @@ export default function AdminWarrantyClient({
   const [statusFilter, setStatusFilter] = useState<WarrantyStatusFilter>("all");
   const [serviceFilter, setServiceFilter] = useState("all");
   const [sortMode, setSortMode] = useState<WarrantySortMode>("endingSoon");
+  const [viewMode, setViewMode] = useState<WarrantyViewMode>("active");
   const [currentPage, setCurrentPage] = useState(1);
 
   const metrics = useMemo(() => {
-    return warranties.reduce(
+    return warranties.filter((warranty) => !warranty.deletedAt).reduce(
       (summary, warranty) => {
         const status = getWarrantyStatus(warranty.endDate);
         summary.total += 1;
@@ -156,6 +163,18 @@ export default function AdminWarrantyClient({
     );
   }, [warranties]);
 
+  const archiveCounts = useMemo(() => ({
+    active: warranties.filter((warranty) => !warranty.deletedAt).length,
+    archived: warranties.filter((warranty) => Boolean(warranty.deletedAt)).length,
+    all: warranties.length,
+  }), [warranties]);
+
+  const scopedWarranties = useMemo(() => warranties.filter((warranty) => {
+    if (viewMode === "active") return !warranty.deletedAt;
+    if (viewMode === "archived") return Boolean(warranty.deletedAt);
+    return true;
+  }), [viewMode, warranties]);
+
   const serviceOptions = useMemo(() => {
     return Array.from(new Set(warranties.map((warranty) => warranty.service))).sort((first, second) => (
       (serviceLabels[first] || first).localeCompare(serviceLabels[second] || second, "vi")
@@ -165,7 +184,7 @@ export default function AdminWarrantyClient({
   const filteredWarranties = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    return warranties
+    return scopedWarranties
       .filter((warranty) => {
         const status = getWarrantyStatus(warranty.endDate);
         const matchesStatus = statusFilter === "all" || status.key === statusFilter;
@@ -188,7 +207,7 @@ export default function AdminWarrantyClient({
         }
         return new Date(second.startDate).getTime() - new Date(first.startDate).getTime();
       });
-  }, [searchQuery, serviceFilter, sortMode, statusFilter, warranties]);
+  }, [scopedWarranties, searchQuery, serviceFilter, sortMode, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredWarranties.length / PAGE_SIZE));
   const activePage = Math.min(currentPage, totalPages);
@@ -274,6 +293,7 @@ export default function AdminWarrantyClient({
       setWarranties((prev) => [
         {
           ...data.warranty,
+          deletedAt: null,
           startDate: new Date(data.warranty.startDate).toISOString(),
           endDate: new Date(data.warranty.endDate).toISOString(),
         },
@@ -303,14 +323,30 @@ export default function AdminWarrantyClient({
     setEditData({
       customerName: warranty.customerName,
       customerPhone: warranty.customerPhone,
-      endDate: formatDateInput(new Date(warranty.endDate)),
+      endDate: isUnknownWarrantyDate(warranty.endDate) ? "" : formatDateInput(new Date(warranty.endDate)),
       notes: warranty.notes || "",
       productName: warranty.productName,
       service: warranty.service,
+      startDate: isUnknownWarrantyDate(warranty.startDate) ? "" : formatDateInput(new Date(warranty.startDate)),
     });
   };
 
+  const updateEditStartDate = (warranty: WarrantyData, value: string) => {
+    const parsed = parseAdminDateInput(value);
+    setEditData((current) => ({
+      ...current,
+      startDate: value,
+      ...(parsed ? {
+        endDate: formatDateInput(addMonths(parsed, warranty.warrantyMonths ?? 6)),
+      } : {}),
+    }));
+  };
+
   const saveEdit = async (id: string) => {
+    if (!parseAdminDateInput(editData.startDate) || !parseAdminDateInput(editData.endDate)) {
+      showToast("Vui lòng nhập đủ ngày bắt đầu và ngày hết hạn.", "error");
+      return;
+    }
     setSavingEditId(id);
     try {
       const response = await fetch("/api/admin/warranty", {
@@ -363,10 +399,38 @@ export default function AdminWarrantyClient({
           return;
         }
 
-        setWarranties((prev) => prev.filter((warranty) => warranty.id !== id));
+        setWarranties((prev) => prev.map((warranty) => (
+          warranty.id === id ? { ...warranty, deletedAt: new Date().toISOString() } : warranty
+        )));
         showToast("Đã lưu trữ phiếu bảo hành.", "success");
       } catch {
         showToast("Không thể lưu trữ phiếu bảo hành lúc này.", "error");
+      } finally {
+        setDeletingId(null);
+      }
+    });
+  };
+
+  const restoreWarranty = (id: string) => {
+    showConfirm("Khôi phục phiếu bảo hành này về danh sách đang sử dụng?", async () => {
+      setDeletingId(id);
+      try {
+        const response = await fetch("/api/admin/warranty", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, restore: true }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          showToast(data.message || "Chưa khôi phục được phiếu bảo hành.", "error");
+          return;
+        }
+        setWarranties((prev) => prev.map((warranty) => (
+          warranty.id === id ? { ...warranty, ...data.warranty, deletedAt: null } : warranty
+        )));
+        showToast("Đã khôi phục phiếu bảo hành.", "success");
+      } catch {
+        showToast("Không thể khôi phục phiếu bảo hành lúc này.", "error");
       } finally {
         setDeletingId(null);
       }
@@ -378,7 +442,7 @@ export default function AdminWarrantyClient({
       <AdminPageHeader
         eyebrow="Phiếu bảo hành"
         title="Quản Lý Phiếu Bảo Hành"
-        summary={`${metrics.total} phiếu · ${metrics.expiring} sắp hết hạn · ${metrics.expired} đã hết hạn · ${metrics.unknown} thiếu ngày`}
+        summary={`${archiveCounts.active} đang sử dụng · ${archiveCounts.archived} đã lưu trữ · ${metrics.unknown} thiếu ngày`}
         actions={
           <button
             aria-expanded={showForm}
@@ -389,6 +453,33 @@ export default function AdminWarrantyClient({
           </button>
         }
       />
+
+      <div className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" data-testid="dashboard-warranty-view-modes">
+        {([
+          { key: "active", label: "Đang sử dụng", value: archiveCounts.active },
+          { key: "archived", label: "Đã lưu trữ", value: archiveCounts.archived },
+          { key: "all", label: "Tất cả", value: archiveCounts.all },
+        ] as const).map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            data-testid={`dashboard-warranty-view-${item.key}`}
+            onClick={() => {
+              setViewMode(item.key);
+              setStatusFilter("all");
+              setCurrentPage(1);
+            }}
+            className={`min-h-12 rounded-xl px-2 py-2 font-body text-sm font-extrabold transition-colors md:min-h-11 ${
+              viewMode === item.key
+                ? "bg-slate-900 text-white shadow-sm"
+                : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            <span className="block leading-tight">{item.label}</span>
+            <span className={`mt-0.5 block tabular-nums ${viewMode === item.key ? "text-white" : "text-slate-900"}`}>{item.value}</span>
+          </button>
+        ))}
+      </div>
 
       <AdminMetricStrip
         dataTestId="dashboard-warranty-metrics"
@@ -414,7 +505,7 @@ export default function AdminWarrantyClient({
         desktopGridClassName="md:grid-cols-3"
         resultSummary={
           <p data-testid="dashboard-warranty-result-count">
-            Hiển thị {filteredWarranties.length} / {warranties.length} phiếu · Trang {activePage}/{totalPages}
+            Hiển thị {filteredWarranties.length} / {scopedWarranties.length} phiếu · Trang {activePage}/{totalPages}
             {filteredWarranties.length > 0 ? ` · Dòng ${firstVisibleResult}-${lastVisibleResult}` : ""}
           </p>
         }
@@ -566,9 +657,11 @@ export default function AdminWarrantyClient({
         </form>
       )}
 
-      {warranties.length === 0 ? (
+      {scopedWarranties.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center shadow-sm">
-          <p className="font-body text-slate-500">Chưa có phiếu bảo hành nào trong hệ thống.</p>
+          <p className="font-body text-slate-500">
+            {viewMode === "archived" ? "Chưa có phiếu bảo hành nào được lưu trữ." : "Chưa có phiếu bảo hành nào trong nhóm này."}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -586,11 +679,14 @@ export default function AdminWarrantyClient({
             </div>
             <div className="grid gap-3" data-testid="dashboard-warranty-card-grid">
             {paginatedWarranties.map((warranty) => {
+              const archived = Boolean(warranty.deletedAt);
               const status = getWarrantyStatus(warranty.endDate);
               const daysRemaining = getDaysRemaining(warranty.endDate);
               const startDateLabel = isUnknownWarrantyDate(warranty.startDate) ? "Chưa xác định" : formatDate(warranty.startDate);
               const endDateLabel = isUnknownWarrantyDate(warranty.endDate) ? "Chưa xác định" : formatDate(warranty.endDate);
-              const timelineCopy = status.key === "unknown"
+              const timelineCopy = archived
+                ? `Đã lưu trữ ${warranty.deletedAt ? formatDate(warranty.deletedAt) : ""}`
+                : status.key === "unknown"
                 ? "Cần bổ sung ngày bảo hành"
                 : daysRemaining < 0
                   ? `Quá hạn ${Math.abs(daysRemaining)} ngày`
@@ -600,10 +696,10 @@ export default function AdminWarrantyClient({
                 <div
                   key={warranty.id}
                   data-testid="dashboard-warranty-card"
-                  data-warranty-state={status.key}
-                  className={`relative overflow-hidden rounded-2xl border bg-white p-4 pl-5 shadow-sm transition-shadow hover:shadow-md xl:rounded-xl xl:px-4 xl:py-3 xl:pl-5 ${status.border} ${deletingId === warranty.id ? "opacity-60" : ""}`}
+                  data-warranty-state={archived ? "archived" : status.key}
+                  className={`relative overflow-hidden rounded-2xl border bg-white p-4 pl-5 shadow-sm transition-shadow hover:shadow-md xl:rounded-xl xl:px-4 xl:py-3 xl:pl-5 ${archived ? "border-slate-200 bg-slate-50/70" : status.border} ${deletingId === warranty.id ? "opacity-60" : ""}`}
                 >
-                  <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 ${status.accent}`} />
+                  <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 ${archived ? "bg-slate-400" : status.accent}`} />
                   {editingId === warranty.id ? (
                     <div className="space-y-3">
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -635,6 +731,15 @@ export default function AdminWarrantyClient({
                             <option key={key} value={key}>{value}</option>
                           ))}
                         </select>
+                        <VietnameseDateInput
+                          dataTestId="dashboard-warranty-edit-start-date-input"
+                          helper="Đổi ngày này sẽ đồng bộ với ngày đơn."
+                          label="Ngày bắt đầu"
+                          name={"warrantyEditStartDate-" + warranty.id}
+                          value={editData.startDate}
+                          onChange={(value) => updateEditStartDate(warranty, value)}
+                          required
+                        />
                         <VietnameseDateInput
                           dataTestId="dashboard-warranty-edit-end-date-input"
                           helper="Có thể gõ tay hoặc bấm Chọn ngày."
@@ -675,8 +780,8 @@ export default function AdminWarrantyClient({
                       <div className="min-w-0">
                         <div className="flex items-start justify-between gap-3">
                           <code className="min-w-0 truncate rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-mono text-xs font-bold text-slate-700">{warranty.serialNo}</code>
-                          <span data-testid="dashboard-warranty-card-status" className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-extrabold ${status.color}`}>
-                            {status.label}
+                          <span data-testid="dashboard-warranty-card-status" className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-extrabold ${archived ? "bg-slate-200 text-slate-700" : status.color}`}>
+                            {archived ? "Đã lưu trữ" : status.label}
                           </span>
                         </div>
                         <p className="mt-2 font-heading text-base font-extrabold leading-snug text-slate-900">{warranty.productName}</p>
@@ -714,24 +819,37 @@ export default function AdminWarrantyClient({
                             <p className="mt-0.5 font-body text-sm font-bold tabular-nums text-slate-800">{endDateLabel}</p>
                           </div>
                         </div>
-                        <p className={`mt-2 rounded-lg px-3 py-1.5 font-body text-sm font-extrabold ${status.color}`}>{timelineCopy}</p>
+                        <p className={`mt-2 rounded-lg px-3 py-1.5 font-body text-sm font-extrabold ${archived ? "bg-slate-200 text-slate-700" : status.color}`}>{timelineCopy}</p>
                       </div>
 
                       <div data-testid="dashboard-warranty-card-actions" className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 xl:grid-cols-1 xl:border-t-0 xl:pt-0">
-                        <button
-                          type="button"
-                          onClick={() => startEdit(warranty)}
-                          className="min-h-11 rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 xl:min-h-9 xl:rounded-lg"
-                        >
-                          Sửa
-                        </button>
-                        <button
-                          onClick={() => archiveWarranty(warranty.id)}
-                          disabled={deletingId === warranty.id}
-                          className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-red-600 transition-colors hover:border-red-200 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300 xl:min-h-9 xl:rounded-lg"
-                        >
-                          {deletingId === warranty.id ? "Đang lưu..." : "Lưu trữ"}
-                        </button>
+                        {archived ? (
+                          <button
+                            type="button"
+                            onClick={() => restoreWarranty(warranty.id)}
+                            disabled={deletingId === warranty.id}
+                            className="col-span-2 min-h-11 rounded-xl bg-emerald-700 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-emerald-800 disabled:bg-slate-300 xl:col-span-1 xl:min-h-9 xl:rounded-lg"
+                          >
+                            {deletingId === warranty.id ? "Đang khôi phục..." : "Khôi phục"}
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => startEdit(warranty)}
+                              className="min-h-11 rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 xl:min-h-9 xl:rounded-lg"
+                            >
+                              Sửa
+                            </button>
+                            <button
+                              onClick={() => archiveWarranty(warranty.id)}
+                              disabled={deletingId === warranty.id}
+                              className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-red-600 transition-colors hover:border-red-200 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200 disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300 xl:min-h-9 xl:rounded-lg"
+                            >
+                              {deletingId === warranty.id ? "Đang lưu..." : "Lưu trữ"}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}

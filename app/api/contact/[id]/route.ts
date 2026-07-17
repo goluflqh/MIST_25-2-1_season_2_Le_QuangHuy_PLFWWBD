@@ -32,7 +32,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const previousContact = await prisma.contactRequest.findUnique({
       where: { id },
-      include: { serviceOrder: { select: { deletedAt: true, id: true, status: true, warrantyMonths: true } } },
+      include: {
+        serviceOrder: {
+          select: {
+            deletedAt: true,
+            id: true,
+            status: true,
+            warranty: { select: { deletedAt: true } },
+            warrantyMonths: true,
+          },
+        },
+      },
     });
     if (!previousContact || previousContact.deletedAt) {
       return NextResponse.json({ success: false, message: "Không tìm thấy yêu cầu tư vấn." }, { status: 404 });
@@ -68,7 +78,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
             ...(nextOrderStatus === "COMPLETED" ? {} : { warrantyEndDate: null }),
           },
         });
-        if (nextOrderStatus === "COMPLETED") {
+        if (nextOrderStatus === "COMPLETED" && !previousContact.serviceOrder.warranty?.deletedAt) {
           await createWarrantyForServiceOrder(tx, previousContact.serviceOrder.id, {
             warrantyMonths: previousContact.serviceOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
           });
