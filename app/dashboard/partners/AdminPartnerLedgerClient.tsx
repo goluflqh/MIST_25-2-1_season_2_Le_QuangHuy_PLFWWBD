@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AdminMetricStrip from "@/components/admin/AdminMetricStrip";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
 import AdminVietnameseDateRangeFilter from "@/components/admin/AdminVietnameseDateRangeFilter";
 import MinhHongWorkbookImportPanel from "@/components/admin/MinhHongWorkbookImportPanel";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
@@ -581,20 +583,17 @@ export default function AdminPartnerLedgerClient({
 
   return (
     <div data-testid="dashboard-partner-ledger" className="space-y-5 animate-fade-in-up">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Sổ phải trả đối tác</p>
-          <h2 className="font-heading text-xl font-extrabold text-slate-900">Đối Tác & Mua Hàng</h2>
-          <p className="font-body text-sm text-slate-600">
-            Mua hàng làm tăng số Minh Hồng phải trả; thanh toán và trả hàng làm giảm số phải trả.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+      <AdminPageHeader
+        eyebrow="Sổ phải trả đối tác"
+        title="Đối Tác & Mua Hàng"
+        summary="Mua hàng làm tăng số Minh Hồng phải trả; thanh toán và trả hàng làm giảm số phải trả."
+        actions={
+          <>
           <button
             type="button"
             onClick={syncGoogleSheet}
             disabled={syncingSheet}
-            className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white disabled:bg-slate-300"
+            className="min-h-11 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:bg-slate-300 sm:px-4"
           >
             {syncingSheet ? "Đang xuất…" : "Xuất sang Sheet"}
           </button>
@@ -602,7 +601,7 @@ export default function AdminPartnerLedgerClient({
             type="button"
             onClick={togglePartnerForm}
             data-testid="partner-add-button"
-            className="min-h-11 rounded-lg bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200"
+            className="min-h-11 whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 text-sm font-body font-bold text-slate-700 hover:bg-slate-200 sm:px-4"
           >
             + Đối tác
           </button>
@@ -610,32 +609,22 @@ export default function AdminPartnerLedgerClient({
             type="button"
             data-testid="partner-open-entry-top"
             onClick={() => openEntryDialog("PURCHASE")}
-            className="min-h-11 rounded-lg bg-red-600 px-4 py-2 text-sm font-body font-bold text-white hover:bg-red-700"
+            className="min-h-11 whitespace-nowrap rounded-lg bg-red-600 px-3 py-2 text-sm font-body font-bold text-white hover:bg-red-700 sm:px-4"
           >
             Ghi giao dịch
           </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-lg border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-500">Tổng tiền mua</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{formatMoney(metrics.purchased)}</p>
-        </div>
-        <div className="rounded-lg border border-green-100 bg-green-50 p-4 sm:p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-green-700">Đã thanh toán</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-green-700">{formatMoney(metrics.paid)}</p>
-        </div>
-        <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 sm:p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-amber-700">Đã trả hàng</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-amber-700">{formatMoney(metrics.returned)}</p>
-        </div>
-        <div className="rounded-lg border border-red-100 bg-red-50 p-4 sm:p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-red-700">Minh Hồng cần trả</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-red-700">{formatMoney(metrics.balance)}</p>
-          <p className="mt-1 font-body text-xs text-red-700">{metrics.payablePartners} đối tác còn phải trả</p>
-        </div>
-      </div>
+      <AdminMetricStrip
+        items={[
+          { key: "purchased", label: "Tổng tiền mua", value: formatMoney(metrics.purchased) },
+          { key: "paid", label: "Đã thanh toán", value: formatMoney(metrics.paid), tone: "green" },
+          { key: "returned", label: "Đã trả hàng", value: formatMoney(metrics.returned), tone: "amber" },
+          { key: "balance", label: "Minh Hồng cần trả", value: formatMoney(metrics.balance), helper: `${metrics.payablePartners} đối tác còn phải trả`, tone: "red" },
+        ]}
+      />
 
       {partnerImportEnabled ? (
         <MinhHongWorkbookImportPanel scope="partners" onImported={() => window.location.reload()} />

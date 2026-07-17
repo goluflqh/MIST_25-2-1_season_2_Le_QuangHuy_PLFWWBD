@@ -58,7 +58,7 @@ async function buildUnifiedPartnerSourceWorkbook() {
     "Tính công nợ",
     "source_id",
   ]);
-  sheet.addRow(["", "Long", "Mua hàng", "Đơn cũ thiếu giá", 5, "", "", "", "Đối chiếu lịch sử", "", "Không", `MH_${"1".repeat(32)}`]);
+  sheet.addRow(["", "Long", "Mua hàng", "Vỏ ss 50E", 5, "", "", "", "Tặng", "", "", `MH_${"1".repeat(32)}`]);
   sheet.addRow(["08/05/2026", "Long", "Số dư đầu kỳ", "Số dư Long đã chốt", "", "", 12_730_000, "", "", 12_730_000, "Có", `MH_${"2".repeat(32)}`]);
   sheet.addRow(["26/05/2026", "Long", "Mua hàng", "Đèn NLMT bc", 3, 1_300_000, 3_900_000, "", "", 16_630_000, "Có", `MH_${"3".repeat(32)}`]);
   sheet.addRow(["26/05/2026", "Long", "Thanh toán", "Thanh toán đèn NLMT bc", "", "", 3_900_000, "Chuyển khoản", "", 12_730_000, "Có", `MH_${"4".repeat(32)}`]);
@@ -330,7 +330,7 @@ test("imports the unified partner event sheet with full history and an exact 11 
   ], "partners");
   const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
   const reconciliation = reconcileMinhHongWorkbook(parsed, { scope: "partners" });
-  const missingAmount = parsed.partnerEntries.find((entry) => entry.description === "Đơn cũ thiếu giá");
+  const missingAmount = parsed.partnerEntries.find((entry) => entry.description === "Vỏ ss 50E");
 
   assert.deepEqual(preview.sourceIdPlan.targets.map((target) => target.id), ["partner-ledger"]);
   assert.equal(reconciliation.ok, true);

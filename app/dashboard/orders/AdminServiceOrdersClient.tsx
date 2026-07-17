@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AdminMetricStrip from "@/components/admin/AdminMetricStrip";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
 import AdminVietnameseDateRangeFilter from "@/components/admin/AdminVietnameseDateRangeFilter";
 import MinhHongWorkbookImportPanel from "@/components/admin/MinhHongWorkbookImportPanel";
 import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
@@ -782,20 +784,17 @@ export default function AdminServiceOrdersClient({
 
   return (
     <div data-testid="dashboard-service-orders" className="space-y-6 animate-fade-in-up">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Sổ đơn nội bộ</p>
-          <h2 className="font-heading text-xl font-extrabold text-slate-900">Đơn Dịch Vụ & Đơn Cũ</h2>
-          <p className="font-body text-sm text-slate-500">
-            Nhập đơn từ tiệm, điện thoại, Zalo hoặc nhập lại sổ cũ theo số điện thoại khách.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+      <AdminPageHeader
+        eyebrow="Sổ đơn nội bộ"
+        title="Đơn Dịch Vụ & Đơn Cũ"
+        summary="Nhập đơn từ tiệm, điện thoại, Zalo hoặc nhập lại sổ cũ theo số điện thoại khách."
+        actions={
+          <>
           <button
             type="button"
             onClick={syncGoogleSheet}
             disabled={syncingSheet}
-            className="min-h-11 rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-200 disabled:bg-slate-200 disabled:text-slate-400"
+            className="min-h-11 flex-1 rounded-lg bg-slate-100 px-4 py-2.5 text-sm font-body font-bold text-slate-700 transition-colors hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
           >
             {syncingSheet ? "Đang xuất…" : "Xuất sang Sheet"}
           </button>
@@ -803,35 +802,22 @@ export default function AdminServiceOrdersClient({
             type="button"
             data-testid="dashboard-orders-open-create"
             onClick={openCreateForm}
-            className="min-h-11 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-body font-bold text-white transition-colors hover:bg-red-700"
+            className="min-h-11 flex-1 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-body font-bold text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200 sm:flex-none"
           >
             + Thêm đơn
           </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Tổng đơn</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.total}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Giá gốc đã báo</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{formatMoney(metrics.quoted)}</p>
-          <p className="mt-1 font-body text-xs text-emerald-700">Đã giảm: {formatMoney(metrics.discount)}</p>
-          <p className="mt-1 font-body text-xs text-amber-700">
-            Quên giá {metrics.legacyMissing} · chưa báo {metrics.pendingQuote}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-green-100 bg-green-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-green-700">Đã thu</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-green-700">{formatMoney(metrics.paid)}</p>
-        </div>
-        <div className="rounded-2xl border border-red-100 bg-red-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-red-700">Còn phải thu</p>
-          <p className="mt-1 font-heading text-2xl font-extrabold text-red-700">{formatMoney(metrics.debt)}</p>
-        </div>
-      </div>
+      <AdminMetricStrip
+        items={[
+          { key: "total", label: "Tổng đơn", value: metrics.total },
+          { key: "quoted", label: "Giá gốc đã báo", value: formatMoney(metrics.quoted), helper: `Đã giảm ${formatMoney(metrics.discount)} · thiếu giá ${metrics.legacyMissing + metrics.pendingQuote}` },
+          { key: "paid", label: "Đã thu", value: formatMoney(metrics.paid), tone: "green" },
+          { key: "debt", label: "Còn phải thu", value: formatMoney(metrics.debt), tone: "red" },
+        ]}
+      />
 
       <div className="rounded-3xl border border-red-100 bg-red-50/40 p-3 shadow-sm sm:p-4">
         <MinhHongWorkbookImportPanel scope="service-orders" onImported={() => window.location.reload()} />
@@ -1460,7 +1446,7 @@ export default function AdminServiceOrdersClient({
                       </p>
                     </div>
                     <div className="shrink-0 rounded-xl bg-white/80 px-3 py-2 text-right shadow-sm md:hidden">
-                      <p className="font-body text-[10px] font-bold uppercase text-slate-500">Còn lại</p>
+                      <p className="font-body text-xs font-bold uppercase text-slate-600">Còn lại</p>
                       <p className={`font-heading text-sm font-extrabold ${debt > 0 ? "text-red-700" : "text-green-700"}`}>
                         {formatMoney(debt)}
                       </p>

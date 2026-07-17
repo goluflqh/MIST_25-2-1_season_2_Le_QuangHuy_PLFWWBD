@@ -18,7 +18,13 @@ export interface MinhHongImportResponse {
     errors: number;
   };
   totals: {
+    longCountedAdjustment: number;
+    longCountedPayment: number;
+    longCountedPurchase: number;
+    longCountedReturn: number;
+    longOpeningBalance: number;
     longPayable: number;
+    longReferenceOnlyAmount: number;
     longHistoricalPaid: number;
     customerOrderTotal: number;
     customerOrderPaid: number;
@@ -60,7 +66,13 @@ export function buildMinhHongImportResponse(
       errors: reconciliation.blockingIssues.length,
     },
     totals: {
+      longCountedAdjustment: serviceOrderScope ? 0 : (parsed.partnerTotals.longCountedAdjustment || 0),
+      longCountedPayment: serviceOrderScope ? 0 : parsed.partnerTotals.longCountedPayment,
+      longCountedPurchase: serviceOrderScope ? 0 : parsed.partnerTotals.longCountedPurchase,
+      longCountedReturn: serviceOrderScope ? 0 : parsed.partnerTotals.longCountedReturn,
+      longOpeningBalance: serviceOrderScope ? 0 : parsed.partnerTotals.longOpeningBalance,
       longPayable: serviceOrderScope ? 0 : parsed.partnerTotals.longPayable,
+      longReferenceOnlyAmount: serviceOrderScope ? 0 : parsed.partnerTotals.longReferenceOnlyAmount,
       longHistoricalPaid: serviceOrderScope ? 0 : parsed.partnerTotals.longHistoricalPaid,
       customerOrderTotal: partnerScope ? 0 : parsed.customerOrderTotals.quoted,
       customerOrderPaid: partnerScope ? 0 : parsed.customerOrderTotals.paid,

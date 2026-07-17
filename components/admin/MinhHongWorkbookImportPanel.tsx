@@ -29,7 +29,13 @@ interface ImportResponse {
     errors: number;
   };
   totals?: {
+    longCountedAdjustment: number;
+    longCountedPayment: number;
+    longCountedPurchase: number;
+    longCountedReturn: number;
+    longOpeningBalance: number;
     longPayable: number;
+    longReferenceOnlyAmount: number;
     longHistoricalPaid: number;
     customerOrderTotal: number;
     customerOrderPaid: number;
@@ -54,6 +60,11 @@ interface ImportChanges {
   partnerEntries: ChangeCounts;
   serviceOrders: ChangeCounts;
   conflicts: string[];
+  warranties?: {
+    archivedDuplicates: number;
+    linked: number;
+    unchanged: number;
+  };
   records: {
     partners?: ChangeRecord[];
     partnerEntries: ChangeRecord[];
@@ -88,6 +99,18 @@ const CHANGE_RECORDS_PER_PAGE = 10;
 
 function formatMoney(value: number | undefined) {
   return `${Number(value || 0).toLocaleString("vi-VN")}đ`;
+}
+
+function partnerDebtFormula(totals: ImportResponse["totals"]) {
+  if (!totals) return "";
+  const terms = [
+    `${formatMoney(totals.longOpeningBalance)} số dư đầu`,
+    `+ ${formatMoney(totals.longCountedPurchase)} tiền hàng`,
+  ];
+  if (totals.longCountedAdjustment) terms.push(`${totals.longCountedAdjustment > 0 ? "+" : "-"} ${formatMoney(Math.abs(totals.longCountedAdjustment))} điều chỉnh`);
+  terms.push(`- ${formatMoney(totals.longCountedPayment)} đã trả`);
+  if (totals.longCountedReturn) terms.push(`- ${formatMoney(totals.longCountedReturn)} hàng trả lại`);
+  return `${terms.join(" ")} = ${formatMoney(totals.longPayable)}`;
 }
 
 function totalChanges(changes: ImportChanges | undefined, scope: ImportScope = "all") {
@@ -170,6 +193,10 @@ function groupMessages(messages: string[]) {
   return [...counts.entries()].map(([message, count]) => ({ message, count }));
 }
 
+function isOldBaselineWarning(message: string) {
+  return /mốc cũ/i.test(message) && /^(Long|Đơn khách)\s+-/i.test(message);
+}
+
 export default function MinhHongWorkbookImportPanel({ compact = false, onImported, scope = "all" }: MinhHongWorkbookImportPanelProps) {
   const { showToast } = useNotify();
   const serviceOrderScope = scope === "service-orders";
@@ -225,24 +252,6 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
       }
 
       setPreview(data);
-      if (
-        mode === "preview"
-        && data.sourceSetup?.required
-        && data.confirmation?.enabled !== false
-      ) {
-        const setupFingerprint = data.sourceSetup.fingerprint;
-        if (!setupFingerprint) {
-          showToast("Dữ liệu kiểm tra chưa đủ để chuẩn bị Google Sheet. Hãy thử lại.", "error");
-          return;
-        }
-        if (await prepareSourceSheet(setupFingerprint)) {
-          await submitImport("preview", {
-            preservePreview: true,
-            previewSuccessMessage: "Google Sheet đã sẵn sàng. Dữ liệu đã được kiểm tra lại.",
-          });
-        }
-        return;
-      }
       if (mode === "confirm") {
         showToast("Đã áp dụng dữ liệu Minh Hồng vào web.", "success");
         onImported?.();
@@ -294,8 +303,24 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
     }
   };
 
+  const handlePrepareSourceSheet = async () => {
+    const setupFingerprint = preview?.sourceSetup?.fingerprint;
+    if (!setupFingerprint) {
+      showToast("Dữ liệu kiểm tra chưa đủ để chuẩn bị Google Sheet. Hãy kiểm tra lại.", "error");
+      return;
+    }
+    if (await prepareSourceSheet(setupFingerprint)) {
+      await submitImport("preview", {
+        preservePreview: true,
+        previewSuccessMessage: "Google Sheet đã sẵn sàng. Dữ liệu đã được kiểm tra lại.",
+      });
+    }
+  };
+
   const changeTotals = totalChanges(preview?.changes, scope);
-  const hasPendingChanges = changeTotals.created + changeTotals.updated > 0;
+  const pendingWarrantyChanges = (preview?.changes?.warranties?.linked || 0)
+    + (preview?.changes?.warranties?.archivedDuplicates || 0);
+  const hasPendingChanges = changeTotals.created + changeTotals.updated + pendingWarrantyChanges > 0;
   const canConfirmPreview = Boolean(
     preview?.reconciliation?.ok
     && preview.changes
@@ -328,6 +353,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
   const visibleBlockingIssues = groupMessages(filterMessagesForScope(preview?.reconciliation?.blockingIssues, scope)
     .map((message) => friendlyImportMessage(message, message)));
   const visibleWarnings = groupMessages(filterMessagesForScope(preview?.reconciliation?.warnings, scope)
+    .filter((message) => !isOldBaselineWarning(message))
     .map((message) => friendlyImportMessage(message, message)));
   const previewStatus = visibleConflicts.length > 0
     ? "Có xung đột"
@@ -480,7 +506,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                 ) : partnerScope ? (
                   <>
                     <div className="rounded-lg bg-red-50 p-3">
-                      <p className="font-body text-xs font-bold text-red-700">Long cần trả</p>
+                      <p className="font-body text-xs font-bold text-red-700">Còn nợ Long</p>
                       <p className="mt-1 font-heading text-lg font-extrabold text-red-700">{formatMoney(preview.totals?.longPayable)}</p>
                     </div>
                     <div className="rounded-lg bg-slate-50 p-3">
@@ -499,7 +525,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                 ) : (
                   <>
                     <div className="rounded-lg bg-red-50 p-3">
-                      <p className="font-body text-xs font-bold text-red-700">Long cần trả</p>
+                      <p className="font-body text-xs font-bold text-red-700">Còn nợ Long</p>
                       <p className="mt-1 font-heading text-lg font-extrabold text-red-700">{formatMoney(preview.totals?.longPayable)}</p>
                     </div>
                     <div className="rounded-lg bg-slate-50 p-3">
@@ -517,6 +543,20 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                   </>
                 )}
               </div>
+
+              {!serviceOrderScope ? (
+                <div className="mt-3 rounded-xl border border-red-100 bg-white p-3" data-testid="minhhong-partner-debt-explanation">
+                  <p className="font-body text-sm font-extrabold text-slate-900">
+                    Minh Hồng đang còn nợ Long <span className="text-red-700 tabular-nums">{formatMoney(preview.totals?.longPayable)}</span>
+                  </p>
+                  <p className="mt-1 font-body text-sm leading-6 text-slate-700 tabular-nums">
+                    {partnerDebtFormula(preview.totals)}
+                  </p>
+                  <p className="mt-1 font-body text-xs leading-5 text-slate-500">
+                    Các dòng Tặng, Bù hoặc 0đ chỉ được giữ để đối chiếu, không cộng vào công nợ.
+                  </p>
+                </div>
+              ) : null}
 
               {preview?.changes ? (
                 <div className="mt-3 rounded-xl border border-green-100 bg-green-50 p-3" data-testid="minhhong-workbook-change-headline">
@@ -548,6 +588,34 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
                       </>
                     )}
                   </p>
+                </div>
+              ) : null}
+
+              {serviceOrderScope && pendingWarrantyChanges > 0 ? (
+                <div className="mt-3 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2" data-testid="minhhong-workbook-warranty-reconciliation">
+                  <p className="font-body text-sm font-bold text-sky-900">Đối soát phiếu bảo hành đi kèm</p>
+                  <p className="mt-1 font-body text-sm text-sky-800 tabular-nums">
+                    Nối {preview.changes?.warranties?.linked || 0} phiếu tạo riêng vào đúng đơn
+                    {" · "}Lưu trữ {preview.changes?.warranties?.archivedDuplicates || 0} phiếu trùng
+                  </p>
+                </div>
+              ) : null}
+
+              {preview.sourceSetup?.required && preview.confirmation?.enabled !== false ? (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3" data-testid="minhhong-source-sheet-setup-card">
+                  <p className="font-body text-sm font-bold text-amber-900">Cần thiết lập liên kết Sheet một lần</p>
+                  <p className="mt-1 font-body text-sm leading-6 text-amber-800">
+                    Bản kiểm tra vừa rồi chỉ đọc dữ liệu. Bước dưới đây sẽ ghi mã liên kết kỹ thuật vào Sheet để tránh nhập trùng; không thay đổi tên khách, sản phẩm, ngày hoặc số tiền.
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="minhhong-source-sheet-setup"
+                    onClick={handlePrepareSourceSheet}
+                    disabled={isPreparingSourceSheet || isPreviewing || isConfirming}
+                    className="mt-3 min-h-11 rounded-lg bg-amber-700 px-4 py-2 font-body text-sm font-bold text-white transition-colors hover:bg-amber-800 disabled:bg-slate-300"
+                  >
+                    {isPreparingSourceSheet ? "Đang thiết lập…" : "Hoàn tất thiết lập Sheet"}
+                  </button>
                 </div>
               ) : null}
 
@@ -690,7 +758,7 @@ export default function MinhHongWorkbookImportPanel({ compact = false, onImporte
               {visibleWarnings.length ? (
                 <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50 p-3" data-testid="minhhong-workbook-warnings">
                   <p className="mb-1 font-body text-xs font-bold uppercase tracking-wider text-amber-700">
-                    {serviceOrderScope ? "Dòng cần kiểm tra trong Sheet" : partnerScope ? "Cảnh báo công nợ đối tác" : "Cảnh báo dữ liệu nguồn"}
+                    {serviceOrderScope ? "Dòng cần kiểm tra trong Sheet" : partnerScope ? "Thông tin cần xem lại" : "Thông tin cần xem lại"}
                   </p>
                   {visibleWarnings.slice(0, 8).map((warning) => (
                     <p key={warning.message} className="font-body text-sm font-semibold text-amber-800">

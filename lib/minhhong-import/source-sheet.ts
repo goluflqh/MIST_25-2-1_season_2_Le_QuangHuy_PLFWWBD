@@ -1061,7 +1061,7 @@ function buildUnifiedPartnerActivityRows(legacyWorkbook: ExcelJS.Workbook, issue
     const notes = clean(row.getCell(9).value);
     const statedBalanceText = clean(row.getCell(10).value);
     const statedBalance = money(row.getCell(10).value);
-    const countsInDebt = isDebtCounted(row.getCell(11).value);
+    let countsInDebt = isDebtCounted(row.getCell(11).value);
     const isPurchase = typeText === "mua hàng" || typeText === "mua hang";
     const isAdjustment = typeText === "điều chỉnh" || typeText === "dieu chinh";
     const sourceId = stableSourceId(row, "partner-ledger", String(rowNumber).padStart(4, "0"));
@@ -1084,6 +1084,7 @@ function buildUnifiedPartnerActivityRows(legacyWorkbook: ExcelJS.Workbook, issue
         discountAmount = purchaseAmounts.discountAmount;
       }
     }
+    if (amount === 0) countsInDebt = false;
     const isFullyDiscountedPurchase = isPurchase && discountPercent === 100 && grossAmount > 0;
     if (countsInDebt && (isAdjustment ? amount === 0 : amount <= 0 && !isFullyDiscountedPurchase)) {
       pushIssue(

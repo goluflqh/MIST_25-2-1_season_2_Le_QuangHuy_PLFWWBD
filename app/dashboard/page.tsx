@@ -1,3 +1,6 @@
+import AdminMetricStrip from "@/components/admin/AdminMetricStrip";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
+import AdminServiceIcon from "@/components/admin/AdminServiceIcon";
 import { getChatbotDashboardMetrics } from "@/lib/chatbot-metrics";
 import { calculateServiceOrderFinancials, summarizeServiceOrderFinancials } from "@/lib/financial-calculations";
 import { getLeadSourceLabel } from "@/lib/lead-sources";
@@ -12,15 +15,15 @@ const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const serviceLabels: Record<string, string> = {
-  DONG_PIN: "🔋 Đóng pin",
-  DEN_NLMT: "☀️ Đèn năng lượng mặt trời",
-  PIN_LUU_TRU: "⚡ Pin lưu trữ",
-  CAMERA: "📹 Camera",
-  CUSTOM: "🔧 Theo yêu cầu",
-  KHAC: "📞 Khác",
-  battery: "🔋 Đóng pin",
-  camera: "📹 Camera",
-  contact: "📞 Liên hệ",
+  DONG_PIN: "Đóng pin",
+  DEN_NLMT: "Đèn năng lượng mặt trời",
+  PIN_LUU_TRU: "Pin lưu trữ",
+  CAMERA: "Camera",
+  CUSTOM: "Theo yêu cầu",
+  KHAC: "Khác",
+  battery: "Đóng pin",
+  camera: "Camera",
+  contact: "Liên hệ",
 };
 
 const chatbotIntentLabels: Record<string, string> = {
@@ -240,76 +243,55 @@ export default async function DashboardPage() {
   const maxServiceQuoted = Math.max(...serviceMoneyRows.map(([, value]) => value.quoted), 1);
   return (
     <div data-testid="dashboard-page" className="space-y-6 animate-fade-in-up">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">
-            Bảng điều hành
-          </p>
-          <h2 className="font-heading font-extrabold text-2xl text-slate-900 mb-1">
-            Tổng Quan Chăm Sóc Khách
-          </h2>
-          <p className="font-body text-sm text-slate-500">
-            Theo dõi khách cần tư vấn, chăm sóc khách, bảo hành và các việc cần xử lý trong ngày.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+      <AdminPageHeader
+        eyebrow="Bảng điều hành"
+        title="Tổng Quan Chăm Sóc Khách"
+        summary="Theo dõi khách cần tư vấn, chăm sóc khách, bảo hành và các việc cần xử lý trong ngày."
+        actions={
+          <>
           <Link
             href="/dashboard/contacts"
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-slate-800"
+            className="inline-flex min-h-11 items-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
           >
             Mở danh sách khách
           </Link>
           <Link
             href="/dashboard/pricing"
-            className="rounded-xl bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 shadow-sm ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
+            className="inline-flex min-h-11 items-center rounded-lg bg-white px-4 py-2 text-sm font-body font-bold text-slate-700 shadow-sm ring-1 ring-slate-200 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
           >
             Cập nhật bảng giá
           </Link>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <div data-testid="dashboard-crm-overview" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-          <p className="font-body text-xs text-slate-400 uppercase tracking-wider mb-1">Khách mới hôm nay</p>
-          <p className="font-heading font-extrabold text-3xl text-slate-900">{newUsersToday}</p>
-          <p className="mt-1 font-body text-xs text-slate-400">
-            Tài khoản khách mới · {newContactsToday} yêu cầu mới
-          </p>
-        </div>
-        <div className="bg-yellow-50 rounded-2xl p-5 border border-yellow-200">
-          <p className="font-body text-xs text-yellow-700 uppercase tracking-wider mb-1">Khách đang chờ xử lý</p>
-          <p className="font-heading font-extrabold text-3xl text-yellow-700">{openContacts}</p>
-          <p className="mt-1 font-body text-xs text-yellow-700">{staleContacts} khách quá 48 giờ chưa xong</p>
-        </div>
-        <div className="bg-green-50 rounded-2xl p-5 border border-green-200">
-          <p className="font-body text-xs text-green-700 uppercase tracking-wider mb-1">Tỉ lệ chốt</p>
-          <p className="font-heading font-extrabold text-3xl text-green-700">{completionRate}%</p>
-          <p className="mt-1 font-body text-xs text-green-700">{completedContacts} hoàn thành</p>
-        </div>
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-          <p className="font-body text-xs text-slate-400 uppercase tracking-wider mb-1">Khách hàng</p>
-          <p className="font-heading font-extrabold text-3xl text-slate-900">{totalUsers}</p>
-          <p className="mt-1 font-body text-xs text-slate-400">{activeWarranties} bảo hành còn hiệu lực</p>
-        </div>
-      </div>
+      <AdminMetricStrip
+        dataTestId="dashboard-crm-overview"
+        items={[
+          { key: "new", label: "Khách mới hôm nay", value: newUsersToday, helper: `${newContactsToday} yêu cầu mới` },
+          { key: "open", label: "Khách đang chờ xử lý", value: openContacts, helper: `${staleContacts} khách quá 48 giờ`, tone: "amber" },
+          { key: "completion", label: "Tỉ lệ chốt", value: `${completionRate}%`, helper: `${completedContacts} hoàn thành`, tone: "green" },
+          { key: "customers", label: "Khách hàng", value: totalUsers, helper: `${activeWarranties} bảo hành còn hiệu lực`, tone: "blue" },
+        ]}
+      />
 
-      <div data-testid="dashboard-action-queue" className="grid gap-4 lg:grid-cols-4">
-        <Link href="/dashboard/contacts" className="rounded-2xl border border-red-100 bg-red-50 p-5 transition-colors hover:bg-red-100">
+      <div data-testid="dashboard-action-queue" className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        <Link href="/dashboard/contacts" className="rounded-xl border border-red-100 bg-red-50 p-4 transition-colors hover:bg-red-100 lg:rounded-2xl lg:p-5">
           <p className="font-body text-xs font-bold uppercase tracking-wider text-red-700">Cần gọi lại</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-red-700">{pendingContacts}</p>
           <p className="mt-1 font-body text-xs text-red-700">Khách đang chờ tư vấn</p>
         </Link>
-        <Link href="/dashboard/reviews" className="rounded-2xl border border-amber-100 bg-amber-50 p-5 transition-colors hover:bg-amber-100">
+        <Link href="/dashboard/reviews" className="rounded-xl border border-amber-100 bg-amber-50 p-4 transition-colors hover:bg-amber-100 lg:rounded-2xl lg:p-5">
           <p className="font-body text-xs font-bold uppercase tracking-wider text-amber-700">Đánh giá chờ duyệt</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-amber-700">{pendingReviews}</p>
           <p className="mt-1 font-body text-xs text-amber-700">Phản hồi khách hàng mới</p>
         </Link>
-        <Link href="/dashboard/warranty" className="rounded-2xl border border-blue-100 bg-blue-50 p-5 transition-colors hover:bg-blue-100">
+        <Link href="/dashboard/warranty" className="rounded-xl border border-blue-100 bg-blue-50 p-4 transition-colors hover:bg-blue-100 lg:rounded-2xl lg:p-5">
           <p className="font-body text-xs font-bold uppercase tracking-wider text-blue-700">Sắp hết bảo hành</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-blue-700">{expiringWarranties}</p>
           <p className="mt-1 font-body text-xs text-blue-700">Trong 30 ngày tới</p>
         </Link>
-        <Link href="/dashboard/coupons" className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition-colors hover:bg-slate-50">
+        <Link href="/dashboard/coupons" className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition-colors hover:bg-slate-50 lg:rounded-2xl lg:p-5">
           <p className="font-body text-xs font-bold uppercase tracking-wider text-slate-400">Mã giảm giá</p>
           <p className="mt-1 font-heading text-2xl font-extrabold text-slate-900">{activeCoupons}</p>
           <p className="mt-1 font-body text-xs text-slate-500">{activePricingItems} mục giá đang bật</p>
@@ -386,7 +368,8 @@ export default async function DashboardPage() {
                 serviceMoneyRows.map(([service, value]) => (
                   <div key={service}>
                     <div className="mb-1 flex items-center justify-between gap-3">
-                      <span className="truncate font-body text-xs font-bold text-slate-700">
+                      <span className="flex min-w-0 items-center gap-1.5 truncate font-body text-sm font-bold text-slate-700">
+                        <AdminServiceIcon service={service} className="h-4 w-4 shrink-0" />
                         {serviceLabels[service] || service}
                       </span>
                       <span className="font-body text-xs text-slate-400">{formatMoney(value.quoted)}</span>
@@ -451,7 +434,8 @@ export default async function DashboardPage() {
               <div className="space-y-2">
                 {topServices.map((item) => (
                   <div key={item.service} className="flex items-center justify-between gap-3">
-                    <span className="font-body text-sm font-semibold text-slate-700">
+                    <span className="flex items-center gap-2 font-body text-sm font-semibold text-slate-700">
+                      <AdminServiceIcon service={item.service} className="h-4 w-4 shrink-0" />
                       {serviceLabels[item.service] || item.service}
                     </span>
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-body font-bold text-slate-500">
@@ -604,11 +588,12 @@ export default async function DashboardPage() {
                     <p className="font-body font-semibold text-sm text-slate-800 truncate">
                       {contact.name} — {contact.phone}
                     </p>
-                    <p className="font-body text-xs text-slate-400">
-                      {serviceLabels[contact.service] || contact.service} · {formatDate(contact.createdAt)}
+                    <p className="flex items-center gap-1.5 font-body text-sm text-slate-500">
+                      <AdminServiceIcon service={contact.service} className="h-4 w-4 shrink-0" />
+                      <span>{serviceLabels[contact.service] || contact.service} · {formatDate(contact.createdAt)}</span>
                     </p>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusConfig[contact.status]?.color}`}>
+                  <span className={`rounded-full px-2 py-1 text-xs font-bold ${statusConfig[contact.status]?.color}`}>
                     {statusConfig[contact.status]?.label}
                   </span>
                 </div>
@@ -630,8 +615,8 @@ export default async function DashboardPage() {
                 href={item.href}
                 className="block rounded-xl border border-slate-100 bg-slate-50 p-3 transition-colors hover:bg-slate-100"
               >
-                <p className="font-body font-bold text-sm text-slate-800">{item.title}</p>
-                <p className="font-body text-xs text-slate-400">{item.helper}</p>
+                <p className="font-body text-base font-bold text-slate-800">{item.title}</p>
+                <p className="font-body text-sm leading-5 text-slate-500">{item.helper}</p>
               </Link>
             ))}
           </div>

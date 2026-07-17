@@ -339,7 +339,7 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     const workbookDiscountText = clean(row[10]);
     const workbookDiscountPercent = parseWorkbookDiscountPercent(row[10], workbookDiscountCell?.numFmt);
     const description = clean(row[5]);
-    const countsInDebt = parseDebtFlag(row[14]);
+    let countsInDebt = workbookAmount === 0 ? false : parseDebtFlag(row[14]);
     const hasNonZeroOrInvalidDiscount = workbookDiscountPercent !== null && workbookDiscountPercent !== 0;
     if (!description || (!workbookAmount && countsInDebt && !hasNonZeroOrInvalidDiscount)) continue;
 
@@ -409,6 +409,7 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
         message: "Tiền chiết khấu phải bằng 0 khi không có phần trăm chiết khấu.",
       });
     }
+    if (amount === 0) countsInDebt = false;
 
     const entry: MinhHongParsedPartnerEntry = {
       legacySourceCode: stableSourceId ? `NHAP_HANG:${purchaseCode}` : null,
@@ -445,13 +446,15 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
   for (const [index, row] of paymentRows.slice(1).entries()) {
     const workbookRow = index + 2;
     const amount = parseMoney(row[4]);
-    if (!amount) continue;
-
     const partnerCode = clean(row[2]);
     const partnerName = clean(row[3]);
+    const paymentReference = clean(row[0]);
+    const paymentDescription = clean(row[7]);
+    if (!amount && !paymentReference && !paymentDescription && !partnerCode && !partnerName) continue;
+
     const paymentCode = clean(row[0]) || `ROW-${workbookRow}`;
     const stableSourceId = parseStableSourceId(row[8]);
-    const countsInDebt = parseDebtFlag(row[6]);
+    const countsInDebt = amount === 0 ? false : parseDebtFlag(row[6]);
     partnerEntries.push({
       legacySourceCode: stableSourceId ? `THANH_TOAN:${paymentCode}` : null,
       sourceCode: stableInternalCode("THANH_TOAN", paymentCode, stableSourceId),
@@ -461,19 +464,19 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
       partnerName,
       entryDate: parseDateKey(row[1], errors, { sheet: "Thanh toán", rowNumber: workbookRow }, warnings),
       entryType: "PAYMENT",
-      description: clean(row[7]) || "Thanh toán cho đối tác",
+      description: paymentDescription || "Thanh toán cho đối tác",
       category: null,
       amount,
       discountAmount: 0,
       discountPercent: null,
       countsInDebt,
-      reference: clean(row[0]) || null,
+      reference: paymentReference || null,
       receivedGoods: null,
       quantity: null,
       unit: null,
       unitPrice: null,
       paymentMethod: clean(row[5]) || null,
-      notes: clean(row[7]) || null,
+      notes: paymentDescription || null,
     });
 
     if (!isLong(partnerCode, partnerName)) continue;
@@ -486,7 +489,7 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     const workbookRow = index + 2;
     const amount = parseMoney(row[8]);
     const description = clean(row[4]);
-    const countsInDebt = parseDebtFlag(row[9]);
+    const countsInDebt = amount === 0 ? false : parseDebtFlag(row[9]);
     if (!description || (!amount && countsInDebt)) continue;
 
     const partnerCode = clean(row[2]);

@@ -20,7 +20,13 @@ test("builds the stable preview response shape", async () => {
     errors: 0,
   });
   assert.deepEqual(response.totals, {
+    longCountedAdjustment: 0,
+    longCountedPayment: 15_000_000,
+    longCountedPurchase: 7_490_000,
+    longCountedReturn: 0,
+    longOpeningBalance: 20_230_000,
     longPayable: 12_720_000,
+    longReferenceOnlyAmount: 112_945_500,
     longHistoricalPaid: 60_000_000,
     customerOrderTotal: 36_825_000,
     customerOrderPaid: 29_790_000,
@@ -38,6 +44,7 @@ test("includes database change preview when supplied", async () => {
     partnerEntries: { created: 2, updated: 1, unchanged: 80 },
     serviceOrders: { created: 3, updated: 1, unchanged: 41 },
     conflicts: [],
+    warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
     records: {
       partnerEntries: [{ action: "created" as const, key: "NH-0042", label: "Mua camera" }],
       serviceOrders: [{ action: "updated" as const, key: "DH-0041", label: "Anh Hiệp · Camera" }],
@@ -72,6 +79,7 @@ test("builds a service-order scoped response without partner ledger numbers", as
     partnerEntries: { created: 2, updated: 1, unchanged: 80 },
     serviceOrders: { created: 3, updated: 1, unchanged: 37 },
     conflicts: [],
+    warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
     records: {
       partnerEntries: [{ action: "created" as const, key: "NH-0042", label: "Mua camera" }],
       serviceOrders: [{ action: "updated" as const, key: "DH-0041", label: "Anh Hiệp · Camera" }],
@@ -88,7 +96,13 @@ test("builds a service-order scoped response without partner ledger numbers", as
     errors: 0,
   });
   assert.deepEqual(response.totals, {
+    longCountedAdjustment: 0,
+    longCountedPayment: 0,
+    longCountedPurchase: 0,
+    longCountedReturn: 0,
+    longOpeningBalance: 0,
     longPayable: 0,
+    longReferenceOnlyAmount: 0,
     longHistoricalPaid: 0,
     customerOrderTotal: 36_825_000,
     customerOrderPaid: 29_790_000,
@@ -104,6 +118,7 @@ test("builds a partner scoped response without customer order numbers", async ()
     partnerEntries: { created: 2, updated: 1, unchanged: 77 },
     serviceOrders: { created: 3, updated: 1, unchanged: 37 },
     conflicts: [],
+    warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
     records: {
       partnerEntries: [{ action: "created" as const, key: "NH-0042", label: "Mua camera" }],
       serviceOrders: [{ action: "updated" as const, key: "DH-0041", label: "Anh Hiệp · Camera" }],
@@ -120,12 +135,48 @@ test("builds a partner scoped response without customer order numbers", async ()
     errors: 0,
   });
   assert.deepEqual(response.totals, {
+    longCountedAdjustment: 0,
+    longCountedPayment: 15_000_000,
+    longCountedPurchase: 7_490_000,
+    longCountedReturn: 0,
+    longOpeningBalance: 20_230_000,
     longPayable: 12_720_000,
+    longReferenceOnlyAmount: 112_945_500,
     longHistoricalPaid: 60_000_000,
     customerOrderTotal: 0,
     customerOrderPaid: 0,
   });
   assert.equal(response.changes?.serviceOrders.created, 3, "raw change data stays available for all-scope callers");
+});
+
+test("returns the approved Long debt formula components for clear KPI copy", async () => {
+  const baseline = await parseMinhHongAdminWorkbook(await readCleanMinhHongAdminWorkbookBuffer());
+  const parsed = {
+    ...baseline,
+    partnerTotals: {
+      ...baseline.partnerTotals,
+      longOpeningBalance: 12_730_000,
+      longCountedPurchase: 6_850_750,
+      longCountedPayment: 8_580_750,
+      longCountedReturn: 0,
+      longCountedAdjustment: 0,
+      longPayable: 11_000_000,
+    },
+  };
+
+  const response = buildMinhHongImportResponse(
+    "preview",
+    parsed,
+    reconcileMinhHongWorkbook(parsed, { scope: "partners" }),
+    undefined,
+    undefined,
+    { scope: "partners" }
+  );
+
+  assert.equal(response.totals.longOpeningBalance, 12_730_000);
+  assert.equal(response.totals.longCountedPurchase, 6_850_750);
+  assert.equal(response.totals.longCountedPayment, 8_580_750);
+  assert.equal(response.totals.longPayable, 11_000_000);
 });
 
 test("scopes skipped row counts to the active import domain", async () => {
@@ -176,6 +227,7 @@ test("includes import result for confirm responses", async () => {
       partnerEntries: { created: 80, updated: 0, unchanged: 0 },
       serviceOrders: { created: 41, updated: 0, unchanged: 0 },
       conflicts: [],
+      warranties: { archivedDuplicates: 0, linked: 0, unchanged: 0 },
       records: { partnerEntries: [], serviceOrders: [] },
     },
   });

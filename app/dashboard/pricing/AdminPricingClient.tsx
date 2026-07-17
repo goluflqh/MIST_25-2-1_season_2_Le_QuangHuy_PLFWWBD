@@ -1,6 +1,10 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import AdminFilterToolbar from "@/components/admin/AdminFilterToolbar";
+import AdminMetricStrip from "@/components/admin/AdminMetricStrip";
+import AdminPageHeader from "@/components/admin/AdminPageHeader";
+import AdminServiceIcon from "@/components/admin/AdminServiceIcon";
 import { useNotify } from "@/components/NotifyProvider";
 
 interface PricingItem {
@@ -18,10 +22,10 @@ interface PricingItem {
 type PricingSeedItem = Omit<PricingItem, "id">;
 
 const categories = [
-  { key: "PIN", label: "🔋 Pin", color: "bg-red-50 text-red-700" },
-  { key: "NLMT", label: "☀️ NLMT", color: "bg-yellow-50 text-yellow-700" },
-  { key: "LUU_TRU", label: "⚡ Lưu Trữ", color: "bg-blue-50 text-blue-700" },
-  { key: "CAMERA", label: "📹 Camera", color: "bg-green-50 text-green-700" },
+  { key: "PIN", label: "Pin", color: "bg-red-50 text-red-700" },
+  { key: "NLMT", label: "Năng lượng mặt trời", color: "bg-yellow-50 text-yellow-700" },
+  { key: "LUU_TRU", label: "Pin lưu trữ", color: "bg-blue-50 text-blue-700" },
+  { key: "CAMERA", label: "Camera", color: "bg-green-50 text-green-700" },
 ];
 
 const emptyItem = {
@@ -301,100 +305,84 @@ export default function AdminPricingClient({
 
   return (
     <div data-testid="dashboard-pricing-crm" className="space-y-6 animate-fade-in-up">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="font-body text-xs font-bold uppercase tracking-wider text-red-600">Bảng giá dịch vụ</p>
-          <h2 className="font-heading font-extrabold text-xl text-slate-900">Quản Lý Bảng Giá</h2>
-          <p className="font-body text-sm text-slate-500">
-            {items.length} mục · sửa ở đây → tự cập nhật trang /bao-gia
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {canImportDefaultPricing ? (
+      <AdminPageHeader
+        eyebrow="Bảng giá dịch vụ"
+        title="Quản Lý Bảng Giá"
+        summary={`${items.length} mục · thay đổi tại đây tự cập nhật trang báo giá`}
+        actions={
+          <>
+            {canImportDefaultPricing ? (
             <button
               onClick={bootstrapDefaultPricing}
               disabled={isBootstrapping}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-emerald-700 disabled:bg-slate-300"
+              className="min-h-11 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-body font-bold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
             >
-              {isBootstrapping ? "Đang nhập..." : "Nhập bảng giá mẫu"}
+              {isBootstrapping ? "Đang nhập…" : "Nhập bảng giá mẫu"}
             </button>
-          ) : null}
-          <button
-            onClick={resetFilters}
-            className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-body font-bold text-slate-600 transition-colors hover:bg-slate-200"
-          >
-            Xoá bộ lọc
-          </button>
-          <button
-            onClick={() => {
-              setShowForm(!showForm);
-              setEditingId(null);
-              setFormData(emptyItem);
-              setFormError(null);
-            }}
-            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-red-700"
-          >
-            + Thêm Mới
-          </button>
-        </div>
-      </div>
+            ) : null}
+            <button
+              onClick={() => {
+                setShowForm(!showForm);
+                setEditingId(null);
+                setFormData(emptyItem);
+                setFormError(null);
+              }}
+              className="min-h-11 rounded-lg bg-red-600 px-4 py-2 text-sm font-body font-bold text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+            >
+              + Thêm Mới
+            </button>
+          </>
+        }
+      />
 
-      <div data-testid="dashboard-pricing-metrics" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Mục đang hiển thị</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{metrics.activeItems}</p>
-        </div>
-        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-blue-700">Nhóm dịch vụ</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-blue-700">{metrics.categoriesInUse}</p>
-        </div>
-        <div className="rounded-2xl border border-green-100 bg-green-50 p-5">
-          <p className="font-body text-xs uppercase tracking-wider text-green-700">Có mô tả/ghi chú</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-green-700">{metrics.itemsWithNotes}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="font-body text-xs uppercase tracking-wider text-slate-400">Kết quả lọc</p>
-          <p className="mt-1 font-heading text-3xl font-extrabold text-slate-900">{filteredItems.length}</p>
-        </div>
-      </div>
+      <AdminMetricStrip
+        dataTestId="dashboard-pricing-metrics"
+        items={[
+          { key: "active", label: "Mục đang hiển thị", value: metrics.activeItems },
+          { key: "categories", label: "Nhóm dịch vụ", value: metrics.categoriesInUse, tone: "blue" },
+          { key: "details", label: "Có mô tả/ghi chú", value: metrics.itemsWithNotes, tone: "green" },
+          { key: "filtered", label: "Kết quả lọc", value: filteredItems.length, tone: "violet" },
+        ]}
+      />
 
-      <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(2,minmax(0,1fr))]">
-          <input
-            data-testid="dashboard-pricing-search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Tìm tên, giá, mô tả, ghi chú"
-            className="min-h-11 rounded-xl border border-slate-200 px-4 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
-          />
+      <AdminFilterToolbar
+        searchDataTestId="dashboard-pricing-search"
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Tên, giá, mô tả, ghi chú"
+        activeFilterCount={Number(categoryFilter !== "all") + Number(sortMode !== "category")}
+        onReset={resetFilters}
+        desktopGridClassName="md:grid-cols-2"
+        resultSummary={<p data-testid="dashboard-pricing-result-count">Hiển thị {filteredItems.length} / {items.length} mục</p>}
+      >
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Nhóm dịch vụ</span>
           <select
             data-testid="dashboard-pricing-category-filter"
             value={categoryFilter}
             onChange={(event) => setCategoryFilter(event.target.value)}
-            title="Lọc nhóm bảng giá"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="all">Tất cả nhóm</option>
             {categories.map((category) => (
               <option key={category.key} value={category.key}>{category.label}</option>
             ))}
           </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="font-body text-xs font-bold uppercase tracking-wider text-slate-600">Sắp xếp</span>
           <select
             data-testid="dashboard-pricing-sort"
             value={sortMode}
             onChange={(event) => setSortMode(event.target.value as PricingSortMode)}
-            title="Sắp xếp bảng giá"
-            className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-body outline-none transition-colors focus:border-red-400"
+            className="min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-body text-base outline-none transition-colors focus-visible:border-red-400 focus-visible:ring-2 focus-visible:ring-red-100 md:min-h-11 md:text-sm"
           >
             <option value="category">Nhóm + thứ tự</option>
             <option value="order">Thứ tự nhỏ nhất</option>
             <option value="name">Tên A-Z</option>
           </select>
-        </div>
-        <p data-testid="dashboard-pricing-result-count" className="mt-3 font-body text-xs text-slate-400">
-          Hiển thị {filteredItems.length} / {items.length} mục
-        </p>
-      </div>
+        </label>
+      </AdminFilterToolbar>
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
@@ -445,7 +433,10 @@ export default function AdminPricingClient({
 
           return (
             <div key={category.key}>
-              <h3 className="font-body font-bold text-sm text-slate-600 mb-2 flex items-center gap-2">
+              <h3 className="mb-2 flex items-center gap-2 font-body text-base font-bold text-slate-700">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+                  <AdminServiceIcon service={category.key} className="h-5 w-5" />
+                </span>
                 {category.label} ({categoryItems.length})
               </h3>
               <div className="overflow-hidden rounded-xl border border-slate-100 bg-white">
@@ -551,7 +542,7 @@ export default function AdminPricingClient({
                       <div className="min-w-0 flex-1">
                         <p className="font-body text-sm font-semibold text-slate-800">{item.name}</p>
                         {item.description && <p className="font-body text-xs text-slate-400">{item.description}</p>}
-                        {item.note && <p className="font-body text-[10px] text-slate-300">{item.note}</p>}
+                        {item.note && <p className="font-body text-xs text-slate-500">{item.note}</p>}
                       </div>
                       <span className="shrink-0 font-heading text-sm font-bold text-red-600">{item.price} {item.unit}</span>
                       <div className="flex shrink-0 gap-2">
