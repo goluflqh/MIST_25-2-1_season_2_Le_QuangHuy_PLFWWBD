@@ -10,7 +10,7 @@ import {
 } from "./import-policy";
 import type { MinhHongImportScope } from "./import-scope";
 import { reconcileMinhHongWorkbook } from "./reconciliation";
-import { parseMinhHongAdminWorkbook } from "./workbook-parser";
+import { parseMinhHongAdminWorkbook, type MinhHongParsedWorkbook } from "./workbook-parser";
 import {
   importMinhHongParsedWorkbook,
   previewMinhHongParsedWorkbook,
@@ -30,15 +30,24 @@ export interface MinhHongSourceSetupStatus {
 
 export type MinhHongImportSource = "workbook" | "raw-sheet";
 
-interface RunMinhHongImportInput {
+interface RunMinhHongImportBaseInput {
   mode: MinhHongImportMode;
   previewFingerprint: string | null;
   scope: MinhHongImportScope;
-  source: MinhHongImportSource;
   sourceSetup?: MinhHongSourceSetupStatus;
-  upload: MinhHongImportUpload;
   userId: string;
 }
+
+type RunMinhHongImportInput = RunMinhHongImportBaseInput & (
+  | {
+      source: "workbook";
+      upload: MinhHongImportUpload;
+    }
+  | {
+      parsed: MinhHongParsedWorkbook;
+      source: "raw-sheet";
+    }
+);
 
 export class MinhHongSourceSetupRequiredError extends Error {
   constructor(public readonly sourceSetup: MinhHongSourceSetupStatus) {
@@ -62,16 +71,15 @@ export class MinhHongConfirmationBlockedError extends Error {
 }
 
 function buildPreviewFingerprint(
-  upload: MinhHongImportUpload,
-  source: MinhHongImportSource,
+  input: RunMinhHongImportInput,
   scope: MinhHongImportScope,
   parsed: unknown,
   reconciliation: unknown,
   changes: unknown
 ) {
   const hash = createHash("sha256");
-  if (source === "workbook") hash.update(upload.buffer);
-  hash.update(JSON.stringify({ source, scope, parsed, reconciliation, changes }));
+  if (input.source === "workbook") hash.update(input.upload.buffer);
+  hash.update(JSON.stringify({ source: input.source, scope, parsed, reconciliation, changes }));
   return hash.digest("hex");
 }
 
@@ -79,12 +87,13 @@ export async function runMinhHongImport(
   input: RunMinhHongImportInput,
   runner: ImportRunner
 ) {
-  const parsed = await parseMinhHongAdminWorkbook(input.upload.buffer);
+  const parsed = input.source === "workbook"
+    ? await parseMinhHongAdminWorkbook(input.upload.buffer)
+    : input.parsed;
   const reconciliation = reconcileMinhHongWorkbook(parsed, { scope: input.scope });
   const changes = await previewMinhHongParsedWorkbook(parsed, runner, { scope: input.scope });
   const previewFingerprint = buildPreviewFingerprint(
-    input.upload,
-    input.source,
+    input,
     input.scope,
     parsed,
     reconciliation,

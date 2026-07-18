@@ -14,6 +14,7 @@ import {
   buildMinhHongSourceImportPreviewFromExports,
   fetchMinhHongSourceSheetExports,
 } from "@/lib/minhhong-import/source-sheet";
+import type { MinhHongParsedWorkbook } from "@/lib/minhhong-import/workbook-parser";
 import { normalizeMinhHongImportScope, type MinhHongImportScope } from "@/lib/minhhong-import/import-scope";
 import {
   isMinhHongImportConfirmationEnabled,
@@ -30,8 +31,6 @@ import {
   MINHHONG_MANUAL_WORKBOOK_MAX_BYTES,
   MINHHONG_MANUAL_WORKBOOK_MAX_MB,
   MinhHongRequestBodyTooLargeError,
-  MINHHONG_SOURCE_WORKBOOK_MAX_BYTES,
-  MINHHONG_SOURCE_WORKBOOK_MAX_MB,
   readMinhHongRequestBody,
 } from "@/lib/minhhong-import/workbook-limits";
 import { prisma } from "@/lib/prisma";
@@ -51,12 +50,6 @@ class WorkbookUploadTooLargeError extends Error {
 function manualWorkbookTooLargeError() {
   return new WorkbookUploadTooLargeError(
     `File Excel vượt quá giới hạn ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`
-  );
-}
-
-function sourceWorkbookTooLargeError() {
-  return new WorkbookUploadTooLargeError(
-    `Workbook sinh từ Sheet gốc vượt quá giới hạn ${MINHHONG_SOURCE_WORKBOOK_MAX_MB} MB. Sheet gốc không bị thay đổi.`
   );
 }
 
@@ -103,15 +96,12 @@ function isWorkbookFile(value: FormDataEntryValue | null): value is File {
   return typeof File !== "undefined" && value instanceof File;
 }
 
-function validateWorkbookUpload(upload: MinhHongImportUpload | null, source: MinhHongImportSource) {
+function validateWorkbookUpload(upload: MinhHongImportUpload | null) {
   if (!upload) return "Thiếu file workbook cần import.";
   if (!upload.fileName.toLowerCase().endsWith(".xlsx")) return "Chỉ nhận file Excel .xlsx.";
   if (upload.size === 0) return "File workbook đang rỗng.";
-  if (source === "workbook" && upload.size > MINHHONG_MANUAL_WORKBOOK_MAX_BYTES) {
+  if (upload.size > MINHHONG_MANUAL_WORKBOOK_MAX_BYTES) {
     return `File Excel vượt quá giới hạn ${MINHHONG_MANUAL_WORKBOOK_MAX_MB} MB.`;
-  }
-  if (source === "raw-sheet" && upload.size > MINHHONG_SOURCE_WORKBOOK_MAX_BYTES) {
-    return `Workbook sinh từ Sheet gốc vượt quá giới hạn ${MINHHONG_SOURCE_WORKBOOK_MAX_MB} MB. Sheet gốc không bị thay đổi.`;
   }
   return null;
 }
@@ -169,26 +159,19 @@ async function readWorkbookUpload(request: Request): Promise<{ formData?: FormDa
   };
 }
 
-async function readSourceSheetWorkbook(scope: MinhHongImportScope): Promise<{
+async function readSourceSheetPreview(scope: MinhHongImportScope): Promise<{
+  parsed: MinhHongParsedWorkbook;
   sourceSetup: MinhHongSourceSetupStatus;
-  upload: MinhHongImportUpload;
 }> {
   const sourceExports = await fetchMinhHongSourceSheetExports(createMinhHongSourceSheetFetchGuard(), scope);
-  const { buffer, sourceIdPlan } = await buildMinhHongSourceImportPreviewFromExports(sourceExports, scope);
-  if (buffer.byteLength > MINHHONG_SOURCE_WORKBOOK_MAX_BYTES) {
-    throw sourceWorkbookTooLargeError();
-  }
+  const { parsed, sourceIdPlan } = await buildMinhHongSourceImportPreviewFromExports(sourceExports, scope);
 
   const setupRequired = sourceIdPlan.requiresSetup;
   return {
+    parsed,
     sourceSetup: {
       required: setupRequired,
       ...(setupRequired ? { fingerprint: sourceIdPlan.fingerprint } : {}),
-    },
-    upload: {
-      buffer,
-      fileName: "minhhong-raw-source-sheets.xlsx",
-      size: buffer.byteLength,
     },
   };
 }
@@ -223,16 +206,12 @@ export async function POST(request: Request) {
     }
 
     const sourceRead = sourceFromUrl === "raw-sheet"
-      ? { formData: undefined, ...await readSourceSheetWorkbook(scopeFromUrl) }
-      : { ...await readWorkbookUpload(request), sourceSetup: undefined };
-    const { formData, sourceSetup, upload } = sourceRead;
+      ? { formData: undefined, upload: null, ...await readSourceSheetPreview(scopeFromUrl) }
+      : { ...await readWorkbookUpload(request), parsed: undefined, sourceSetup: undefined };
+    const { formData, parsed, sourceSetup, upload } = sourceRead;
     const mode = parseMode(request, formData);
-    const source = parseSource(request, formData);
     if (!mode) {
       return NextResponse.json({ success: false, message: "Mode import phải là preview hoặc confirm." }, { status: 400 });
-    }
-    if (!source) {
-      return NextResponse.json({ success: false, message: "Nguồn import phải là workbook hoặc raw-sheet." }, { status: 400 });
     }
     const scope = parseScope(request, formData);
     if (!scope) {
@@ -251,20 +230,34 @@ export async function POST(request: Request) {
       );
     }
 
-    const fileError = validateWorkbookUpload(upload, source);
-    if (fileError || !upload) {
-      return NextResponse.json({ success: false, message: fileError || "Workbook chưa đúng định dạng." }, { status: 400 });
+    if (sourceFromUrl === "workbook") {
+      const fileError = validateWorkbookUpload(upload);
+      if (fileError || !upload) {
+        return NextResponse.json(
+          { success: false, message: fileError || "Workbook chưa đúng định dạng." },
+          { status: 400 }
+        );
+      }
     }
 
-    const result = await runMinhHongImport({
+    const commonInput = {
       mode,
       previewFingerprint: parsePreviewFingerprint(request, formData),
       scope,
-      source,
       sourceSetup,
-      upload,
       userId: admin.id,
-    }, prisma as unknown as ImportRunner);
+    };
+    const result = sourceFromUrl === "raw-sheet"
+      ? await runMinhHongImport({
+          ...commonInput,
+          parsed: parsed as MinhHongParsedWorkbook,
+          source: "raw-sheet",
+        }, prisma as unknown as ImportRunner)
+      : await runMinhHongImport({
+          ...commonInput,
+          source: "workbook",
+          upload: upload as MinhHongImportUpload,
+        }, prisma as unknown as ImportRunner);
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof MinhHongSourceSetupRequiredError) {

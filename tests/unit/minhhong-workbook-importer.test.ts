@@ -201,6 +201,35 @@ test("runs preview and confirm through one import interface", async () => {
   assert.ok(state.serviceOrders.size > 0);
 });
 
+test("runs raw Sheet preview and confirm from parsed data without a workbook upload", async () => {
+  const parsed = await parsedWorkbook();
+  const { runner, state } = createFakeImportRunner();
+
+  const preview = await runMinhHongImport({
+    mode: "preview",
+    parsed,
+    previewFingerprint: null,
+    scope: "service-orders",
+    source: "raw-sheet",
+    sourceSetup: { required: false },
+    userId: "admin-test",
+  }, runner);
+  assert.ok("previewFingerprint" in preview);
+  assert.match(String(preview.previewFingerprint), /^[0-9a-f]{64}$/);
+  assert.equal(state.serviceOrders.size, 0);
+
+  await runMinhHongImport({
+    mode: "confirm",
+    parsed,
+    previewFingerprint: String(preview.previewFingerprint),
+    scope: "service-orders",
+    source: "raw-sheet",
+    sourceSetup: { required: false },
+    userId: "admin-test",
+  }, runner);
+  assert.ok(state.serviceOrders.size > 0);
+});
+
 test("refuses confirm when the reviewed import fingerprint is stale", async () => {
   const buffer = await readCleanMinhHongAdminWorkbookBuffer();
   const { runner, state } = createFakeImportRunner();

@@ -286,9 +286,7 @@ function isKnownLegacyPurchaseAmount(
   return knownLegacyPurchaseAmountExceptions.has(JSON.stringify([sourceRange, quantity, unitPrice, amount]));
 }
 
-export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHongParsedWorkbook> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+export function parseMinhHongAdminWorkbookModel(workbook: ExcelJS.Workbook): MinhHongParsedWorkbook {
   const errors: MinhHongWorkbookIssue[] = [];
   const skippedRows: MinhHongSkippedRow[] = [];
   const warnings: string[] = [];
@@ -621,4 +619,10 @@ export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHo
     errors,
     warnings,
   };
+}
+
+export async function parseMinhHongAdminWorkbook(buffer: Buffer): Promise<MinhHongParsedWorkbook> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  return parseMinhHongAdminWorkbookModel(workbook);
 }

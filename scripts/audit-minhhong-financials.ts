@@ -11,7 +11,7 @@ import {
 } from "../lib/minhhong-financial-audit";
 import { normalizeMinhHongImportScope, type MinhHongImportScope } from "../lib/minhhong-import/import-scope";
 import {
-  buildMinhHongSourceImportWorkbookFromExports,
+  buildMinhHongSourceImportPreviewFromExports,
   fetchMinhHongSourceSheetExports,
 } from "../lib/minhhong-import/source-sheet";
 import { parseMinhHongAdminWorkbook, type MinhHongParsedWorkbook } from "../lib/minhhong-import/workbook-parser";
@@ -68,8 +68,7 @@ async function readSourceWorkbook(options: CliOptions): Promise<MinhHongParsedWo
 
   if (options.source === "raw-sheet") {
     const exportsData = await fetchMinhHongSourceSheetExports(fetch, options.scope);
-    const buffer = await buildMinhHongSourceImportWorkbookFromExports(exportsData, options.scope);
-    return parseMinhHongAdminWorkbook(buffer);
+    return (await buildMinhHongSourceImportPreviewFromExports(exportsData, options.scope)).parsed;
   }
 
   return parseMinhHongAdminWorkbook(readFileSync(resolve(options.workbookPath)));

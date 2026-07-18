@@ -322,6 +322,20 @@ test("builds raw Google Sheet XLSX export URLs", () => {
   );
 });
 
+test("returns the same parsed partner preview without serializing an intermediate workbook", async () => {
+  const sourceExports: SourceExport[] = [{
+    buffer: await buildUnifiedPartnerSourceWorkbook(),
+    kind: "legacy",
+    spreadsheetId: "unified-sheet-id",
+  }];
+  const serializedWorkbook = await buildMinhHongSourceImportWorkbookFromExports(sourceExports, "partners");
+  const expected = await parseMinhHongAdminWorkbook(serializedWorkbook);
+
+  const preview = await buildMinhHongSourceImportPreviewFromExports(sourceExports, "partners");
+
+  assert.deepEqual(preview.parsed, expected);
+});
+
 test("imports the unified partner event sheet with full history and an exact 11 million payable", async () => {
   const preview = await buildMinhHongSourceImportPreviewFromExports([
     {
@@ -330,7 +344,7 @@ test("imports the unified partner event sheet with full history and an exact 11 
       spreadsheetId: "unified-sheet-id",
     },
   ], "partners");
-  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const parsed = preview.parsed;
   const reconciliation = reconcileMinhHongWorkbook(parsed, { scope: "partners" });
   const missingAmount = parsed.partnerEntries.find((entry) => entry.description === "Vỏ ss 50E");
 
@@ -356,7 +370,7 @@ test("imports an optional partner discount as the net payable amount", async () 
       spreadsheetId: "unified-sheet-id",
     },
   ], "partners");
-  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const parsed = preview.parsed;
   const discounted = parsed.partnerEntries.find((entry) => entry.description === "Hóa đơn BH260714-001");
 
   assert.equal(discounted?.amount, 420_750);
@@ -393,7 +407,7 @@ test("keeps the live row 92 payable at 12.260.750 after an undiscounted 840.000 
     kind: "legacy",
     spreadsheetId: "unified-sheet-id",
   }], "partners");
-  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const parsed = preview.parsed;
   const pin35e = parsed.partnerEntries.find((entry) => entry.description === "Pin 35E");
 
   assert.equal(pin35e?.amount, 840_000);
@@ -445,7 +459,7 @@ test("keeps discounts in the balance after a later 1.260.000 partner payment", a
     kind: "legacy",
     spreadsheetId: "unified-sheet-id",
   }], "partners");
-  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const parsed = preview.parsed;
 
   assert.deepEqual(parsed.errors, []);
   assert.equal(parsed.partnerTotals.longPayable, 11_000_750);
@@ -459,7 +473,7 @@ test("imports a fully discounted partner purchase with zero net payable", async 
       spreadsheetId: "unified-sheet-id",
     },
   ], "partners");
-  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const parsed = preview.parsed;
   const discounted = parsed.partnerEntries.find((entry) => entry.description === "Hóa đơn BH260714-001");
 
   assert.deepEqual(parsed.errors, []);
@@ -475,7 +489,7 @@ test("imports a raw Sheet percentage-formatted discount displayed as 100%", asyn
     kind: "legacy",
     spreadsheetId: "unified-sheet-id",
   }], "partners");
-  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const parsed = preview.parsed;
 
   assert.deepEqual(parsed.errors, []);
   assert.equal(parsed.partnerEntries.find((entry) => entry.description === "Hóa đơn BH260714-001")?.discountPercent, 100);
@@ -488,7 +502,7 @@ for (const storedPercent of [1.01, 2]) {
       kind: "legacy",
       spreadsheetId: "unified-sheet-id",
     }], "partners");
-    const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+    const parsed = preview.parsed;
 
     assert.equal(parsed.errors.some((error) => error.message.includes("khoảng 0 đến 100%")), true);
   });
@@ -506,7 +520,7 @@ test("blocks a raw Sheet discount percentage with trailing text", async () => {
     kind: "legacy",
     spreadsheetId: "unified-sheet-id",
   }], "partners");
-  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const parsed = preview.parsed;
 
   assert.equal(parsed.errors.some((error) => error.message.includes("khoảng 0 đến 100%")), true);
 });
@@ -2553,7 +2567,7 @@ test("moving the same phone from G into C does not change the imported order", a
 test("builds the service-order preview and first-time setup plan together", async () => {
   const serviceExports = buildSourceExports().filter((source) => source.kind === "legacy");
   const preview = await buildMinhHongSourceImportPreviewFromExports(serviceExports, "service-orders");
-  const parsed = await parseMinhHongAdminWorkbook(preview.buffer);
+  const parsed = preview.parsed;
 
   assert.equal(parsed.customerOrders.length, 41);
   assert.deepEqual(preview.sourceIdPlan.targets.map((target) => target.id), ["customer-orders"]);

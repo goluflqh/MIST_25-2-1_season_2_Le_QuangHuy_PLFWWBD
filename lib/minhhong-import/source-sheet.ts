@@ -19,6 +19,7 @@ import {
   MINHHONG_RETURN_COLUMNS,
 } from "./workbook-contract";
 import type { MinhHongImportScope } from "./import-scope";
+import { parseMinhHongAdminWorkbookModel } from "./workbook-parser";
 import {
   createMinhHongSourceSheetFetchGuard,
   MinhHongSourceSheetFetchError,
@@ -1418,16 +1419,23 @@ function buildReturnRows(legacyWorkbook: ExcelJS.Workbook) {
   return rows;
 }
 
-function findNeighborDate(
-  worksheet: ExcelJS.Worksheet,
-  fromRow: number,
-  direction: -1 | 1
-) {
-  for (let rowNumber = fromRow + direction; rowNumber >= 4 && rowNumber <= worksheet.rowCount; rowNumber += direction) {
-    const parsed = parseDateForNeighborhood(rowValues(worksheet, rowNumber)[8]);
-    if (parsed) return parsed;
+function buildNeighborDates(worksheet: ExcelJS.Worksheet) {
+  const previousDates: Array<Date | null> = [];
+  const nextDates: Array<Date | null> = [];
+  let previousDate: Date | null = null;
+
+  for (let rowNumber = 4; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    previousDates[rowNumber] = previousDate;
+    previousDate = parseDateForNeighborhood(worksheet.getRow(rowNumber).getCell(8).value) || previousDate;
   }
-  return null;
+
+  let nextDate: Date | null = null;
+  for (let rowNumber = worksheet.rowCount; rowNumber >= 4; rowNumber -= 1) {
+    nextDates[rowNumber] = nextDate;
+    nextDate = parseDateForNeighborhood(worksheet.getRow(rowNumber).getCell(8).value) || nextDate;
+  }
+
+  return { nextDates, previousDates };
 }
 
 function buildCustomerRows(
@@ -1437,6 +1445,7 @@ function buildCustomerRows(
   spreadsheetId = MINHHONG_SOURCE_SHEET_EXPORTS.find((source) => source.kind === "legacy")?.spreadsheetId || ""
 ) {
   const worksheet = getWorksheet(legacyWorkbook, "Đơn hàng đã bán");
+  const { nextDates, previousDates } = buildNeighborDates(worksheet);
   const rows: CellValue[][] = [];
   let index = 1;
 
@@ -1451,8 +1460,8 @@ function buildCustomerRows(
     const note = clean(row[7]);
     const dateText = normalizeSourceDate(row[8], "Đơn hàng đã bán dòng " + rowNumber, issues, {
       kind: "legacy",
-      nextDate: findNeighborDate(worksheet, rowNumber, 1),
-      previousDate: findNeighborDate(worksheet, rowNumber, -1),
+      nextDate: nextDates[rowNumber],
+      previousDate: previousDates[rowNumber],
       range: sourceDateRange("Đơn hàng đã bán", "H", rowNumber),
       repairs,
       rowNumber,
@@ -2448,7 +2457,7 @@ export async function buildMinhHongSourceImportWorkbook(
     false,
     scope
   );
-  return result.buffer;
+  return Buffer.from(await result.workbook.xlsx.writeBuffer());
 }
 
 async function buildMinhHongSourceImportPreview(
@@ -2496,8 +2505,9 @@ async function buildMinhHongSourceImportPreview(
   appendRows(outputWorkbook.addWorksheet("Đối soát"), ["Khoá", "Nhãn", "Giá trị kỳ vọng", "Ghi chú"], reconciliationRows);
 
   return {
-    buffer: Buffer.from(await outputWorkbook.xlsx.writeBuffer()),
+    parsed: parseMinhHongAdminWorkbookModel(outputWorkbook),
     sourceIdPlan,
+    workbook: outputWorkbook,
   };
 }
 
@@ -2528,11 +2538,12 @@ export async function buildMinhHongSourceImportPreviewFromExports(
   scope: MinhHongImportScope = "all"
 ) {
   const { legacyWorkbook, manualWorkbook, spreadsheetIds } = await loadMinhHongSourceIdWorkbooks(exports, scope);
-  return buildMinhHongSourceImportPreview(
+  const { parsed, sourceIdPlan } = await buildMinhHongSourceImportPreview(
     legacyWorkbook,
     manualWorkbook,
     spreadsheetIds,
     true,
     scope
   );
+  return { parsed, sourceIdPlan };
 }
