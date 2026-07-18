@@ -1,7 +1,15 @@
-import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { buildMinhHongImportResponse, countMinhHongScopedSkippedRows, type MinhHongImportMode } from "@/lib/minhhong-import/api-response";
-import { importMinhHongParsedWorkbook, MinhHongWorkbookImportError, previewMinhHongParsedWorkbook, type ImportRunner } from "@/lib/minhhong-import/workbook-importer";
+import type { MinhHongImportMode } from "@/lib/minhhong-import/api-response";
+import {
+  MinhHongConfirmationBlockedError,
+  MinhHongPreviewChangedError,
+  type MinhHongImportSource,
+  type MinhHongImportUpload,
+  type MinhHongSourceSetupStatus,
+  MinhHongSourceSetupRequiredError,
+  runMinhHongImport,
+} from "@/lib/minhhong-import/application";
+import { MinhHongWorkbookImportError, type ImportRunner } from "@/lib/minhhong-import/workbook-importer";
 import {
   buildMinhHongSourceImportPreviewFromExports,
   fetchMinhHongSourceSheetExports,
@@ -13,8 +21,6 @@ import {
   minhHongImportConfirmationDisabledMessage,
   minhHongImportScopeDisabledMessage,
 } from "@/lib/minhhong-import/import-policy";
-import { parseMinhHongAdminWorkbook } from "@/lib/minhhong-import/workbook-parser";
-import { reconcileMinhHongWorkbook } from "@/lib/minhhong-import/reconciliation";
 import {
   createMinhHongSourceSheetFetchGuard,
   MinhHongSourceSheetFetchError,
@@ -31,18 +37,6 @@ import {
 import { prisma } from "@/lib/prisma";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
-interface WorkbookUpload {
-  buffer: Buffer;
-  fileName: string;
-  size: number;
-}
-
-interface SourceSetupStatus {
-  required: boolean;
-  fingerprint?: string;
-}
-
-type MinhHongImportSource = "workbook" | "raw-sheet";
 const PREVIEW_FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
 
 class WorkbookUploadTooLargeError extends Error {
@@ -105,25 +99,11 @@ function parsePreviewFingerprint(request: Request, formData?: FormData) {
   return PREVIEW_FINGERPRINT_PATTERN.test(fingerprint) ? fingerprint : null;
 }
 
-function buildPreviewFingerprint(
-  upload: WorkbookUpload,
-  source: MinhHongImportSource,
-  scope: MinhHongImportScope,
-  parsed: unknown,
-  reconciliation: unknown,
-  changes: unknown
-) {
-  const hash = createHash("sha256");
-  if (source === "workbook") hash.update(upload.buffer);
-  hash.update(JSON.stringify({ source, scope, parsed, reconciliation, changes }));
-  return hash.digest("hex");
-}
-
 function isWorkbookFile(value: FormDataEntryValue | null): value is File {
   return typeof File !== "undefined" && value instanceof File;
 }
 
-function validateWorkbookUpload(upload: WorkbookUpload | null, source: MinhHongImportSource) {
+function validateWorkbookUpload(upload: MinhHongImportUpload | null, source: MinhHongImportSource) {
   if (!upload) return "Thiếu file workbook cần import.";
   if (!upload.fileName.toLowerCase().endsWith(".xlsx")) return "Chỉ nhận file Excel .xlsx.";
   if (upload.size === 0) return "File workbook đang rỗng.";
@@ -136,7 +116,7 @@ function validateWorkbookUpload(upload: WorkbookUpload | null, source: MinhHongI
   return null;
 }
 
-async function readWorkbookUpload(request: Request): Promise<{ formData?: FormData; upload: WorkbookUpload | null }> {
+async function readWorkbookUpload(request: Request): Promise<{ formData?: FormData; upload: MinhHongImportUpload | null }> {
   const contentType = request.headers.get("content-type") || "";
 
   if (contentType.toLowerCase().includes("multipart/form-data")) {
@@ -190,8 +170,8 @@ async function readWorkbookUpload(request: Request): Promise<{ formData?: FormDa
 }
 
 async function readSourceSheetWorkbook(scope: MinhHongImportScope): Promise<{
-  sourceSetup: SourceSetupStatus;
-  upload: WorkbookUpload;
+  sourceSetup: MinhHongSourceSetupStatus;
+  upload: MinhHongImportUpload;
 }> {
   const sourceExports = await fetchMinhHongSourceSheetExports(createMinhHongSourceSheetFetchGuard(), scope);
   const { buffer, sourceIdPlan } = await buildMinhHongSourceImportPreviewFromExports(sourceExports, scope);
@@ -276,70 +256,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: fileError || "Workbook chưa đúng định dạng." }, { status: 400 });
     }
 
-    const parsed = await parseMinhHongAdminWorkbook(upload.buffer);
-    const reconciliation = reconcileMinhHongWorkbook(parsed, { scope });
-    const changes = await previewMinhHongParsedWorkbook(parsed, prisma as unknown as ImportRunner, { scope });
-    const previewFingerprint = buildPreviewFingerprint(upload, source, scope, parsed, reconciliation, changes);
-
-    if (mode === "preview") {
-      const confirmationEnabled = isMinhHongImportConfirmationEnabled(scope);
-      return NextResponse.json({
-        ...buildMinhHongImportResponse(mode, parsed, reconciliation, undefined, changes, { scope }),
-        previewFingerprint,
-        confirmation: {
-          enabled: confirmationEnabled,
-          ...(confirmationEnabled ? {} : { message: minhHongImportConfirmationDisabledMessage(scope) }),
-        },
-        sourceSetup,
-      });
-    }
-
-    if (sourceSetup?.required) {
+    const result = await runMinhHongImport({
+      mode,
+      previewFingerprint: parsePreviewFingerprint(request, formData),
+      scope,
+      source,
+      sourceSetup,
+      upload,
+      userId: admin.id,
+    }, prisma as unknown as ImportRunner);
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof MinhHongSourceSetupRequiredError) {
       return NextResponse.json(
         {
           success: false,
-          mode,
+          mode: "confirm",
           message: "Hãy hoàn tất thiết lập Google Sheet trước khi cập nhật dữ liệu lên web.",
-          sourceSetup,
+          sourceSetup: error.sourceSetup,
         },
         { status: 409 }
       );
     }
-
-    if (parsePreviewFingerprint(request, formData) !== previewFingerprint) {
+    if (error instanceof MinhHongPreviewChangedError) {
       return NextResponse.json(
         {
           success: false,
-          mode,
+          mode: "confirm",
           message: "Dữ liệu vừa thay đổi. Hãy kiểm tra lại trước khi cập nhật lên web.",
         },
         { status: 409 }
       );
     }
-
-    if (!reconciliation.ok || changes.conflicts.length > 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          mode,
-          message: changes.conflicts[0] || "Workbook còn lỗi nên chưa thể xác nhận cập nhật.",
-          reconciliation,
-          changes,
-          counts: {
-            partners: scope === "service-orders" ? 0 : parsed.partners.length,
-            partnerEntries: scope === "service-orders" ? 0 : parsed.partnerEntries.length,
-            customerOrders: scope === "partners" ? 0 : parsed.customerOrders.length,
-            skippedRows: countMinhHongScopedSkippedRows(parsed, scope),
-            errors: reconciliation.blockingIssues.length,
-          },
-        },
-        { status: 422 }
-      );
+    if (error instanceof MinhHongConfirmationBlockedError) {
+      return NextResponse.json(error.response, { status: 422 });
     }
-
-    const importResult = await importMinhHongParsedWorkbook(parsed, prisma as unknown as ImportRunner, { userId: admin.id, scope });
-    return NextResponse.json(buildMinhHongImportResponse(mode, parsed, reconciliation, importResult, undefined, { scope }));
-  } catch (error) {
     if (error instanceof WorkbookUploadTooLargeError) {
       return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     }

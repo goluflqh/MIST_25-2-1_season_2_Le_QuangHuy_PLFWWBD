@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  MinhHongPreviewChangedError,
+  runMinhHongImport,
+} from "../../lib/minhhong-import/application";
 import { parseMinhHongAdminWorkbook } from "../../lib/minhhong-import/workbook-parser";
 import { importMinhHongParsedWorkbook, previewMinhHongParsedWorkbook, type ImportRunner } from "../../lib/minhhong-import/workbook-importer";
 import {
@@ -162,6 +166,62 @@ function createFakeImportRunner() {
 
   return { runner, state };
 }
+
+test("runs preview and confirm through one import interface", async () => {
+  const buffer = await readCleanMinhHongAdminWorkbookBuffer();
+  const upload = {
+    buffer,
+    fileName: "minhhong-clean.xlsx",
+    size: buffer.byteLength,
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  const preview = await runMinhHongImport({
+    mode: "preview",
+    previewFingerprint: null,
+    scope: "service-orders",
+    source: "workbook",
+    upload,
+    userId: "admin-test",
+  }, runner);
+  assert.ok("previewFingerprint" in preview);
+  assert.match(String(preview.previewFingerprint), /^[0-9a-f]{64}$/);
+  assert.equal(preview.mode, "preview");
+  assert.equal(state.serviceOrders.size, 0);
+
+  const confirmed = await runMinhHongImport({
+    mode: "confirm",
+    previewFingerprint: String(preview.previewFingerprint),
+    scope: "service-orders",
+    source: "workbook",
+    upload,
+    userId: "admin-test",
+  }, runner);
+  assert.equal(confirmed.mode, "confirm");
+  assert.ok(state.serviceOrders.size > 0);
+});
+
+test("refuses confirm when the reviewed import fingerprint is stale", async () => {
+  const buffer = await readCleanMinhHongAdminWorkbookBuffer();
+  const { runner, state } = createFakeImportRunner();
+
+  await assert.rejects(
+    () => runMinhHongImport({
+      mode: "confirm",
+      previewFingerprint: "f".repeat(64),
+      scope: "service-orders",
+      source: "workbook",
+      upload: {
+        buffer,
+        fileName: "minhhong-clean.xlsx",
+        size: buffer.byteLength,
+      },
+      userId: "admin-test",
+    }, runner),
+    MinhHongPreviewChangedError
+  );
+  assert.equal(state.serviceOrders.size, 0);
+});
 
 test("imports the parsed workbook into idempotent partner and order records", async () => {
   const parsed = await parsedWorkbook();

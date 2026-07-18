@@ -7,17 +7,12 @@ import {
 } from "@/lib/minhhong-import/import-policy";
 import { normalizeMinhHongImportScope } from "@/lib/minhhong-import/import-scope";
 import {
-  applyMinhHongSourceIdPlan,
-  applyMinhHongSourceSheetSetup,
-  buildMinhHongSourceIdPlanFromExports,
-  fetchMinhHongSourceSheetExports,
   MinhHongSourceIdPartialWriteError,
   MinhHongSourceIdPlanChangedError,
+  MinhHongSourceSheetSetupBlockedError,
+  prepareMinhHongSourceSheet,
 } from "@/lib/minhhong-import/source-sheet";
-import {
-  createMinhHongSourceSheetFetchGuard,
-  MinhHongSourceSheetFetchError,
-} from "@/lib/minhhong-import/source-fetch-guard";
+import { MinhHongSourceSheetFetchError } from "@/lib/minhhong-import/source-fetch-guard";
 import { hasSameOrigin } from "@/lib/request-origin";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 
@@ -69,10 +64,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const guardedFetch = createMinhHongSourceSheetFetchGuard();
-    const sourceExports = await fetchMinhHongSourceSheetExports(guardedFetch, scope);
-    const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, scope);
-    if (!plan.canApply) {
+    const result = await prepareMinhHongSourceSheet(reviewedFingerprint, scope);
+
+    return NextResponse.json({
+      success: true,
+      message: "Google Sheet đã sẵn sàng.",
+      preparedRows: result.preparedRows,
+    });
+  } catch (error) {
+    if (error instanceof MinhHongSourceSheetSetupBlockedError) {
       return NextResponse.json(
         {
           success: false,
@@ -81,22 +81,6 @@ export async function POST(request: Request) {
         { status: 422 }
       );
     }
-
-    const result = await applyMinhHongSourceIdPlan(
-      plan,
-      reviewedFingerprint,
-      sourceExports,
-      guardedFetch,
-      scope
-    );
-    await applyMinhHongSourceSheetSetup(plan, sourceExports, guardedFetch);
-
-    return NextResponse.json({
-      success: true,
-      message: "Google Sheet đã sẵn sàng.",
-      preparedRows: result.updatedCells,
-    });
-  } catch (error) {
     if (error instanceof MinhHongSourceIdPlanChangedError) {
       return NextResponse.json(
         {

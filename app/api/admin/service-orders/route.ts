@@ -12,17 +12,14 @@ import {
 import { recordAuditLog, toAuditJson } from "@/lib/audit-log";
 import { createInvalidJsonResponse, readJsonBody } from "@/lib/api-route";
 import { calculateCouponDiscount, getPayableAmount } from "@/lib/coupon-discounts";
+import { reconcileOrderWarrantyLifecycle } from "@/lib/order-warranty-lifecycle";
 import { prisma } from "@/lib/prisma";
 import { forbiddenResponse, getCurrentAdminUser } from "@/lib/session";
 import { sanitizeText } from "@/lib/sanitize";
 import {
-  archiveWarrantyForServiceOrder,
-  createWarrantyForServiceOrder,
   DEFAULT_WARRANTY_MONTHS,
   WarrantyValidationError,
 } from "@/lib/warranties";
-
-const warrantyAutoStatuses = new Set(["COMPLETED"]);
 
 export async function GET() {
   try {
@@ -58,22 +55,15 @@ export async function POST(request: Request) {
 
     const transactionResult = await prisma.$transaction(async (tx) => {
       let transactionalOrder = await createServiceOrder(body, "MANUAL", tx);
-      let createdWarranty: Awaited<ReturnType<typeof createWarrantyForServiceOrder>>["warranty"] | null = null;
+      const warrantyAudit = await reconcileOrderWarrantyLifecycle(tx, transactionalOrder.id);
 
-      if (warrantyAutoStatuses.has(transactionalOrder.status) && transactionalOrder.warrantyMonths !== 0) {
-        const warrantyResult = await createWarrantyForServiceOrder(tx, transactionalOrder.id, {
-          warrantyMonths: transactionalOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
-        });
-        if (warrantyResult.created) createdWarranty = warrantyResult.warranty;
+      const refreshedOrder = await tx.serviceOrder.findUnique({
+        where: { id: transactionalOrder.id },
+        include: serviceOrderInclude,
+      });
+      if (refreshedOrder) transactionalOrder = refreshedOrder;
 
-        const refreshedOrder = await tx.serviceOrder.findUnique({
-          where: { id: transactionalOrder.id },
-          include: serviceOrderInclude,
-        });
-        if (refreshedOrder) transactionalOrder = refreshedOrder;
-      }
-
-      return { createdWarranty, order: transactionalOrder };
+      return { order: transactionalOrder, warrantyAudit };
     });
     const order = transactionResult.order;
 
@@ -86,13 +76,14 @@ export async function POST(request: Request) {
       request,
     });
 
-    if (transactionResult.createdWarranty) {
+    if (transactionResult.warrantyAudit) {
       await recordAuditLog({
-        action: "WARRANTY_AUTO_CREATE_FROM_SERVICE_ORDER",
+        action: transactionResult.warrantyAudit.action,
         actor: admin,
         entity: "Warranty",
-        entityId: transactionResult.createdWarranty.id,
-        newData: toAuditJson(transactionResult.createdWarranty),
+        entityId: transactionResult.warrantyAudit.entityId,
+        oldData: transactionResult.warrantyAudit.oldData,
+        newData: transactionResult.warrantyAudit.newData,
         request,
       });
     }
@@ -212,7 +203,7 @@ export async function PATCH(request: Request) {
       sourceName: normalized.sourceName,
       sourceRow: normalized.sourceRow,
       status: normalized.status,
-      warrantyEndDate: warrantyAutoStatuses.has(normalized.status) ? normalized.warrantyEndDate : null,
+      warrantyEndDate: normalized.warrantyEndDate,
       warrantyMonths: normalized.warrantyMonths,
     };
 
@@ -261,61 +252,13 @@ export async function PATCH(request: Request) {
         },
         include: serviceOrderInclude,
       });
-      let warrantyAudit: {
-        action: string;
-        entityId: string;
-        newData?: Prisma.InputJsonValue;
-        oldData?: Prisma.InputJsonValue;
-      } | null = null;
-
-      if (
-        typeof updateData.status === "string"
-        && warrantyAutoStatuses.has(updateData.status)
-        && transactionalOrder.warrantyMonths !== 0
-        && !transactionalOrder.warranty?.deletedAt
-      ) {
-        const previousWarranty = transactionalOrder.warranty && !transactionalOrder.warranty.deletedAt
-          ? await tx.warranty.findUnique({ where: { id: transactionalOrder.warranty.id } })
-          : null;
-        const warrantyResult = await createWarrantyForServiceOrder(tx, transactionalOrder.id, {
-          endDate: (orderDateChanged || warrantyMonthsChanged) && !warrantyEndDateExplicitlyChanged
-            ? undefined
-            : normalized.warrantyEndDate || undefined,
-          notes: previousWarranty?.notes || undefined,
-          refreshExisting: true,
-          startDate: normalized.orderDate,
-          warrantyMonths: transactionalOrder.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
-        });
-        if (warrantyResult.created) {
-          warrantyAudit = {
-            action: "WARRANTY_AUTO_CREATE_FROM_SERVICE_ORDER",
-            entityId: warrantyResult.warranty.id,
-            newData: toAuditJson(warrantyResult.warranty),
-          };
-        } else if (previousWarranty) {
-          warrantyAudit = {
-            action: "WARRANTY_AUTO_UPDATE_FROM_SERVICE_ORDER",
-            entityId: warrantyResult.warranty.id,
-            oldData: toAuditJson(previousWarranty),
-            newData: toAuditJson(warrantyResult.warranty),
-          };
-        }
-      } else if (
-        typeof updateData.status === "string"
-        && !warrantyAutoStatuses.has(updateData.status)
-        && transactionalOrder.warranty
-      ) {
-        const previousWarranty = transactionalOrder.warranty;
-        const archivedWarranty = await archiveWarrantyForServiceOrder(tx, transactionalOrder.id);
-        if (archivedWarranty) {
-          warrantyAudit = {
-            action: "WARRANTY_AUTO_ARCHIVE_FROM_SERVICE_ORDER",
-            entityId: archivedWarranty.id,
-            oldData: toAuditJson(previousWarranty),
-            newData: toAuditJson(archivedWarranty),
-          };
-        }
-      }
+      const warrantyAudit = await reconcileOrderWarrantyLifecycle(tx, transactionalOrder.id, {
+        endDate: (orderDateChanged || warrantyMonthsChanged) && !warrantyEndDateExplicitlyChanged
+          ? undefined
+          : normalized.warrantyEndDate,
+        refreshActiveWarranty: true,
+        startDate: normalized.orderDate,
+      });
 
       if (typeof updateData.status === "string" && transactionalOrder.contactRequestId) {
         await tx.contactRequest.update({
@@ -395,14 +338,14 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, message: "Không tìm thấy đơn dịch vụ." }, { status: 404 });
     }
 
-    const order = await prisma.$transaction(async (tx) => {
+    const transactionResult = await prisma.$transaction(async (tx) => {
       const deletedOrder = await tx.serviceOrder.update({
         where: { id },
         data: { couponRedemptionId: null, deletedAt: new Date(), warrantyEndDate: null, warrantyMonths: null },
         include: serviceOrderInclude,
       });
 
-      await archiveWarrantyForServiceOrder(tx, id);
+      const warrantyAudit = await reconcileOrderWarrantyLifecycle(tx, id);
 
       if (previousOrder.contactRequestId) {
         await tx.contactRequest.update({
@@ -411,8 +354,20 @@ export async function DELETE(request: Request) {
         });
       }
 
-      return deletedOrder;
+      return { order: deletedOrder, warrantyAudit };
     });
+    const order = transactionResult.order;
+    if (transactionResult.warrantyAudit) {
+      await recordAuditLog({
+        action: transactionResult.warrantyAudit.action,
+        actor: admin,
+        entity: "Warranty",
+        entityId: transactionResult.warrantyAudit.entityId,
+        oldData: transactionResult.warrantyAudit.oldData,
+        newData: transactionResult.warrantyAudit.newData,
+        request,
+      });
+    }
     await recordAuditLog({
       action: "SERVICE_ORDER_DELETE",
       actor: admin,
