@@ -19,6 +19,7 @@ import { adminTimePresetLabels, matchesAdminTimePreset, type AdminTimePreset } f
 import { calculateCouponDiscount, getPayableAmount } from "@/lib/coupon-discounts";
 import { getServiceOrderReceivableDebt, summarizeServiceOrderFinancials } from "@/lib/financial-calculations";
 import { formatMoneyInputValue, parseMoneyText } from "@/lib/money";
+import { getServiceOrderDisplayPhone } from "@/lib/service-order-phone";
 import { formatVietnamDate, getVietnamDateKey, todayVietnamText } from "@/lib/vietnam-time";
 
 interface ServiceOrderData {
@@ -26,6 +27,7 @@ interface ServiceOrderData {
   orderCode: string;
   customerName: string;
   customerPhone: string;
+  customerPhoneMissing: boolean;
   customerAddress: string | null;
   service: string;
   productName: string;
@@ -253,7 +255,7 @@ function buildOrderFormData(order: ServiceOrderData): OrderFormState {
     contactRequestId: order.contactRequestId || "",
     customerAddress: order.customerAddress || "",
     customerName: order.customerName,
-    customerPhone: order.customerPhone,
+    customerPhone: getServiceOrderDisplayPhone(order),
     customerVisible: order.customerVisible,
     couponCode: order.couponCode || "",
     couponDiscount: order.couponDiscount || "",
@@ -568,7 +570,8 @@ export default function AdminServiceOrdersClient({
       ...formData,
       customerAddress: formData.customerAddress.trim(),
       customerName: formData.customerName.trim(),
-      customerPhone: formData.customerPhone.trim(),
+      customerPhone: formData.customerPhone.trim()
+        || (editingOrder && !getServiceOrderDisplayPhone(editingOrder) ? editingOrder.customerPhone : ""),
       issueDescription: formData.issueDescription.trim(),
       notes: formData.notes.trim(),
       paidAmount: formData.paidAmount.trim() ? String(parseMoneyText(formData.paidAmount)) : "",
@@ -853,7 +856,7 @@ export default function AdminServiceOrdersClient({
                   </h3>
                   <p className="font-body text-sm text-slate-500">
                     {editingId && editingOrder
-                      ? `${editingOrder.orderCode} · ${editingOrder.customerName} · ${editingOrder.customerPhone}`
+                      ? `${editingOrder.orderCode} · ${editingOrder.customerName} · ${getServiceOrderDisplayPhone(editingOrder) || "Không có SĐT"}`
                       : "Chỉ cần nhập tên, SĐT và sản phẩm. Nếu chưa có giá, để trạng thái giá là Chưa báo giá."}
                   </p>
                 </div>
@@ -1385,6 +1388,7 @@ export default function AdminServiceOrdersClient({
             const status = statusConfig[order.status] || statusConfig.PENDING;
             const priceStatus = priceStatusConfig[order.priceStatus] || priceStatusConfig.PENDING_QUOTE;
             const debt = getDebt(order);
+            const displayPhone = getServiceOrderDisplayPhone(order);
             const payable = order.priceStatus === "CONFIRMED"
               ? getPayableAmount(order.quotedPrice, order.discountAmount)
               : 0;
@@ -1441,7 +1445,7 @@ export default function AdminServiceOrdersClient({
                       </div>
                       <h3 className="mt-2 font-heading text-lg font-extrabold leading-snug text-slate-950 md:text-base">{order.productName}</h3>
                       <p className="mt-1 font-body text-sm font-semibold text-slate-600 md:text-xs">
-                        {order.customerName} · {order.customerPhone}
+                        {order.customerName} · {displayPhone || "Không có SĐT"}
                         {order.customerAddress ? ` · ${order.customerAddress}` : ""}
                       </p>
                     </div>

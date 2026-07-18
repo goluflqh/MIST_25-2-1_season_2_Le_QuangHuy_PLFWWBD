@@ -9,6 +9,7 @@ import VietnameseDateInput from "@/components/admin/VietnameseDateInput";
 import { useNotify } from "@/components/NotifyProvider";
 import PaginationControls from "@/components/PaginationControls";
 import { parseAdminDateInput } from "@/lib/admin-date";
+import { getServiceOrderDisplayPhone } from "@/lib/service-order-phone";
 import { addMonthsInVietnam, formatVietnamDate } from "@/lib/vietnam-time";
 
 interface WarrantyData {
@@ -17,6 +18,7 @@ interface WarrantyData {
   productName: string;
   customerName: string;
   customerPhone: string;
+  customerPhoneMissing?: boolean | null;
   service: string;
   startDate: string;
   endDate: string;
@@ -193,7 +195,7 @@ export default function AdminWarrantyClient({
           || warranty.serialNo.toLowerCase().includes(query)
           || warranty.productName.toLowerCase().includes(query)
           || warranty.customerName.toLowerCase().includes(query)
-          || warranty.customerPhone.toLowerCase().includes(query)
+          || getServiceOrderDisplayPhone(warranty).toLowerCase().includes(query)
           || (warranty.notes || "").toLowerCase().includes(query);
 
         return matchesStatus && matchesService && matchesSearch;
@@ -322,7 +324,7 @@ export default function AdminWarrantyClient({
     setEditingId(warranty.id);
     setEditData({
       customerName: warranty.customerName,
-      customerPhone: warranty.customerPhone,
+      customerPhone: getServiceOrderDisplayPhone(warranty),
       endDate: isUnknownWarrantyDate(warranty.endDate) ? "" : formatDateInput(new Date(warranty.endDate)),
       notes: warranty.notes || "",
       productName: warranty.productName,
@@ -349,10 +351,13 @@ export default function AdminWarrantyClient({
     }
     setSavingEditId(id);
     try {
+      const warranty = warranties.find((item) => item.id === id);
+      const customerPhone = editData.customerPhone.trim()
+        || (warranty && !getServiceOrderDisplayPhone(warranty) ? warranty.customerPhone : "");
       const response = await fetch("/api/admin/warranty", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, ...editData }),
+        body: JSON.stringify({ id, ...editData, customerPhone }),
       });
       const data = await response.json();
 
@@ -802,9 +807,13 @@ export default function AdminWarrantyClient({
                         </div>
                         <div className="min-w-0">
                           <p className="truncate font-body text-[15px] font-extrabold text-slate-900">{warranty.customerName}</p>
-                          <a href={`tel:${warranty.customerPhone}`} className="font-body text-sm font-semibold tabular-nums text-slate-600 hover:text-slate-900 hover:underline">
-                            {warranty.customerPhone}
-                          </a>
+                          {getServiceOrderDisplayPhone(warranty) ? (
+                            <a href={`tel:${getServiceOrderDisplayPhone(warranty)}`} className="font-body text-sm font-semibold tabular-nums text-slate-600 hover:text-slate-900 hover:underline">
+                              {getServiceOrderDisplayPhone(warranty)}
+                            </a>
+                          ) : (
+                            <span className="font-body text-sm font-semibold text-slate-500">Không có SĐT</span>
+                          )}
                         </div>
                       </div>
 

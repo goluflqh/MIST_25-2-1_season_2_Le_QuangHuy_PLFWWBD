@@ -1328,6 +1328,70 @@ test("rejects duplicate first-rollout order signatures without rekeying either l
   assert.equal(state.serviceOrders.get(secondLegacyOrder.orderCode)?.sourceCode, secondLegacyOrder.sourceCode);
 });
 
+test("keeps a real web phone when the matching Sheet row is blank", async () => {
+  const baseline = await parsedWorkbook();
+  const order = {
+    ...baseline.customerOrders[0],
+    customerName: "Khách giữ SĐT web",
+    customerPhone: "0908123456",
+    orderCode: "DH-PHONE-PRESERVE",
+    sourceCode: `DON_KHACH:MH_${"8".repeat(32)}`,
+    sourceRow: 808,
+  };
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [order],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+  const blankSheetPhone = { ...parsed, customerOrders: [{ ...order, customerPhone: "" }] };
+  const preview = await previewMinhHongParsedWorkbook(blankSheetPhone, runner, { scope: "service-orders" });
+
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 0, unchanged: 1 });
+  await importMinhHongParsedWorkbook(blankSheetPhone, runner, { scope: "service-orders", userId: "admin-test" });
+  assert.equal(state.serviceOrders.get(order.orderCode)?.customerPhone, "0908123456");
+});
+
+test("replaces an internal phone placeholder when Sheet later receives a real phone", async () => {
+  const baseline = await parsedWorkbook();
+  const order = {
+    ...baseline.customerOrders[0],
+    customerName: "Khách bổ sung SĐT",
+    customerPhone: "",
+    orderCode: "DH-PHONE-REPLACE",
+    sourceCode: `DON_KHACH:MH_${"9".repeat(32)}`,
+    sourceRow: 809,
+  };
+  const parsed = {
+    ...baseline,
+    partners: [],
+    partnerEntries: [],
+    customerOrders: [order],
+    errors: [],
+    warnings: [],
+    skippedRows: [],
+  };
+  const { runner, state } = createFakeImportRunner();
+
+  await importMinhHongParsedWorkbook(parsed, runner, { scope: "service-orders", userId: "admin-test" });
+  assert.equal(state.serviceOrders.get(order.orderCode)?.customerPhone, "0990000809");
+  assert.equal(state.serviceOrders.get(order.orderCode)?.customerPhoneMissing, true);
+
+  const withRealPhone = { ...parsed, customerOrders: [{ ...order, customerPhone: "0909123456" }] };
+  const preview = await previewMinhHongParsedWorkbook(withRealPhone, runner, { scope: "service-orders" });
+  assert.deepEqual(preview.serviceOrders, { created: 0, updated: 1, unchanged: 0 });
+
+  await importMinhHongParsedWorkbook(withRealPhone, runner, { scope: "service-orders", userId: "admin-test" });
+  assert.equal(state.serviceOrders.get(order.orderCode)?.customerPhone, "0909123456");
+  assert.equal(state.serviceOrders.get(order.orderCode)?.customerPhoneMissing, false);
+});
+
 test("blocks an order-code fallback that already owns another stable sourceCode", async () => {
   const baseline = await parsedWorkbook();
   const sourceOrder = baseline.customerOrders[0];

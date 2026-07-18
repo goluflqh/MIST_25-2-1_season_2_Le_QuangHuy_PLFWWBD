@@ -1,6 +1,7 @@
 import { createHash, createSign } from "node:crypto";
 import { getPayableAmount } from "@/lib/coupon-discounts";
 import { shouldHideImportedFallbackDate } from "@/lib/admin-order-display";
+import { getServiceOrderDisplayPhone } from "@/lib/service-order-phone";
 import { getVisibleDebtPartners } from "@/lib/partner-legacy";
 import { partnerInclude, serializePartner } from "@/lib/partner-ledger";
 import { PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT } from "@/lib/partner-discounts";
@@ -45,6 +46,7 @@ interface SheetOrderForExport {
   customerAddress?: string | null;
   customerName: string;
   customerPhone: string;
+  customerPhoneMissing?: boolean | null;
   discountAmount: number;
   id?: string;
   issueDescription?: string | null;
@@ -138,7 +140,7 @@ type GoogleSheetsFormatRequest =
   | {
       updateSheetProperties: {
         fields: string;
-        properties: { gridProperties: { frozenRowCount: number }; sheetId: number };
+        properties: { gridProperties: { frozenColumnCount: number; frozenRowCount: number }; sheetId: number };
       };
     }
   | {
@@ -162,7 +164,7 @@ type GoogleSheetsFormatRequest =
   | {
       updateDimensionProperties: {
         fields: string;
-        properties: { hiddenByUser: boolean };
+        properties: { hiddenByUser?: boolean; pixelSize?: number };
         range: { dimension: string; endIndex: number; sheetId: number; startIndex: number };
       };
     }
@@ -314,9 +316,119 @@ const moneyColumnRanges: Partial<Record<MinhHongWebExportTabTitle, Array<{ end: 
   "WEB_Đơn đối tác": [
     { start: 5, end: 7 },
     { start: 8, end: 10 },
-    { start: 12, end: 13 },
+    { start: 11, end: 12 },
   ],
 };
+
+const frozenColumnCounts: Partial<Record<MinhHongWebExportTabTitle, number>> = {
+  "WEB_Đơn hàng": 3,
+  "WEB_Đơn đối tác": 2,
+  "WEB_Đối soát": 1,
+};
+
+const columnWidthRanges: Partial<Record<MinhHongWebExportTabTitle, Array<{ end: number; pixelSize: number; start: number }>>> = {
+  "WEB_Đơn hàng": [
+    { start: 0, end: 1, pixelSize: 205 },
+    { start: 1, end: 2, pixelSize: 105 },
+    { start: 2, end: 3, pixelSize: 175 },
+    { start: 3, end: 4, pixelSize: 125 },
+    { start: 4, end: 5, pixelSize: 260 },
+    { start: 5, end: 7, pixelSize: 115 },
+    { start: 7, end: 9, pixelSize: 120 },
+    { start: 9, end: 10, pixelSize: 260 },
+    { start: 10, end: 11, pixelSize: 145 },
+    { start: 11, end: 12, pixelSize: 180 },
+    { start: 12, end: 13, pixelSize: 105 },
+    { start: 13, end: 14, pixelSize: 190 },
+    { start: 14, end: 16, pixelSize: 145 },
+    { start: 16, end: 18, pixelSize: 120 },
+    { start: 18, end: 19, pixelSize: 175 },
+    { start: 19, end: 21, pixelSize: 230 },
+    { start: 21, end: 22, pixelSize: 155 },
+  ],
+  "WEB_Đơn đối tác": [
+    { start: 0, end: 1, pixelSize: 105 },
+    { start: 1, end: 2, pixelSize: 125 },
+    { start: 2, end: 3, pixelSize: 135 },
+    { start: 3, end: 4, pixelSize: 270 },
+    { start: 4, end: 5, pixelSize: 80 },
+    { start: 5, end: 7, pixelSize: 115 },
+    { start: 7, end: 8, pixelSize: 105 },
+    { start: 8, end: 10, pixelSize: 120 },
+    { start: 10, end: 11, pixelSize: 165 },
+    { start: 11, end: 12, pixelSize: 135 },
+    { start: 12, end: 13, pixelSize: 260 },
+  ],
+  "WEB_Đối soát": [
+    { start: 0, end: 1, pixelSize: 230 },
+    { start: 1, end: 2, pixelSize: 150 },
+    { start: 2, end: 3, pixelSize: 360 },
+  ],
+};
+
+function buildColumnWidthRequests(
+  sheet: SpreadsheetSheetProperties,
+  title: MinhHongWebExportTabTitle
+): GoogleSheetsFormatRequest[] {
+  return (columnWidthRanges[title] || []).map((columns) => ({
+    updateDimensionProperties: {
+      fields: "pixelSize",
+      properties: { pixelSize: columns.pixelSize },
+      range: {
+        dimension: "COLUMNS",
+        endIndex: columns.end,
+        sheetId: sheet.sheetId,
+        startIndex: columns.start,
+      },
+    },
+  }));
+}
+
+function buildKeyDebtColumnFormatRequests(
+  sheet: SpreadsheetSheetProperties,
+  title: MinhHongWebExportTabTitle
+): GoogleSheetsFormatRequest[] {
+  const columnIndex = title === "WEB_Đơn hàng" ? 8 : title === "WEB_Đơn đối tác" ? 11 : null;
+  if (columnIndex === null) return [];
+
+  return [
+    {
+      repeatCell: {
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 1, green: 0.88, blue: 0.88 },
+            textFormat: { bold: true },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat)",
+        range: {
+          endColumnIndex: columnIndex + 1,
+          endRowIndex: 1,
+          sheetId: sheet.sheetId,
+          startColumnIndex: columnIndex,
+          startRowIndex: 0,
+        },
+      },
+    },
+    {
+      repeatCell: {
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 1, green: 0.97, blue: 0.97 },
+            textFormat: { bold: true },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat)",
+        range: {
+          endColumnIndex: columnIndex + 1,
+          sheetId: sheet.sheetId,
+          startColumnIndex: columnIndex,
+          startRowIndex: 1,
+        },
+      },
+    },
+  ];
+}
 
 const textColumnRanges: Partial<Record<MinhHongWebExportTabTitle, Array<{ end: number; start: number }>>> = {
   "WEB_Đơn hàng": [
@@ -438,8 +550,14 @@ export function buildGoogleSheetsFormatRequests(
       const baseRequests: GoogleSheetsFormatRequest[] = [
         {
           updateSheetProperties: {
-            fields: "gridProperties.frozenRowCount",
-            properties: { gridProperties: { frozenRowCount: 1 }, sheetId: sheet.sheetId },
+            fields: "gridProperties(frozenColumnCount,frozenRowCount)",
+            properties: {
+              gridProperties: {
+                frozenColumnCount: frozenColumnCounts[title] || 0,
+                frozenRowCount: 1,
+              },
+              sheetId: sheet.sheetId,
+            },
           },
         },
         {
@@ -462,6 +580,8 @@ export function buildGoogleSheetsFormatRequests(
         ...buildMoneyFormatRequests(sheet, title),
         ...buildPartnerDiscountFormatRequests(sheet, title),
         ...buildTextFormatRequests(sheet, title),
+        ...buildColumnWidthRequests(sheet, title),
+        ...buildKeyDebtColumnFormatRequests(sheet, title),
         ...(title === "WEB_Đơn hàng" ? buildOrderSummaryFormatRequests(sheet, tabRowCounts[title]) : []),
       ];
 
@@ -595,18 +715,8 @@ function formatExportOrderDate(order: SheetOrderForExport) {
   return shouldHideImportedFallbackDate(order) ? "Chưa có ngày" : formatVietnamDate(order.orderDate);
 }
 
-function buildGeneratedPlaceholderPhone(sourceRow: number) {
-  return `099${String(sourceRow || 0).padStart(7, "0").slice(-7)}`;
-}
-
-function isGeneratedMissingCustomerPhone(order: SheetOrderForExport) {
-  if (order.source !== "IMPORT" || !order.sourceRow) return false;
-  return order.customerPhone === buildGeneratedPlaceholderPhone(order.sourceRow);
-}
-
 function formatExportCustomerPhone(order: SheetOrderForExport) {
-  if (isGeneratedMissingCustomerPhone(order)) return "";
-  return order.customerPhone || "";
+  return getServiceOrderDisplayPhone(order);
 }
 
 function buildOrderSummaryRows(orderCount: number): SheetCellValue[][] {
@@ -727,8 +837,8 @@ export function buildMinhHongSheetTabsFromData(
           discountAmount || "",
           hasAmount ? entry.amount : "",
           entry.paymentMethod || "",
-          entry.notes || "",
           entry.countsInDebt ? runningBalance : "",
+          entry.notes || "",
         ]);
       });
   });
@@ -781,7 +891,7 @@ export function buildMinhHongSheetTabsFromData(
     {
       title: "WEB_Đơn đối tác",
       rows: [
-        ["Ngày", "Đối tác", "Loại giao dịch", "Nội dung / mặt hàng", "Số lượng", "Đơn giá", "Tạm tính", "Chiết khấu (%)", "Tiền chiết khấu", "Số tiền", "Phương thức thanh toán", "Ghi chú", "Còn phải trả"],
+        ["Ngày", "Đối tác", "Loại giao dịch", "Nội dung / mặt hàng", "Số lượng", "Đơn giá", "Tạm tính", "Chiết khấu (%)", "Tiền chiết khấu", "Số tiền", "Phương thức thanh toán", "Còn phải trả", "Ghi chú"],
         ...partnerRows,
       ],
     },

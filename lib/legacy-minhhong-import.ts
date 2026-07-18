@@ -1,6 +1,7 @@
 import { parseAdminDateInput } from "@/lib/admin-date";
 import { parseMoneyText } from "@/lib/money";
 import { sanitizeText } from "@/lib/sanitize";
+import { buildImportedOrderPhonePlaceholder } from "@/lib/service-order-phone";
 
 export interface LegacyPurchaseRow {
   code?: unknown;
@@ -88,6 +89,7 @@ export interface LegacyPartnerEntryImport {
 export interface LegacyServiceOrderImport {
   customerName: string;
   customerPhone: string;
+  customerPhoneMissing: boolean;
   issueDescription: string | null;
   notes: string | null;
   orderCode: string;
@@ -187,10 +189,6 @@ function buildSourceCode(prefix: string, code: unknown, sourceRow: number | null
   const rawCode = sanitizeText(String(code || ""));
   if (rawCode) return `${prefix}:${rawCode}`;
   return `${prefix}:ROW-${sourceRow || "UNKNOWN"}`;
-}
-
-function buildLegacyPlaceholderPhone(sourceRow: number | null) {
-  return `099${String(sourceRow || 0).padStart(7, "0").slice(-7)}`;
 }
 
 function isOpeningBalanceRow(row: LegacyPurchaseRow) {
@@ -311,7 +309,8 @@ export function buildLegacyServiceOrders(rows: LegacyWorkbookRows) {
 
     return {
       customerName: sanitizeText(String(row.customerName || "Khách cũ")),
-      customerPhone: customerPhone || buildLegacyPlaceholderPhone(sourceRow),
+      customerPhone: customerPhone || buildImportedOrderPhonePlaceholder(sourceRow),
+      customerPhoneMissing: !customerPhone,
       issueDescription: null,
       notes: notes || null,
       orderCode: sanitizeText(String(row.code || `LEGACY-${sourceRow || Date.now()}`)).toUpperCase(),

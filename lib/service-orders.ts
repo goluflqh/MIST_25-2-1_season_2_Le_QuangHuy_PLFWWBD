@@ -337,6 +337,7 @@ export function normalizeServiceOrderPayload(
   const paidAt = parseAdminDateInput(payload.paidAt);
   const status = normalizeServiceOrderStatus(payload.status);
   const source = normalizeSource(payload.source, fallbackSource);
+  const customerPhoneMissing = source === "IMPORT" && payload.customerPhoneMissing === true;
   const explicitPriceStatus = sanitizeText(String(payload.priceStatus || "")).length > 0;
   let quotedPrice = parseOptionalMoney(payload.quotedPrice);
   const priceStatus = normalizeServiceOrderPriceStatus(payload.priceStatus, quotedPrice, source);
@@ -378,6 +379,7 @@ export function normalizeServiceOrderPayload(
     customerAddress: customerAddress || null,
     customerName,
     customerPhone,
+    customerPhoneMissing,
     customerVisible: parseBoolean(payload.customerVisible),
     contactRequestId,
     couponRedemptionId,

@@ -7,6 +7,7 @@ import {
   matchesAdminOrderSearch,
   shouldHideImportedFallbackDate,
 } from "../../lib/admin-order-display";
+import { getServiceOrderDisplayPhone } from "../../lib/service-order-phone";
 
 function order(overrides: Partial<Parameters<typeof compareAdminOrders>[0]> = {}) {
   return {
@@ -94,4 +95,38 @@ test("matches Vietnamese customer search across accent placement and unaccented 
   assert.equal(matchesAdminOrderSearch(importedOrder, "Khóa"), true);
   assert.equal(matchesAdminOrderSearch(importedOrder, "khoa"), true);
   assert.equal(matchesAdminOrderSearch(importedOrder, "khong-co"), false);
+});
+
+test("does not expose generated import phone placeholders in admin search", () => {
+  const importedOrder = order({
+    customerName: "Vĩnh bộ đội",
+    customerPhone: "0990000010",
+    customerPhoneMissing: true,
+    sourceRow: 10,
+  });
+
+  assert.equal(matchesAdminOrderSearch(importedOrder, "0990000010"), false);
+  assert.equal(getServiceOrderDisplayPhone(importedOrder), "");
+});
+
+test("does not expose the fallback placeholder when an imported row has no source row", () => {
+  const importedOrder = order({
+    customerPhone: "0990000000",
+    customerPhoneMissing: true,
+    sourceRow: null,
+  });
+
+  assert.equal(matchesAdminOrderSearch(importedOrder, "0990000000"), false);
+  assert.equal(getServiceOrderDisplayPhone(importedOrder), "");
+});
+
+test("keeps a real phone visible even when it matches the old placeholder pattern", () => {
+  const importedOrder = order({
+    customerPhone: "0990000809",
+    customerPhoneMissing: false,
+    sourceRow: 809,
+  });
+
+  assert.equal(matchesAdminOrderSearch(importedOrder, "0990000809"), true);
+  assert.equal(getServiceOrderDisplayPhone(importedOrder), "0990000809");
 });

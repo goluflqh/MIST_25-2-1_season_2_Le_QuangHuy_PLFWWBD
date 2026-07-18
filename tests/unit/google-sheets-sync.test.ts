@@ -201,6 +201,7 @@ test("does not export generated placeholder customer phones as real phone number
         customerAddress: "",
         customerName: "Khách thiếu SĐT",
         customerPhone: "0990000058",
+        customerPhoneMissing: true,
         discountAmount: 0,
         id: "missing-phone-order",
         issueDescription: "",
@@ -484,14 +485,15 @@ test("partner exports keep only useful business fields and hide legacy source-on
     "Tiền chiết khấu",
     "Số tiền",
     "Phương thức thanh toán",
-    "Ghi chú",
     "Còn phải trả",
+    "Ghi chú",
   ]);
   assert.deepEqual(partnerTab?.rows.slice(1).map((row) => row[1]), ["Long", "Long"]);
   assert.equal(partnerTab?.rows[1][0], "");
   assert.equal(partnerTab?.rows[1][9], "");
-  assert.equal(partnerTab?.rows[1][12], "");
-  assert.equal(partnerTab?.rows[2][12], 12_730_000);
+  assert.equal(partnerTab?.rows[1][11], "");
+  assert.equal(partnerTab?.rows[2][11], 12_730_000);
+  assert.match(String(partnerTab?.rows[1][12]), /Đối chiếu lịch sử/);
 });
 
 test("partner exports show optional discount details and keep debt on the net amount", () => {
@@ -522,7 +524,59 @@ test("partner exports show optional discount details and keep debt on the net am
   const row = tabs.find((tab) => tab.title === "WEB_Đơn đối tác")?.rows[1];
 
   assert.deepEqual(row?.slice(4, 10), [9, 55_000, 495_000, 15, 74_250, 420_750]);
-  assert.equal(row?.[12], 420_750);
+  assert.equal(row?.[11], 420_750);
+});
+
+test("keeps important WEB columns wide and freezes identifying columns", () => {
+  const orderRequests = buildGoogleSheetsFormatRequests([{ sheetId: 10, title: "WEB_Đơn hàng" }]);
+  const partnerRequests = buildGoogleSheetsFormatRequests([{ sheetId: 11, title: "WEB_Đơn đối tác" }], "partners");
+
+  assert.ok(orderRequests.some((request) =>
+    "updateSheetProperties" in request
+    && request.updateSheetProperties.properties.gridProperties.frozenColumnCount === 3
+  ));
+  assert.ok(partnerRequests.some((request) =>
+    "updateSheetProperties" in request
+    && request.updateSheetProperties.properties.gridProperties.frozenColumnCount === 2
+  ));
+  assert.ok(orderRequests.some((request) =>
+    "updateDimensionProperties" in request
+    && request.updateDimensionProperties.range.startIndex === 0
+    && request.updateDimensionProperties.range.endIndex === 1
+    && request.updateDimensionProperties.properties.pixelSize === 205
+  ));
+  assert.ok(orderRequests.some((request) =>
+    "updateDimensionProperties" in request
+    && request.updateDimensionProperties.range.startIndex === 4
+    && request.updateDimensionProperties.range.endIndex === 5
+    && request.updateDimensionProperties.properties.pixelSize === 260
+  ));
+  assert.ok(partnerRequests.some((request) =>
+    "updateDimensionProperties" in request
+    && request.updateDimensionProperties.range.startIndex === 11
+    && request.updateDimensionProperties.range.endIndex === 12
+    && request.updateDimensionProperties.properties.pixelSize === 135
+  ));
+  assert.ok(partnerRequests.some((request) =>
+    "updateDimensionProperties" in request
+    && request.updateDimensionProperties.range.startIndex === 12
+    && request.updateDimensionProperties.range.endIndex === 13
+    && request.updateDimensionProperties.properties.pixelSize === 260
+  ));
+  assert.ok(orderRequests.some((request) =>
+    "repeatCell" in request
+    && request.repeatCell.range.startColumnIndex === 8
+    && request.repeatCell.range.endColumnIndex === 9
+    && request.repeatCell.range.startRowIndex === 1
+    && request.repeatCell.cell.userEnteredFormat.textFormat?.bold === true
+  ));
+  assert.ok(partnerRequests.some((request) =>
+    "repeatCell" in request
+    && request.repeatCell.range.startColumnIndex === 11
+    && request.repeatCell.range.endColumnIndex === 12
+    && request.repeatCell.range.startRowIndex === 1
+    && request.repeatCell.cell.userEnteredFormat.textFormat?.bold === true
+  ));
 });
 
 test("can scope web-to-sheet sync to service orders or partner ledger tabs", () => {
