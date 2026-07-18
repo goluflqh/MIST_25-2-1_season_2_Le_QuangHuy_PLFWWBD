@@ -7,9 +7,8 @@ import { partnerInclude, serializePartner } from "@/lib/partner-ledger";
 import { PARTNER_DISCOUNT_SHEET_NUMBER_FORMAT } from "@/lib/partner-discounts";
 import { prisma } from "@/lib/prisma";
 import {
+  listActiveServiceOrderViews,
   normalizeServiceOrderPriceStatus,
-  serializeServiceOrder,
-  serviceOrderInclude,
 } from "@/lib/service-orders";
 import { formatVietnamDate, formatVietnamDateTime } from "@/lib/vietnam-time";
 
@@ -738,19 +737,14 @@ function buildOrderSummaryRows(orderCount: number): SheetCellValue[][] {
 }
 
 export async function buildMinhHongSheetTabs(): Promise<SheetTab[]> {
-  const [orders, partners] = await Promise.all([
-    prisma.serviceOrder.findMany({
-      where: { deletedAt: null },
-      include: serviceOrderInclude,
-      orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
-    }),
+  const [serializedOrders, partners] = await Promise.all([
+    listActiveServiceOrderViews(),
     prisma.partner.findMany({
       where: { deletedAt: null },
       include: partnerInclude,
       orderBy: [{ active: "desc" }, { name: "asc" }],
     }),
   ]);
-  const serializedOrders = orders.map(serializeServiceOrder);
   const serializedPartners = partners.map(serializePartner);
 
   return buildMinhHongSheetTabsFromData(serializedOrders, serializedPartners);

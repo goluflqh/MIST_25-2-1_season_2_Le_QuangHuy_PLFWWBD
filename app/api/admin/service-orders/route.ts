@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import {
   createServiceOrder,
+  listActiveServiceOrderViews,
   mapOrderStatusToContactStatus,
   normalizeServiceOrderPayload,
   serializeServiceOrder,
@@ -26,15 +27,9 @@ export async function GET() {
     const admin = await getCurrentAdminUser();
     if (!admin) return forbiddenResponse("Không có quyền.");
 
-    const orders = await prisma.serviceOrder.findMany({
-      where: { deletedAt: null },
-      include: serviceOrderInclude,
-      orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
-    });
-
     return NextResponse.json({
       success: true,
-      orders: orders.map(serializeServiceOrder),
+      orders: await listActiveServiceOrderViews(),
     });
   } catch (error) {
     console.error("Service orders GET error:", error);

@@ -564,3 +564,17 @@ export function serializeServiceOrder(
     warrantyEndDate: warranty ? order.warrantyEndDate?.toISOString() || null : null,
   };
 }
+
+type ServiceOrderReadRunner = Pick<typeof prisma, "serviceOrder">;
+
+export async function listActiveServiceOrderViews(
+  runner: ServiceOrderReadRunner = prisma
+) {
+  const orders = await runner.serviceOrder.findMany({
+    where: { deletedAt: null },
+    include: serviceOrderInclude,
+    orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
+  });
+
+  return orders.map(serializeServiceOrder);
+}
