@@ -1,13 +1,8 @@
-import { prisma } from "@/lib/prisma";
-import { serializeServiceOrder, serviceOrderInclude } from "@/lib/service-orders";
+import { listActiveServiceOrderViews } from "@/lib/service-orders";
 import AdminServiceOrdersClient from "./AdminServiceOrdersClient";
 
 export default async function AdminServiceOrdersPage() {
-  const orders = await prisma.serviceOrder.findMany({
-    where: { deletedAt: null },
-    include: serviceOrderInclude,
-    orderBy: [{ orderDate: "desc" }, { createdAt: "desc" }],
-  });
+  const orders = await listActiveServiceOrderViews();
 
-  return <AdminServiceOrdersClient initialOrders={orders.map(serializeServiceOrder)} />;
+  return <AdminServiceOrdersClient initialOrders={orders} />;
 }

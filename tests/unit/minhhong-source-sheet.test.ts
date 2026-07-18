@@ -20,9 +20,11 @@ import {
   fetchMinhHongSourceSheetExports,
   getMinhHongSourceSheetLinkTargets,
   MinhHongSourceIdPlanChangedError,
+  MinhHongSourceSheetSetupBlockedError,
   MINHHONG_SOURCE_ID_PATTERN,
   MINHHONG_SOURCE_ID_TARGETS,
   MINHHONG_SOURCE_SHEET_EXPORTS,
+  prepareMinhHongSourceSheet,
   type SourceExport,
 } from "../../lib/minhhong-import/source-sheet";
 import { parseMinhHongAdminWorkbook } from "../../lib/minhhong-import/workbook-parser";
@@ -584,6 +586,42 @@ test("refuses to overwrite an occupied partner discount header cell", async () =
   assert.equal(plan.canApply, false);
   assert.equal(plan.headerConflicts.some((issue) => issue.includes("M1")), true);
   assert.equal(plan.assignments.some((assignment) => assignment.range === "'Đơn đối tác'!M1"), false);
+});
+
+test("keeps reviewed setup sequencing behind one interface", async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    await buildUnifiedPartnerSourceWorkbook() as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Đơn đối tác");
+  assert.ok(sheet);
+  sheet.getRow(1).getCell(13).value = "Dữ liệu khác";
+  const sourceBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
+  const requests: string[] = [];
+
+  await withGoogleServiceAccountCredentials(async () => {
+    const fetchImpl = async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes("oauth2.googleapis.com/token")) {
+        return new Response(JSON.stringify({ access_token: "source-sheet-token" }), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        });
+      }
+      if (url.includes("docs.google.com/spreadsheets/d/")) {
+        return new Response(sourceBuffer, { status: 200 });
+      }
+      throw new Error(`unexpected setup request ${url}`);
+    };
+
+    await assert.rejects(
+      () => prepareMinhHongSourceSheet("f".repeat(64), "partners", fetchImpl as typeof fetch),
+      MinhHongSourceSheetSetupBlockedError
+    );
+  });
+
+  assert.equal(requests.length, 2);
 });
 
 test("requires setup when the partner discount column exists but is hidden", async () => {

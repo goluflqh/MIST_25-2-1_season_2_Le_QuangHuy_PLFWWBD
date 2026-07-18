@@ -19,7 +19,10 @@ import {
   MINHHONG_RETURN_COLUMNS,
 } from "./workbook-contract";
 import type { MinhHongImportScope } from "./import-scope";
-import { MinhHongSourceSheetFetchError } from "./source-fetch-guard";
+import {
+  createMinhHongSourceSheetFetchGuard,
+  MinhHongSourceSheetFetchError,
+} from "./source-fetch-guard";
 
 type SourceExportKind = "legacy" | "manual";
 const UNIFIED_PARTNER_SHEET_NAME = "Đơn đối tác";
@@ -173,6 +176,13 @@ export class MinhHongSourceIdPartialWriteError extends Error {
   constructor(public readonly updatedCells: number, message: string) {
     super(message);
     this.name = "MinhHongSourceIdPartialWriteError";
+  }
+}
+
+export class MinhHongSourceSheetSetupBlockedError extends Error {
+  constructor() {
+    super("Google Sheet co du lieu lien ket chua hop le; chua ap dung thiet lap.");
+    this.name = "MinhHongSourceSheetSetupBlockedError";
   }
 }
 
@@ -2391,6 +2401,28 @@ export async function applyMinhHongSourceSheetSetup(
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Không hoàn tất được thiết lập Google Sheet.");
   }
+}
+
+export async function prepareMinhHongSourceSheet(
+  reviewedFingerprint: string,
+  scope: MinhHongImportScope,
+  fetchImpl: typeof fetch = fetch
+) {
+  const guardedFetch = createMinhHongSourceSheetFetchGuard(fetchImpl);
+  const sourceExports = await fetchMinhHongSourceSheetExports(guardedFetch, scope);
+  const plan = await buildMinhHongSourceIdPlanFromExports(sourceExports, scope);
+  if (!plan.canApply) throw new MinhHongSourceSheetSetupBlockedError();
+
+  const result = await applyMinhHongSourceIdPlan(
+    plan,
+    reviewedFingerprint,
+    sourceExports,
+    guardedFetch,
+    scope
+  );
+  await applyMinhHongSourceSheetSetup(plan, sourceExports, guardedFetch);
+
+  return { preparedRows: result.updatedCells };
 }
 
 export async function buildMinhHongSourceImportWorkbook(

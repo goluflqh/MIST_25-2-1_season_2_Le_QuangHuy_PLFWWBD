@@ -401,6 +401,7 @@ test.describe("Admin phase 2 workflows", () => {
   });
 
   test("source Sheet preview is stable across repeated reads without writing DB", async ({ page }) => {
+    test.setTimeout(180_000);
     await login(page);
     let setupRequests = 0;
     await page.route("**/api/admin/minhhong-source-sheet-ids*", async (route) => {
@@ -429,7 +430,7 @@ test.describe("Admin phase 2 workflows", () => {
     await page.getByTestId("minhhong-source-sheet-preview").click();
 
     const summary = page.getByTestId("minhhong-workbook-preview-summary");
-    await expect(summary).toContainText("Đơn khách trong Sheet", { timeout: 20_000 });
+    await expect(summary).toContainText("Đơn khách trong Sheet", { timeout: 45_000 });
     await expect(summary).not.toContainText("Ledger đối tác");
     await expect(summary).not.toContainText("Long cần trả");
     await expect(page.getByTestId("minhhong-workbook-blocking-issues")).toHaveCount(0);

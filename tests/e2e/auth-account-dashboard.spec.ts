@@ -647,6 +647,7 @@ test.describe("Auth, account and dashboard smoke", () => {
     await page.goto("/dashboard/users");
     await expect(page.getByTestId("dashboard-users-crm")).toBeVisible();
     await expect(page.getByTestId("dashboard-users-metrics")).toBeVisible();
+    await page.getByRole("button", { name: /Bộ lọc/ }).click();
     await expect(page.getByTestId("dashboard-users-origin-filter")).toBeVisible();
     await expect(page.getByTestId("dashboard-users-debt-filter")).toBeVisible();
     await expect(page.getByTestId("dashboard-users-warranty-filter")).toBeVisible();
