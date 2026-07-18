@@ -1,18 +1,39 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  assertSafeMinhHongSheetSyncTarget,
-  buildGoogleSheetsBatchClearPayload,
-  buildGoogleSheetsBatchUpdatePayload,
-  buildGoogleSheetsFormatRequests,
-  buildGoogleSheetsTailClearPayload,
-  buildMinhHongSheetTabsFromData,
-  buildPrepareSpreadsheetRequests,
-  DEFAULT_MINHHONG_SHEET_ID,
-  MINHHONG_RAW_SOURCE_SHEET_IDS,
+  buildMinhHongSheetExportPlan,
   MINHHONG_WEB_EXPORT_TAB_TITLES,
+  type MinhHongSheetSyncScope,
+} from "../../lib/google-sheets-export-plan";
+import {
+  assertSafeMinhHongSheetSyncTarget,
+  DEFAULT_MINHHONG_SHEET_ID,
+  executeMinhHongSheetExport,
+  MINHHONG_RAW_SOURCE_SHEET_IDS,
   SheetSyncConfigError,
 } from "../../lib/google-sheets-sync";
+
+type ExportPlanArgs = Parameters<typeof buildMinhHongSheetExportPlan>;
+type SheetProperties = Parameters<ReturnType<typeof buildMinhHongSheetExportPlan>["formatRequests"]>[0];
+
+function buildTestPlan(
+  orders: ExportPlanArgs[0],
+  partners: ExportPlanArgs[1],
+  exportedAt?: ExportPlanArgs[3]
+) {
+  return buildMinhHongSheetExportPlan(orders, partners, "all", exportedAt);
+}
+
+function buildPrepareSpreadsheetRequests(existing: SheetProperties) {
+  return buildMinhHongSheetExportPlan([], []).prepareRequests(existing);
+}
+
+function buildGoogleSheetsFormatRequests(
+  sheets: SheetProperties,
+  scope: MinhHongSheetSyncScope = "all"
+) {
+  return buildMinhHongSheetExportPlan([], [], scope).formatRequests(sheets);
+}
 
 test("allows the dedicated web-to-sheet export target", () => {
   assert.equal(assertSafeMinhHongSheetSyncTarget(DEFAULT_MINHHONG_SHEET_ID), DEFAULT_MINHHONG_SHEET_ID);
@@ -42,7 +63,7 @@ test("exports only protected WEB-prefixed report tabs", () => {
     "WEB_Đối soát",
   ]);
   assert.ok(MINHHONG_WEB_EXPORT_TAB_TITLES.every((title) => title.startsWith("WEB_")));
-  assert.ok(buildGoogleSheetsBatchClearPayload().ranges.every((range) => /^'WEB_/.test(range)));
+  assert.ok(buildMinhHongSheetExportPlan([], []).tabTitles.every((title) => title.startsWith("WEB_")));
 });
 
 test("prepares WEB tabs without deleting or renaming raw source tabs", () => {
@@ -62,7 +83,7 @@ test("prepares WEB tabs without deleting or renaming raw source tabs", () => {
 });
 
 test("writes formulas with USER_ENTERED so exported sheets recalculate", () => {
-  const tabs = buildMinhHongSheetTabsFromData(
+  const plan = buildTestPlan(
     [
       {
         orderCode: "MH-DH-1",
@@ -113,7 +134,8 @@ test("writes formulas with USER_ENTERED so exported sheets recalculate", () => {
     ],
     new Date("2026-07-08T10:00:00.000Z")
   );
-  const updatePayload = buildGoogleSheetsBatchUpdatePayload(tabs);
+  const tabs = plan.tabs;
+  const updatePayload = plan.updatePayload;
   const orderTab = tabs.find((tab) => tab.title === "WEB_Đơn hàng");
   const reconciliationTab = tabs.find((tab) => tab.title === "WEB_Đối soát");
 
@@ -127,7 +149,7 @@ test("writes formulas with USER_ENTERED so exported sheets recalculate", () => {
 });
 
 test("exports imported missing dates as a clear label and adds order total rows", () => {
-  const tabs = buildMinhHongSheetTabsFromData(
+  const plan = buildTestPlan(
     [
       {
         customerAddress: "",
@@ -179,6 +201,7 @@ test("exports imported missing dates as a clear label and adds order total rows"
     ],
     []
   );
+  const tabs = plan.tabs;
   const orderTab = tabs.find((tab) => tab.title === "WEB_Đơn hàng");
   assert.ok(orderTab);
 
@@ -195,7 +218,7 @@ test("exports imported missing dates as a clear label and adds order total rows"
 });
 
 test("does not export generated placeholder customer phones as real phone numbers", () => {
-  const tabs = buildMinhHongSheetTabsFromData(
+  const plan = buildTestPlan(
     [
       {
         customerAddress: "",
@@ -247,6 +270,7 @@ test("does not export generated placeholder customer phones as real phone number
     ],
     []
   );
+  const tabs = plan.tabs;
   const orderTab = tabs.find((tab) => tab.title === "WEB_Đơn hàng");
   assert.ok(orderTab);
 
@@ -255,7 +279,7 @@ test("does not export generated placeholder customer phones as real phone number
 });
 
 test("adds hidden technical columns for future conflict detection", () => {
-  const tabs = buildMinhHongSheetTabsFromData(
+  const plan = buildTestPlan(
     [
       {
         customerAddress: "",
@@ -321,6 +345,7 @@ test("adds hidden technical columns for future conflict detection", () => {
       },
     ]
   );
+  const tabs = plan.tabs;
   const technicalHeaders = ["web_id", "source_code", "source_row", "updated_at", "sync_hash"];
 
   const orderTab = tabs.find((candidate) => candidate.title === "WEB_Đơn hàng");
@@ -405,7 +430,7 @@ test("formats service-order phone columns as text so Sheets keeps leading zeroes
 });
 
 test("partner exports keep only useful business fields and hide legacy source-only partners", () => {
-  const tabs = buildMinhHongSheetTabsFromData(
+  const plan = buildTestPlan(
     [],
     [
       {
@@ -471,6 +496,7 @@ test("partner exports keep only useful business fields and hide legacy source-on
       },
     ]
   );
+  const tabs = plan.tabs;
   const partnerTab = tabs.find((tab) => tab.title === "WEB_Đơn đối tác");
 
   assert.deepEqual(partnerTab?.rows[0], [
@@ -497,7 +523,7 @@ test("partner exports keep only useful business fields and hide legacy source-on
 });
 
 test("partner exports show optional discount details and keep debt on the net amount", () => {
-  const tabs = buildMinhHongSheetTabsFromData([], [{
+  const plan = buildTestPlan([], [{
     active: true,
     balance: 420_750,
     code: "LONG",
@@ -521,6 +547,7 @@ test("partner exports show optional discount details and keep debt on the net am
     type: "SUPPLIER",
     updatedAt: "2026-07-14T00:00:00.000Z",
   }]);
+  const tabs = plan.tabs;
   const row = tabs.find((tab) => tab.title === "WEB_Đơn đối tác")?.rows[1];
 
   assert.deepEqual(row?.slice(4, 10), [9, 55_000, 495_000, 15, 74_250, 420_750]);
@@ -580,40 +607,37 @@ test("keeps important WEB columns wide and freezes identifying columns", () => {
 });
 
 test("can scope web-to-sheet sync to service orders or partner ledger tabs", () => {
-  assert.deepEqual(buildGoogleSheetsBatchClearPayload("service-orders").ranges, ["'WEB_Đơn hàng'!A:Z"]);
-  assert.deepEqual(buildGoogleSheetsBatchClearPayload("partners").ranges, [
-    "'WEB_Đơn đối tác'!A:Z",
-  ]);
+  const serviceOrderPlan = buildMinhHongSheetExportPlan([], [], "service-orders");
+  const partnerPlan = buildMinhHongSheetExportPlan([], [], "partners");
 
-  const tabs = buildMinhHongSheetTabsFromData([], []);
+  assert.deepEqual(serviceOrderPlan.tabTitles, ["WEB_Đơn hàng"]);
+  assert.deepEqual(partnerPlan.tabTitles, ["WEB_Đơn đối tác"]);
   assert.deepEqual(
-    buildGoogleSheetsBatchUpdatePayload(tabs, "service-orders").data.map((range) => range.range),
+    serviceOrderPlan.updatePayload.data.map((range) => range.range),
     ["'WEB_Đơn hàng'!A1"]
   );
-  const serviceOrderTab = tabs.find((tab) => tab.title === "WEB_Đơn hàng");
-  assert.deepEqual(buildGoogleSheetsTailClearPayload(tabs, "service-orders").ranges, [
+  const serviceOrderTab = serviceOrderPlan.tabs[0];
+  assert.deepEqual(serviceOrderPlan.tailClearPayload.ranges, [
     `'WEB_Đơn hàng'!A${(serviceOrderTab?.rows.length ?? 0) + 1}:Z`,
   ]);
 });
 
 test("keeps the three order summary colors fixed after every WEB export", () => {
-  const formatRequests = buildGoogleSheetsFormatRequests(
-    [{ sheetId: 10, title: "WEB_Đơn hàng" }],
-    "service-orders",
-    { "WEB_Đơn hàng": 10 }
-  );
+  const plan = buildMinhHongSheetExportPlan([], [], "service-orders");
+  const summaryStartRowIndex = plan.tabs[0].rows.length - 3;
+  const formatRequests = plan.formatRequests([{ sheetId: 10, title: "WEB_Đơn hàng" }]);
   const summaryFormats = formatRequests.filter((request) => (
     "repeatCell" in request
     && request.repeatCell.range.sheetId === 10
     && request.repeatCell.range.startColumnIndex === 5
     && request.repeatCell.range.endColumnIndex === 6
-    && Number(request.repeatCell.range.startRowIndex) >= 7
+    && Number(request.repeatCell.range.startRowIndex) >= summaryStartRowIndex
   ));
 
   assert.equal(summaryFormats.length, 3);
   assert.deepEqual(summaryFormats.map((request) => (
     "repeatCell" in request ? request.repeatCell.range.startRowIndex : null
-  )), [7, 8, 9]);
+  )), [summaryStartRowIndex, summaryStartRowIndex + 1, summaryStartRowIndex + 2]);
   assert.deepEqual(summaryFormats.map((request) => (
     "repeatCell" in request ? request.repeatCell.cell.userEnteredFormat.backgroundColor : null
   )), [
@@ -621,4 +645,35 @@ test("keeps the three order summary colors fixed after every WEB export", () => 
     { red: 0.45, green: 0.85, blue: 1 },
     { red: 1, green: 0.2, blue: 0.2 },
   ]);
+});
+
+test("executes one export plan through a mockable Google Sheets client", async () => {
+  const plan = buildMinhHongSheetExportPlan([], [], "service-orders");
+  const calls: string[] = [];
+  let metadataReads = 0;
+
+  const result = await executeMinhHongSheetExport({
+    async batchUpdate(requests) {
+      calls.push(requests.some((request) => (
+        typeof request === "object" && request !== null && "addSheet" in request
+      )) ? "prepare" : "format");
+    },
+    async clearValues(payload) {
+      calls.push("clear");
+      assert.deepEqual(payload, plan.tailClearPayload);
+    },
+    async getSheetProperties() {
+      calls.push("metadata");
+      metadataReads += 1;
+      return metadataReads === 1 ? [] : [{ sheetId: 10, title: "WEB_Đơn hàng" }];
+    },
+    async updateValues(payload) {
+      calls.push("update");
+      assert.deepEqual(payload, plan.updatePayload);
+      return { totalUpdatedCells: 12 };
+    },
+  }, plan);
+
+  assert.deepEqual(calls, ["metadata", "prepare", "metadata", "format", "update", "clear"]);
+  assert.deepEqual(result, { totalUpdatedCells: 12 });
 });
