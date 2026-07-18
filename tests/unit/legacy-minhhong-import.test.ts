@@ -162,6 +162,7 @@ test("keeps customer sheet rows separate as service-order imports", () => {
   assert.equal(serviceOrders[0].paidAmount, 700_000);
   assert.equal(serviceOrders[1].priceStatus, "LEGACY_MISSING");
   assert.equal(serviceOrders[2].customerPhone, "0990000042");
+  assert.equal(serviceOrders[2].customerPhoneMissing, true);
   assert.match(serviceOrders[2].notes || "", /Sheet cũ thiếu SĐT/);
 });
 

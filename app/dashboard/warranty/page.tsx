@@ -20,6 +20,8 @@ export default async function AdminWarrantyPage() {
       serviceOrder: {
         select: {
           orderCode: true,
+          customerPhone: true,
+          customerPhoneMissing: true,
           warrantyMonths: true,
         },
       },
@@ -31,6 +33,10 @@ export default async function AdminWarrantyPage() {
       initialWarranties={warranties.map((warranty) => ({
         ...warranty,
         orderCode: warranty.serviceOrder?.orderCode || null,
+        customerPhoneMissing: Boolean(
+          warranty.serviceOrder?.customerPhoneMissing
+          && warranty.serviceOrder.customerPhone === warranty.customerPhone
+        ),
         warrantyMonths: warranty.serviceOrder?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS,
         deletedAt: warranty.deletedAt?.toISOString() || null,
         startDate: warranty.startDate.toISOString(),

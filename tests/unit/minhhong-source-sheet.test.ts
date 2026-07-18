@@ -2453,6 +2453,65 @@ test("builds a service-order preview from the legacy Sheet without partner sourc
   );
 });
 
+test("reads service-order phones from C first and keeps G/I as historical fallbacks", async () => {
+  const buildOrder = async (phoneC: string, phoneG: string, phoneI: string, sourceId: string) => {
+    const legacyWorkbook = new ExcelJS.Workbook();
+    const sheet = legacyWorkbook.addWorksheet("Đơn hàng đã bán");
+    const row = sheet.getRow(4);
+    row.getCell(1).value = "Khách kiểm tra SĐT";
+    row.getCell(2).value = "Pin kiểm tra";
+    row.getCell(3).value = phoneC;
+    row.getCell(4).value = 500_000;
+    row.getCell(5).value = 500_000;
+    row.getCell(7).value = phoneG;
+    row.getCell(8).value = "18/07/2026";
+    row.getCell(9).value = phoneI;
+    row.getCell(12).value = sourceId;
+
+    const workbook = await buildMinhHongSourceImportWorkbook({
+      legacyWorkbookBuffer: Buffer.from(await legacyWorkbook.xlsx.writeBuffer()),
+    }, "service-orders");
+    const parsed = await parseMinhHongAdminWorkbook(workbook);
+    assert.equal(parsed.customerOrders.length, 1);
+    return parsed.customerOrders[0];
+  };
+
+  const cPreferred = await buildOrder("0901000001", "0902000002", "0903000003", `MH_${"1".repeat(32)}`);
+  const gFallback = await buildOrder("", "0902000002", "", `MH_${"2".repeat(32)}`);
+  const iFallback = await buildOrder("", "", "0903000003", `MH_${"3".repeat(32)}`);
+
+  assert.equal(cPreferred.customerPhone, "0901000001");
+  assert.equal(gFallback.customerPhone, "0902000002");
+  assert.equal(iFallback.customerPhone, "0903000003");
+});
+
+test("moving the same phone from G into C does not change the imported order", async () => {
+  const sourceId = `MH_${"4".repeat(32)}`;
+  const buildOrder = async (phoneC: string, phoneG: string) => {
+    const legacyWorkbook = new ExcelJS.Workbook();
+    const sheet = legacyWorkbook.addWorksheet("Đơn hàng đã bán");
+    const row = sheet.getRow(4);
+    row.getCell(1).value = "Khách chuyển cột";
+    row.getCell(2).value = "Pin chuyển cột";
+    row.getCell(3).value = phoneC;
+    row.getCell(4).value = 600_000;
+    row.getCell(5).value = 600_000;
+    row.getCell(7).value = phoneG;
+    row.getCell(8).value = "18/07/2026";
+    row.getCell(12).value = sourceId;
+    const workbook = await buildMinhHongSourceImportWorkbook({
+      legacyWorkbookBuffer: Buffer.from(await legacyWorkbook.xlsx.writeBuffer()),
+    }, "service-orders");
+    return (await parseMinhHongAdminWorkbook(workbook)).customerOrders[0];
+  };
+
+  const before = await buildOrder("", "0904000004");
+  const after = await buildOrder("0904000004", "");
+
+  assert.equal(after.sourceCode, before.sourceCode);
+  assert.equal(after.customerPhone, before.customerPhone);
+});
+
 test("builds the service-order preview and first-time setup plan together", async () => {
   const serviceExports = buildSourceExports().filter((source) => source.kind === "legacy");
   const preview = await buildMinhHongSourceImportPreviewFromExports(serviceExports, "service-orders");

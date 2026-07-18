@@ -195,6 +195,7 @@ export async function PATCH(request: Request) {
       customerAddress: normalized.customerAddress,
       customerName: normalized.customerName,
       customerPhone: normalized.customerPhone,
+      customerPhoneMissing: previousOrder.customerPhoneMissing && !phoneChanged,
       customerVisible: normalized.customerVisible,
       discountAmount,
       issueDescription: normalized.issueDescription,

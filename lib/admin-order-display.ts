@@ -1,3 +1,5 @@
+import { getServiceOrderDisplayPhone } from "@/lib/service-order-phone";
+
 export type AdminOrderSortMode = "excel" | "newest" | "oldest" | "debt" | "customer";
 
 export interface AdminOrderDisplayInput {
@@ -8,6 +10,7 @@ export interface AdminOrderDisplayInput {
   orderDate?: string | Date | null;
   createdAt?: string | Date | null;
   customerPhone?: string | null;
+  customerPhoneMissing?: boolean | null;
   issueDescription?: string | null;
   notes?: string | null;
   orderCode?: string | null;
@@ -99,7 +102,7 @@ export function matchesAdminOrderSearch(order: AdminOrderDisplayInput, rawQuery:
   return [
     order.orderCode,
     order.customerName,
-    order.customerPhone,
+    getServiceOrderDisplayPhone(order),
     order.productName,
     order.issueDescription,
     order.solution,

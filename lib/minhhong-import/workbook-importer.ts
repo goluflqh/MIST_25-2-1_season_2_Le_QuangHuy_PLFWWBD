@@ -2,6 +2,11 @@ import { parseAdminDateInput } from "@/lib/admin-date";
 import { getImportedFallbackOrderDate, isImportedOrderDateFallback } from "@/lib/admin-order-display";
 import { normalizePhone, sanitizeText } from "@/lib/sanitize";
 import {
+  buildImportedOrderPhonePlaceholder,
+  isImportedOrderPhonePlaceholder,
+  isLegacyImportedOrderPhonePlaceholder,
+} from "@/lib/service-order-phone";
+import {
   DEFAULT_WARRANTY_MONTHS,
   getAvailableWarrantySerial,
   getDefaultWarrantyEndDate,
@@ -272,10 +277,6 @@ function partnerData(partner: MinhHongParsedPartner) {
   };
 }
 
-function buildPlaceholderPhone(sourceRow: number | null) {
-  return `099${String(sourceRow || 0).padStart(7, "0").slice(-7)}`;
-}
-
 function priceStatus(order: MinhHongParsedCustomerOrder) {
   if (order.priceStatus === "LEGACY_MISSING") return "LEGACY_MISSING";
   if (order.quotedPrice === 0) return "FREE";
@@ -308,8 +309,28 @@ function ledgerData(entry: MinhHongParsedPartnerEntry, partnerId: string) {
   };
 }
 
-function customerPhone(order: MinhHongParsedCustomerOrder) {
-  return sanitizeText(order.customerPhone) || buildPlaceholderPhone(order.sourceRow);
+function customerPhoneState(order: MinhHongParsedCustomerOrder, existing?: Record<string, unknown> | null) {
+  const incomingPhone = sanitizeText(order.customerPhone);
+  if (incomingPhone) return { missing: false, phone: incomingPhone };
+
+  const existingPhone = sanitizeText(String(existing?.customerPhone || ""));
+  const existingPhoneMissing = isImportedOrderPhonePlaceholder({
+    customerPhone: existingPhone,
+    customerPhoneMissing: typeof existing?.customerPhoneMissing === "boolean"
+      ? existing.customerPhoneMissing
+      : null,
+    source: String(existing?.source || ""),
+    sourceRow: Number(existing?.sourceRow) || null,
+  }) || (existing?.customerPhoneMissing == null && isLegacyImportedOrderPhonePlaceholder({
+    customerPhone: existingPhone,
+    source: String(existing?.source || ""),
+    sourceRow: Number(existing?.sourceRow) || null,
+  }));
+  if (existingPhone && !existingPhoneMissing) {
+    return { missing: false, phone: existingPhone };
+  }
+
+  return { missing: true, phone: buildImportedOrderPhonePlaceholder(order.sourceRow) };
 }
 
 function mergeNotes(...values: unknown[]) {
@@ -319,8 +340,13 @@ function mergeNotes(...values: unknown[]) {
     .join(" · ") || null;
 }
 
-function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string, existingOrderCode?: string) {
-  const phone = customerPhone(order);
+function serviceOrderData(
+  order: MinhHongParsedCustomerOrder,
+  customerId: string,
+  existingOrderCode?: string,
+  existing?: Record<string, unknown> | null
+) {
+  const phone = customerPhoneState(order, existing);
   const warrantyMonths = DEFAULT_WARRANTY_MONTHS;
   const orderDate = toOrderDate(order.orderDate, order.sourceRow);
   const missingDate = orderDate.getUTCFullYear() <= 1900;
@@ -328,7 +354,8 @@ function serviceOrderData(order: MinhHongParsedCustomerOrder, customerId: string
     orderCode: existingOrderCode || order.orderCode,
     customerId,
     customerName: order.customerName || "Khách chưa rõ tên",
-    customerPhone: phone,
+    customerPhone: phone.phone,
+    customerPhoneMissing: phone.missing,
     service: "KHAC",
     productName: order.productName || "Đơn khách cũ",
     issueDescription: order.productName || null,
@@ -365,11 +392,13 @@ function approvedExistingServiceOrderData(
   const orderDate = toOrderDate(order.orderDate, order.sourceRow);
   const warrantyMonths = Number(existing.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS);
   const missingDate = orderDate.getUTCFullYear() <= 1900;
+  const phone = customerPhoneState(order, existing);
 
   return {
     orderCode: String(existing.orderCode || order.orderCode),
     customerName: sanitizeText(String(existing.customerName || "")) || order.customerName || "Khách chưa rõ tên",
-    customerPhone: sanitizeText(String(existing.customerPhone || "")) || customerPhone(order),
+    customerPhone: phone.phone,
+    customerPhoneMissing: phone.missing,
     service: sanitizeText(String(existing.service || "")) || "KHAC",
     productName: nextProduct,
     issueDescription: existing.issueDescription || order.productName || null,
@@ -400,7 +429,8 @@ function serviceOrderBusinessData(order: MinhHongParsedCustomerOrder, existing?:
     Object.entries(serviceOrderData(
       order,
       "preview-customer",
-      existing?.orderCode ? String(existing.orderCode) : undefined
+      existing?.orderCode ? String(existing.orderCode) : undefined,
+      existing
     )).filter(([key]) => key !== "customerId")
   );
 }
@@ -428,18 +458,27 @@ function normalizedBusinessBoolean(value: unknown) {
   return value === true;
 }
 
-function normalizedCustomerIdentity(name: unknown, phone: unknown, sourceRow: unknown) {
+function normalizedCustomerIdentity(
+  name: unknown,
+  phone: unknown,
+  sourceRow: unknown,
+  customerPhoneMissing?: unknown
+) {
   const normalizedPhone = normalizePhone(sanitizeText(String(phone ?? "")));
   const row = typeof sourceRow === "number" && Number.isFinite(sourceRow) ? sourceRow : null;
+  const missing = customerPhoneMissing === true || (
+    customerPhoneMissing == null
+    && normalizedPhone === buildImportedOrderPhonePlaceholder(row)
+  );
   return {
     name: normalizedBusinessText(name) || normalizedBusinessText("Khách chưa rõ tên"),
-    phone: normalizedPhone === buildPlaceholderPhone(row) ? "" : normalizedPhone,
+    phone: missing ? "" : normalizedPhone,
   };
 }
 
 function serviceOrderRolloutSignature(order: MinhHongParsedCustomerOrder) {
   return JSON.stringify({
-    customer: normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow),
+    customer: normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow, false),
     notes: normalizedBusinessText(order.notes),
     orderDate: normalizedBusinessDate(order.orderDate),
     paidAmount: normalizedBusinessNumber(order.paidAmount),
@@ -451,7 +490,12 @@ function serviceOrderRolloutSignature(order: MinhHongParsedCustomerOrder) {
 
 function existingServiceOrderRolloutSignature(order: Record<string, unknown>) {
   return JSON.stringify({
-    customer: normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow),
+    customer: normalizedCustomerIdentity(
+      order.customerName,
+      order.customerPhone,
+      order.sourceRow,
+      order.customerPhoneMissing
+    ),
     notes: normalizedBusinessText(order.notes),
     orderDate: isImportedOrderDateFallback(order) ? "" : normalizedBusinessDate(order.orderDate),
     paidAmount: normalizedBusinessNumber(order.paidAmount),
@@ -469,15 +513,20 @@ function serviceOrderAnchorDate(value: unknown, sourceRow: unknown) {
 
 function serviceOrderAnchorSignature(order: MinhHongParsedCustomerOrder) {
   return JSON.stringify({
-    customer: normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow),
+    customer: normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow, false),
     orderDate: serviceOrderAnchorDate(order.orderDate, order.sourceRow),
     productName: normalizedBusinessText(order.productName),
   });
 }
 
 function hasStableServiceOrderAnchor(order: MinhHongParsedCustomerOrder, existing: Record<string, unknown>) {
-  const incomingCustomer = normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow);
-  const existingCustomer = normalizedCustomerIdentity(existing.customerName, existing.customerPhone, existing.sourceRow);
+  const incomingCustomer = normalizedCustomerIdentity(order.customerName, order.customerPhone, order.sourceRow, false);
+  const existingCustomer = normalizedCustomerIdentity(
+    existing.customerName,
+    existing.customerPhone,
+    existing.sourceRow,
+    existing.customerPhoneMissing
+  );
   const sameCustomer = incomingCustomer.phone && existingCustomer.phone
     ? incomingCustomer.phone === existingCustomer.phone
     : incomingCustomer.name === existingCustomer.name;
@@ -1058,8 +1107,12 @@ async function upsertLedgerEntries(tx: ImportTransaction, plans: PartnerEntryPla
   }
 }
 
-async function upsertCustomer(tx: ImportTransaction, order: MinhHongParsedCustomerOrder) {
-  const phone = customerPhone(order);
+async function upsertCustomer(
+  tx: ImportTransaction,
+  order: MinhHongParsedCustomerOrder,
+  existing?: Record<string, unknown> | null
+) {
+  const phone = customerPhoneState(order, existing).phone;
   return tx.customer.upsert({
     where: { phone },
     create: {
@@ -1155,8 +1208,9 @@ async function upsertServiceOrders(tx: ImportTransaction, plans: ServiceOrderPla
       ? approvedExistingServiceOrderData(order, plan.existing)
       : serviceOrderData(
           order,
-          asId(await upsertCustomer(tx, order)),
-          plan.existing?.orderCode ? String(plan.existing.orderCode) : undefined
+          asId(await upsertCustomer(tx, order, plan.existing)),
+          plan.existing?.orderCode ? String(plan.existing.orderCode) : undefined,
+          plan.existing
         );
     let savedOrder: Record<string, unknown>;
     if (plan.action === "updated") {
