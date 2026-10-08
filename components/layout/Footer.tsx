@@ -198,6 +198,10 @@ export default function Footer() {
           </div>
           <div className="mt-6 border-t border-slate-800 pt-4 text-center font-body text-xs text-slate-400 sm:mt-10 sm:pt-6 sm:text-sm">
             © 2026 Minh Hồng. Tối ưu cho tư vấn và chăm sóc khách hàng. {" "}
+            <Link href="/gioi-thieu" className="font-semibold text-slate-200 underline underline-offset-2 hover:text-white">
+              Giới thiệu
+            </Link>
+            {" · "}
             <Link href="/quyen-rieng-tu" className="font-semibold text-slate-200 underline underline-offset-2 hover:text-white">
               Quyền riêng tư
             </Link>
