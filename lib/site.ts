@@ -54,6 +54,8 @@ export const defaultOpenGraphImage = {
 
 export const marketingSitemapRoutes = [
   { path: "/", changeFrequency: "weekly", priority: 1 },
+  { path: "/gioi-thieu", changeFrequency: "monthly", priority: 0.6 },
+  { path: "/en/about", changeFrequency: "monthly", priority: 0.6 },
   { path: "/dich-vu", changeFrequency: "weekly", priority: 0.9 },
   { path: "/dich-vu/dong-pin", changeFrequency: "weekly", priority: 0.9 },
   { path: "/dich-vu/camera", changeFrequency: "weekly", priority: 0.9 },
